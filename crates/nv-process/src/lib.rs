@@ -24,7 +24,7 @@ pub fn process(raw: &FrameBuf, params: &ProcessParams) -> Vec<u8> {
     // 2. Stage 4: conversion (negative inversion, or positive pass-through).
     let converted = match params.image_type {
         ImageType::ColourNegative | ImageType::BwNegative => {
-            conversion::convert_negative(&linear, params)
+            conversion::convert_negative(&linear, w, h, params)
         }
         ImageType::Positive => {
             conversion::normalise_positive(&linear, params)
