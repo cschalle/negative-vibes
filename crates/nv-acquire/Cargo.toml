@@ -1,0 +1,12 @@
+[package]
+name = "nv-acquire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SANE acquisition worker thread"
+
+[dependencies]
+nv-sane   = { path = "../nv-sane" }
+nv-device = { path = "../nv-device" }
+async-channel = "2"
+thiserror = "1"

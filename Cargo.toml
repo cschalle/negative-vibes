@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "src",
+    "crates/nv-sane-sys",
+    "crates/nv-sane",
+    "crates/nv-device",
+    "crates/nv-acquire",
+    "crates/nv-image",
+    "crates/nv-process",
+    "crates/nv-film",
+    "crates/nv-store",
+    "crates/nv-export",
+    "crates/nv-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+authors = ["Christian Schaller <christian.schaller@gmail.com>"]
+
+[workspace.dependencies]
+glib = "0.20"
+gio = "0.20"
+gtk = { package = "gtk4", version = "0.9", features = ["v4_10"] }
+adw = { package = "libadwaita", version = "0.7", features = ["v1_4"] }
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+async-channel = "2"

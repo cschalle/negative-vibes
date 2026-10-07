@@ -1,0 +1,9 @@
+[package]
+name = "nv-image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Image buffers, mip pyramid, tile cache with memory budget"
+
+[dependencies]
+thiserror = "1"

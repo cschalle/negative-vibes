@@ -1,0 +1,4 @@
+data/io.github.cschalle.NegativeVibes.desktop.in
+data/io.github.cschalle.NegativeVibes.metainfo.xml.in
+src/application.rs
+src/window.rs

@@ -1,0 +1,23 @@
+[package]
+name = "nv-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command-line tool for scanning, rendering and probing (headless testing and batch use)"
+
+[[bin]]
+name = "nv-cli"
+path = "src/main.rs"
+
+[dependencies]
+nv-sane = { path = "../nv-sane" }
+nv-device = { path = "../nv-device" }
+nv-acquire = { path = "../nv-acquire" }
+nv-film    = { path = "../nv-film" }
+nv-image   = { path = "../nv-image" }
+nv-process = { path = "../nv-process" }
+nv-store = { path = "../nv-store" }
+nv-export = { path = "../nv-export" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+async-channel = "2"

@@ -1,0 +1,11 @@
+[package]
+name = "nv-process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Image pipeline stages: geometry, dust, colour, tone, detail, output"
+
+[dependencies]
+nv-image = { path = "../nv-image" }
+nv-film  = { path = "../nv-film" }
+thiserror = "1"

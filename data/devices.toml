@@ -1,0 +1,35 @@
+# Device quirks file for Negative Vibes.
+#
+# Each [[device]] entry matches a backend + model and provides information
+# that cannot be detected from SANE option descriptors alone (§5.5).
+#
+# Users can override or extend this file at:
+#   $XDG_CONFIG_HOME/negative-vibes/devices.toml
+#
+# Fields (all optional unless noted):
+#   match.backend  — regex matched against the SANE backend name
+#   match.model    — regex matched against SANE model string (case-insensitive)
+#   film-window-mm — [width, height] of the scanner's film window in mm
+#   holder         — "manual-advance" or "multi-frame"
+#   optical-dpi    — list of native optical resolutions
+#   recommended-dpi — suggested scan resolution (effective, not hardware maximum)
+#   ir             — infrared mode: "multi-frame", "rgbi", "separate-scan", or "none"
+#   ir-registered  — true if IR and colour passes share geometry (no alignment needed)
+#   exposure-option — name of the SANE exposure option (factor, linear)
+#   neutralise     — map of option names to disable before scanning (false = set to 0/off)
+#   preview-dpi    — fastest useful preview resolution
+#   streaming-progress — true if sane_read delivers data during the scan (real progress bar)
+
+[[device]]
+match = { backend = "plustek8200i", model = "OpticFilm 8200i" }
+# One 36.5 × 27.2 mm window; the holder is moved by hand between frames.
+film-window-mm = [36.5, 27.2]
+holder = "manual-advance"
+optical-dpi = [300, 600, 1200, 2400, 3600, 7200]
+recommended-dpi = 3600    # effective resolution; 7200 adds little sharpness
+ir = "multi-frame"        # Color+Infrared: RGB frame (last_frame=false), then IR GRAY frame
+ir-registered = true      # both passes share geometry; no alignment needed
+exposure-option = "exposure"   # factor 1.0..4.0, linear
+neutralise = { "auto-wb" = false, "ir-clean" = false }
+preview-dpi = 600         # 16.5 s at 600 dpi
+streaming-progress = true

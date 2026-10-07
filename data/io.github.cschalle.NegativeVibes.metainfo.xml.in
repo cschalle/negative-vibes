@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>@APP_ID@</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Negative Vibes</name>
+  <summary>Scan film negatives and slides</summary>
+
+  <description>
+    <p>
+      Negative Vibes is a GNOME application for scanning colour and
+      black-and-white photographic negatives and slides on any film-capable
+      scanner that SANE supports.
+    </p>
+    <p>
+      It provides a non-destructive workflow: the raw linear scan (including
+      the infrared channel for dust removal when the scanner supports it) is
+      kept alongside a parameter stack, so every exported image can be
+      re-rendered later without rescanning. Whole-roll settings and per-frame
+      overrides make it easy to produce a consistent set of scans from a
+      single roll of film.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">@APP_ID@.desktop</launchable>
+
+  <url type="homepage">https://github.com/cschalle/negative-vibes</url>
+  <url type="bugtracker">https://github.com/cschalle/negative-vibes/issues</url>
+
+  <developer id="io.github.cschalle">
+    <name>Christian Schaller</name>
+  </developer>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-06">
+      <description>
+        <p>Initial skeleton release.</p>
+      </description>
+    </release>
+  </releases>
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </recommends>
+</component>

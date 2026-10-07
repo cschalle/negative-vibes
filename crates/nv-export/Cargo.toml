@@ -1,0 +1,13 @@
+[package]
+name = "nv-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Output encoders: TIFF/JPEG/PNG/DNG with ICC and XMP metadata"
+
+[dependencies]
+nv-image = { path = "../nv-image" }
+tiff = "0.9"
+jpeg-encoder = "0.6"
+png = "0.17"
+thiserror = "1"

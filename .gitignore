@@ -1,0 +1,30 @@
+# Meson build directories
+_build/
+build/
+build-*/
+
+# Cargo build artifacts
+target/
+cargo-home/
+cargo-target/
+
+# Editor backup files
+*~
+*.swp
+*.swo
+.#*
+
+# macOS
+.DS_Store
+
+# IDE project files
+.vscode/
+.idea/
+*.iml
+
+# Test output
+/tests/reports/*.md
+!/tests/reports/.gitkeep
+
+# Generated bindings (regenerated with `cargo build --features regenerate-bindings`)
+# crates/nv-sane-sys/src/bindings.rs

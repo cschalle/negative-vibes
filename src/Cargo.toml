@@ -1,0 +1,21 @@
+[package]
+name = "negative-vibes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "negative-vibes"
+path = "main.rs"
+
+[dependencies]
+glib.workspace = true
+gio.workspace = true
+gtk.workspace = true
+adw.workspace = true
+nv-acquire = { path = "../crates/nv-acquire" }
+nv-device  = { path = "../crates/nv-device" }
+nv-image   = { path = "../crates/nv-image" }
+nv-store   = { path = "../crates/nv-store" }
+nv-film    = { path = "../crates/nv-film" }
+nv-process = { path = "../crates/nv-process" }

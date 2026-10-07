@@ -1,0 +1,12 @@
+[package]
+name = "nv-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Capability model and acquisition planner built on top of nv-sane"
+
+[dependencies]
+nv-sane = { path = "../nv-sane" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "1"

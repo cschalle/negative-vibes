@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="negative-vibes">
+
+  <schema id="io.github.cschalle.NegativeVibes"
+          path="/io/github/cschalle/NegativeVibes/">
+
+    <!-- General preferences -->
+    <key name="output-folder" type="s">
+      <default>''</default>
+      <summary>Output folder</summary>
+      <description>
+        Folder where exported scans are saved. Empty string means the default
+        ~/Pictures/Scans/&lt;roll-name&gt;/ is used.
+      </description>
+    </key>
+
+    <key name="guided-flow" type="b">
+      <default>true</default>
+      <summary>Use guided scanning flow</summary>
+      <description>
+        Show the Scan a Roll guided dialog for new rolls instead of the main
+        window directly.
+      </description>
+    </key>
+
+    <key name="naming-template" type="s">
+      <default>'{roll}-{frame:02}'</default>
+      <summary>Output file naming template</summary>
+    </key>
+
+    <key name="open-after-scan" type="b">
+      <default>false</default>
+      <summary>Open exported files after scanning</summary>
+    </key>
+
+    <!-- Scanning preferences -->
+    <key name="preview-resolution" type="i">
+      <range min="150" max="1200"/>
+      <default>600</default>
+      <summary>Preview resolution (dpi)</summary>
+    </key>
+
+    <key name="always-scan-ir" type="b">
+      <default>true</default>
+      <summary>Always scan the infrared channel when available</summary>
+    </key>
+
+    <key name="multi-sample-default" type="i">
+      <range min="1" max="16"/>
+      <default>1</default>
+      <summary>Default multi-sample count</summary>
+    </key>
+
+    <!-- Colour management -->
+    <key name="color-management" type="b">
+      <default>true</default>
+      <summary>Enable colour management</summary>
+    </key>
+
+    <key name="default-output-profile" type="s">
+      <default>'sRGB'</default>
+      <summary>Default output ICC profile</summary>
+      <description>
+        One of 'sRGB', 'AdobeRGB', 'ProPhotoRGB', or the path to a .icc file.
+      </description>
+    </key>
+
+    <!-- Performance -->
+    <key name="memory-limit-mib" type="i">
+      <range min="0" max="65536"/>
+      <default>0</default>
+      <summary>Render cache memory limit (MiB)</summary>
+      <description>
+        Maximum memory for the tile render cache. 0 means 25% of available RAM.
+      </description>
+    </key>
+
+    <key name="highres-histograms" type="b">
+      <default>false</default>
+      <summary>Use full-resolution data for histograms</summary>
+    </key>
+
+  </schema>
+
+</schemalist>

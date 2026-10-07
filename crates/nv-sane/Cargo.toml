@@ -1,0 +1,10 @@
+[package]
+name = "nv-sane"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Safe Rust wrapper around libsane"
+
+[dependencies]
+nv-sane-sys = { path = "../nv-sane-sys" }
+thiserror = "1"

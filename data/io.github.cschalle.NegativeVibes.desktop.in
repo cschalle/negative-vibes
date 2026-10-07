@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Negative Vibes
+Comment=Scan colour and black-and-white film negatives and slides
+Exec=negative-vibes %U
+Icon=@APP_ID@
+Terminal=false
+Type=Application
+Categories=Graphics;Scanning;
+Keywords=scan;film;negative;slide;scanner;SANE;photo;analog;
+StartupNotify=true
+StartupWMClass=negative-vibes
