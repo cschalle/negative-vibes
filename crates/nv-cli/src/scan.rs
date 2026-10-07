@@ -159,13 +159,25 @@ fn collect_scan(
     let maxval = if buf.depth > 8 { 65535u32 } else { 255u32 };
     writeln!(f, "{magic}\n{w} {h}\n{maxval}")?;
 
-    if bpr_actual == bpr_packed {
-        f.write_all(&raw[..bpr_actual * h as usize])?;
-    } else {
-        // Strip per-row padding.
-        for row in 0..h as usize {
-            f.write_all(&raw[row * bpr_actual..row * bpr_actual + bpr_packed])?;
+    // PNM stores 16-bit samples most significant byte first, whatever the
+    // host's order, so the raw buffer is converted on the way out. Writing
+    // it unswapped produced a file that claimed to be a 16-bit PNM but no
+    // other tool could read.
+    let emit = |f: &mut File, row: &[u8]| -> std::io::Result<()> {
+        if buf.depth > 8 {
+            let be: Vec<u8> = row
+                .chunks_exact(2)
+                .flat_map(|p| u16::from_ne_bytes([p[0], p[1]]).to_be_bytes())
+                .collect();
+            f.write_all(&be)
+        } else {
+            f.write_all(row)
         }
+    };
+
+    for row in 0..h as usize {
+        let start = row * bpr_actual;
+        emit(&mut f, &raw[start..start + bpr_packed])?;
     }
 
     println!("Saved {w}×{h} {}-bit raw image to {}", buf.depth, output.display());

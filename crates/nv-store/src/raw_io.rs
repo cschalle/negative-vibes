@@ -74,7 +74,17 @@ fn read_pnm(data: &[u8]) -> Result<FrameBuf> {
 
     let pixel_data = &data[header_bytes..];
     let mut buf = FrameBuf::new(w, Some(h), depth, channels);
-    buf.append(pixel_data);
+    if depth == 16 {
+        // PNM stores 16-bit samples most significant byte first; FrameBuf
+        // holds them in the host's order, the same as SANE delivers them.
+        let swapped: Vec<u8> = pixel_data
+            .chunks_exact(2)
+            .flat_map(|p| u16::from_be_bytes([p[0], p[1]]).to_ne_bytes())
+            .collect();
+        buf.append(&swapped);
+    } else {
+        buf.append(pixel_data);
+    }
     Ok(buf)
 }
 
@@ -106,4 +116,37 @@ fn read_tiff(path: &Path) -> Result<FrameBuf> {
     let mut buf = FrameBuf::new(w, Some(h), depth, channels);
     buf.append(&raw);
     Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_pnm;
+
+    /// PNM stores 16-bit samples most significant byte first. FrameBuf holds
+    /// them in the host's order, the same as SANE delivers them, so the
+    /// reader has to convert. Loading the bytes verbatim only looked right
+    /// because the writer was not converting either.
+    #[test]
+    fn sixteen_bit_pnm_is_big_endian_on_disk() {
+        let mut data = b"P6\n1 1\n65535\n".to_vec();
+        data.extend_from_slice(&0x1234u16.to_be_bytes());
+        data.extend_from_slice(&0x5678u16.to_be_bytes());
+        data.extend_from_slice(&0x9abcu16.to_be_bytes());
+
+        let buf = read_pnm(&data).expect("valid PNM");
+        assert_eq!(buf.depth, 16);
+        assert_eq!(buf.channels, 3);
+        assert_eq!(nv_image::read_sample(buf.as_bytes(), 0, 2), 0x1234);
+        assert_eq!(nv_image::read_sample(buf.as_bytes(), 2, 2), 0x5678);
+        assert_eq!(nv_image::read_sample(buf.as_bytes(), 4, 2), 0x9abc);
+    }
+
+    #[test]
+    fn eight_bit_pnm_is_untouched() {
+        let mut data = b"P6\n1 1\n255\n".to_vec();
+        data.extend_from_slice(&[0x11, 0x22, 0x33]);
+        let buf = read_pnm(&data).expect("valid PNM");
+        assert_eq!(buf.depth, 8);
+        assert_eq!(buf.as_bytes()[..3], [0x11, 0x22, 0x33]);
+    }
 }
