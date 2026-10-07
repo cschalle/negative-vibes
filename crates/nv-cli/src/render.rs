@@ -75,7 +75,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         .collect();
     println!("First {} raw bytes: {}", preview_len, first_bytes.join(" "));
 
-    // Per-channel statistics on the raw scan (big-endian 16-bit).
+    // Per-channel statistics on the raw scan.
     let bps = buf.depth as usize / 8;
     let ch = buf.channels as usize;
     let n_pixels = (w * h) as usize;
@@ -88,7 +88,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         for x in 0..w as usize {
             let off = y * bpr + x * ch * bps;
             for c in 0..3.min(ch) {
-                let v = read_be(raw, off + c * bps, bps) as f64 / scale;
+                let v = nv_image::read_sample(raw, off + c * bps, bps) as f64 / scale;
                 sums[c] += v;
                 mins[c] = mins[c].min(v);
                 maxs[c] = maxs[c].max(v);
@@ -124,7 +124,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
                 let is_border = x < border_w || x >= w as usize - border_w
                     || y < border_h || y >= h as usize - border_h;
                 for c in 0..3.min(ch) {
-                    let v = read_be(raw, off + c * bps, bps) as f64 / scale;
+                    let v = nv_image::read_sample(raw, off + c * bps, bps) as f64 / scale;
                     if is_border { border_sums[c] += v; border_n += 1; }
                     else { interior_sums[c] += v; interior_n += 1; }
                 }
@@ -236,8 +236,4 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_be(data: &[u8], offset: usize, bps: usize) -> u32 {
-    if offset + bps > data.len() { return 0; }
-    if bps == 1 { data[offset] as u32 }
-    else { u16::from_be_bytes([data[offset], data[offset + 1]]) as u32 }
-}
+

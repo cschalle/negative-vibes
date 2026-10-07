@@ -76,7 +76,7 @@ fn percentile_98(vals: &mut Vec<f32>) -> f32 {
     vals[idx].max(0.01)
 }
 
-/// Decode raw big-endian 16-bit buffer to linear f32 [0,1].
+/// Decode a raw SANE buffer to linear f32 [0,1].
 fn decode_raw(raw: &FrameBuf, w: usize, h: usize) -> Vec<f32> {
     let bps = raw.depth as usize / 8;
     let ch = raw.channels as usize;
@@ -90,9 +90,9 @@ fn decode_raw(raw: &FrameBuf, w: usize, h: usize) -> Vec<f32> {
             let src_off = y * bpr + x * ch * bps;
             let dst_off = (y * w + x) * 3;
 
-            let r = read_be(src, src_off, bps) as f32 / scale;
-            let g = if ch >= 2 { read_be(src, src_off + bps, bps) as f32 / scale } else { r };
-            let b = if ch >= 3 { read_be(src, src_off + 2 * bps, bps) as f32 / scale } else { r };
+            let r = nv_image::read_sample(src, src_off, bps) as f32 / scale;
+            let g = if ch >= 2 { nv_image::read_sample(src, src_off + bps, bps) as f32 / scale } else { r };
+            let b = if ch >= 3 { nv_image::read_sample(src, src_off + 2 * bps, bps) as f32 / scale } else { r };
 
             out[dst_off] = r;
             out[dst_off + 1] = g;
@@ -150,14 +150,5 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
             auto_ccr: true,
         },
         tone: ToneParams::default(),
-    }
-}
-
-fn read_be(data: &[u8], offset: usize, bps: usize) -> u32 {
-    if offset + bps > data.len() { return 0; }
-    if bps == 1 {
-        data[offset] as u32
-    } else {
-        u16::from_be_bytes([data[offset], data[offset + 1]]) as u32
     }
 }

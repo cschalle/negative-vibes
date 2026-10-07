@@ -1,6 +1,7 @@
 /// A packed pixel buffer built incrementally from SANE `DataChunk` events.
 ///
-/// Raw data is stored as received (8 or 16 bit, big-endian for 16-bit).
+/// Raw data is stored exactly as received (8 or 16 bit; see `read_sample`
+/// for the byte order of 16-bit samples).
 /// Call `to_rgb8()` to get a display-ready sRGB u8 copy.
 pub struct FrameBuf {
     pub width: u32,
@@ -100,14 +101,51 @@ impl FrameBuf {
     }
 }
 
-fn read_sample(data: &[u8], offset: usize, bps: usize) -> u32 {
+/// Read one sample out of a raw SANE buffer.
+///
+/// SANE transmits 16-bit samples in the **native byte order of the machine
+/// the backend runs on** -- not big-endian. The standard's wording is "the
+/// bytes of each sample value are transmitted in the machine's native byte
+/// order", and the `net` backend is what reconciles the two ends when a
+/// saned server and its client disagree. Frontends must not byte-swap.
+///
+/// This used to use `from_be_bytes`, which swapped every sample on x86 and
+/// turned each pixel's noisy low byte into its high byte -- the scan came
+/// out as noise rather than an image.
+pub fn read_sample(data: &[u8], offset: usize, bps: usize) -> u32 {
     if offset + bps > data.len() {
         return 0;
     }
     if bps == 1 {
         data[offset] as u32
     } else {
-        // SANE delivers 16-bit samples in big-endian (network) byte order per spec.
-        u16::from_be_bytes([data[offset], data[offset + 1]]) as u32
+        u16::from_ne_bytes([data[offset], data[offset + 1]]) as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_sample;
+
+    #[test]
+    fn sixteen_bit_samples_are_host_order() {
+        // SANE hands over 16-bit samples in the host's byte order. Decoding
+        // them as big-endian swaps every sample, which turns each pixel's
+        // noisy low byte into its high byte and the scan into noise.
+        let v: u16 = 0x1234;
+        let buf = v.to_ne_bytes();
+        assert_eq!(read_sample(&buf, 0, 2), 0x1234);
+        assert_ne!(read_sample(&buf, 0, 2), 0x3412);
+    }
+
+    #[test]
+    fn eight_bit_samples_pass_through() {
+        assert_eq!(read_sample(&[0x7f], 0, 1), 0x7f);
+    }
+
+    #[test]
+    fn reads_past_the_end_are_zero() {
+        assert_eq!(read_sample(&[0x01], 0, 2), 0);
+        assert_eq!(read_sample(&[], 0, 1), 0);
     }
 }
