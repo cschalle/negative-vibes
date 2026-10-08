@@ -28,6 +28,10 @@ pub struct Settings {
     pub dust_detection: Option<u8>,
     pub dust_method: Option<crate::dust::DustMethod>,
     pub dust_defect: Option<crate::dust::DefectType>,
+    /// Brush strokes belong to one frame's picture: they are always a frame's
+    /// own, whatever scope an edit was made in.
+    pub dust_exclude: Option<Vec<crate::dust::Stroke>>,
+    pub dust_include: Option<Vec<crate::dust::Stroke>>,
     pub usm_enabled: Option<bool>,
     pub usm_amount: Option<f32>,
     pub usm_radius: Option<f32>,
@@ -37,7 +41,7 @@ pub struct Settings {
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, usm_enabled, usm_amount, usm_radius, usm_threshold, noise)
+        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise)
     };
 }
 
@@ -69,6 +73,8 @@ impl Settings {
         if let Some(v) = self.dust_detection { p.dust.detection = v; }
         if let Some(v) = self.dust_method { p.dust.method = v; }
         if let Some(v) = self.dust_defect { p.dust.defect = v; }
+        if let Some(v) = &self.dust_exclude { p.dust.exclude = v.clone(); }
+        if let Some(v) = &self.dust_include { p.dust.include = v.clone(); }
         if let Some(v) = self.usm_enabled { p.detail.usm.enabled = v; }
         if let Some(v) = self.usm_amount { p.detail.usm.amount = v; }
         if let Some(v) = self.usm_radius { p.detail.usm.radius = v; }
@@ -110,12 +116,19 @@ impl Settings {
             dust_detection: ch(old.dust.detection, new.dust.detection),
             dust_method: ch(old.dust.method, new.dust.method),
             dust_defect: ch(old.dust.defect, new.dust.defect),
+            dust_exclude: (old.dust.exclude != new.dust.exclude).then(|| new.dust.exclude.clone()),
+            dust_include: (old.dust.include != new.dust.include).then(|| new.dust.include.clone()),
             usm_enabled: ch(old.detail.usm.enabled, new.detail.usm.enabled),
             usm_amount: chf(old.detail.usm.amount, new.detail.usm.amount),
             usm_radius: chf(old.detail.usm.radius, new.detail.usm.radius),
             usm_threshold: ch(old.detail.usm.threshold, new.detail.usm.threshold),
             noise: ch(old.detail.noise, new.detail.noise),
         }
+    }
+
+    /// Split the brush strokes off: a roll's defaults never hold them.
+    pub fn take_strokes(&mut self) -> Settings {
+        Settings { dust_exclude: self.dust_exclude.take(), dust_include: self.dust_include.take(), ..Default::default() }
     }
 
     /// Take every field `other` sets.

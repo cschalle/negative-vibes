@@ -114,3 +114,28 @@ fn tiles_with_dust_removal_agree_with_the_whole_picture() {
     let untouched = render(&p, &off);
     assert!(whole != untouched, "dust removal changed nothing");
 }
+
+/// A heal stroke lands at the same place in a tiled export as in the
+/// whole-picture render.
+#[test]
+fn strokes_agree_between_tiles_and_the_whole_picture() {
+    use nv_process::Stroke;
+    let raw = nv_store::RawReader::read(&root().join("tests/fixtures/plustek8200i/tulip-600.pnm")).unwrap();
+    let p = Proxy::from_raw(&raw, usize::MAX);
+    let mut params = default_params_for(&builtin_profiles()[0]);
+    params.dust.mode = DustMode::Mark; // marks show exactly which pixels the strokes cover
+    params.dust.method = nv_process::DustMethod::Software;
+    params.dust.detection = 1; // find (almost) nothing by itself
+    params.dust.include = vec![Stroke { points: vec![[0.55, 0.5], [0.62, 0.55]], radius: 0.02 }];
+    let frozen = freeze(&p, &params);
+    let whole = render(&p, &frozen);
+    let tiled = nv_process::tiles::render_full(&raw, &frozen, 2);
+    let magenta = |rgb: &[u8]| rgb.chunks(3).filter(|px| px[0] > 240 && px[1] < 20 && px[2] > 240).count();
+    let (a, b) = (magenta(&whole), magenta(&tiled));
+    assert!(a > 500, "the stroke painted only {a} pixels");
+    assert!((a as i64 - b as i64).abs() < (a as i64) / 20, "the stroke covers {a} pixels whole and {b} in tiles");
+    // It lies where the fractions say: around x = 0.58 of the width.
+    let xs: Vec<usize> = tiled.chunks(3).enumerate().filter(|(_, px)| px[0] > 240 && px[1] < 20 && px[2] > 240).map(|(i, _)| i % p.width).collect();
+    let mean = xs.iter().sum::<usize>() as f64 / xs.len() as f64 / p.width as f64;
+    assert!((mean - 0.58).abs() < 0.04, "centre at {mean}");
+}

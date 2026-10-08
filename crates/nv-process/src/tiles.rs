@@ -60,7 +60,7 @@ pub fn render_block(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize
 /// rendered with a margin around it and trimmed, so what works on
 /// neighbourhoods sees what lies beyond the block's edge.
 fn tile_toned(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize, w: usize, h: usize) -> Vec<f32> {
-    let dust_possible = raw.channels == 4 || frozen.dust.method == crate::dust::DustMethod::Software;
+    let dust_possible = raw.channels == 4 || frozen.dust.method == crate::dust::DustMethod::Software || !frozen.dust.include.is_empty();
     let dust = if frozen.dust.mode != DustMode::Off && dust_possible { TILE_MARGIN } else { 0 };
     let margin = dust.max(crate::detail::margin(&frozen.detail, 1));
     if margin == 0 {

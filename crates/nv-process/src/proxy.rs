@@ -17,6 +17,7 @@ pub const DEFAULT_PROXY_PIXELS: usize = 2_000_000;
 /// `[0, 1]`, `width × 3` values each, in any order and any number of times
 /// per row index at most once.
 pub struct ProxyBuilder {
+    full: (usize, usize),
     width: usize,
     factor: usize,
     out_w: usize,
@@ -34,7 +35,7 @@ impl ProxyBuilder {
             factor += 1;
         }
         let (out_w, out_h) = (width / factor, height / factor);
-        Self { width, factor, out_w, out_h, acc: vec![0.0; out_w * out_h * 3], ir_acc: None }
+        Self { full: (width, height), width, factor, out_w, out_h, acc: vec![0.0; out_w * out_h * 3], ir_acc: None }
     }
 
     /// Also collect an infrared plane: feed it with [`add_ir_row`](Self::add_ir_row).
@@ -75,7 +76,7 @@ impl ProxyBuilder {
     pub fn finish(self) -> Proxy {
         let norm = 1.0 / (self.factor * self.factor) as f32;
         let pixels = self.acc.into_iter().map(|v| v * norm).collect();
-        let p = Proxy::new(self.out_w, self.out_h, self.factor, pixels);
+        let p = Proxy::new(self.out_w, self.out_h, self.factor, pixels).placed((0, 0), self.full);
         match self.ir_acc {
             Some(ir) => p.with_ir(ir.into_iter().map(|v| v * norm).collect()),
             None => p,
@@ -96,11 +97,23 @@ pub struct Proxy {
     /// The infrared plane, linear in `[0, 1]`, one value per pixel, when the
     /// scan has one (the fourth sample of an RGB+IR raw).
     pub ir: Option<Vec<f32>>,
+    /// Where this proxy sits in the scan: the scan pixel of its top-left
+    /// corner, and the scan's own size. Strokes are stored as fractions of the
+    /// whole scan, so a proxy, a tile and a loupe block all find them.
+    pub origin: (usize, usize),
+    pub full: (usize, usize),
 }
 
 impl Proxy {
     pub fn new(width: usize, height: usize, factor: usize, pixels: Vec<f32>) -> Self {
-        Self { id: NEXT_ID.fetch_add(1, Ordering::Relaxed), width, height, factor, pixels, ir: None }
+        Self { id: NEXT_ID.fetch_add(1, Ordering::Relaxed), width, height, factor, pixels, ir: None, origin: (0, 0), full: (width * factor, height * factor) }
+    }
+
+    /// The same proxy, placed in a scan of `full` pixels at `origin`.
+    pub fn placed(mut self, origin: (usize, usize), full: (usize, usize)) -> Self {
+        self.origin = origin;
+        self.full = full;
+        self
     }
 
     /// The same proxy with an infrared plane (`width × height` values).
@@ -157,7 +170,7 @@ impl Proxy {
                 }
             }
         }
-        let p = Self::new(w, h, factor, pixels);
+        let p = Self::new(w, h, factor, pixels).placed((0, 0), (rw, rh));
         match ir { Some(ir) => p.with_ir(ir), None => p }
     }
 
@@ -189,7 +202,7 @@ impl Proxy {
                 }
             }
         }
-        let p = Self::new(w, h, 1, pixels);
+        let p = Self::new(w, h, 1, pixels).placed((x0, y0), (rw, rh));
         match ir { Some(ir) => p.with_ir(ir), None => p }
     }
 
@@ -236,7 +249,7 @@ impl Proxy {
         for y in y0..y1 {
             pixels.extend_from_slice(&self.pixels[(y * self.width + x0) * 3..(y * self.width + x1) * 3]);
         }
-        let mut out = Proxy::new(x1 - x0, y1 - y0, self.factor, pixels);
+        let mut out = Proxy::new(x1 - x0, y1 - y0, self.factor, pixels).placed((self.origin.0 + x0 * self.factor, self.origin.1 + y0 * self.factor), self.full);
         if let Some(ir) = &self.ir {
             let mut v = Vec::with_capacity((x1 - x0) * (y1 - y0));
             for y in y0..y1 {
@@ -308,6 +321,21 @@ mod tests {
         assert_eq!(px.len(), 40 * 10 * 4);
         assert_eq!(&px[..4], &[127, 127, 127, 255]); // sqrt(0.25) = 0.5
         assert_eq!(Proxy::new(8, 4, 1, vec![0.0; 96]).thumbnail_rgba(64).0, 8, "never enlarged");
+    }
+
+    #[test]
+    fn a_proxy_knows_where_it_sits_in_the_scan() {
+        let mut b = FrameBuf::new(40, Some(30), 8, 3);
+        b.append(&vec![100u8; 40 * 30 * 3]);
+        let whole = Proxy::from_raw(&b, 300);
+        assert_eq!((whole.origin, whole.full, whole.factor), ((0, 0), (40, 30), 2));
+        let region = Proxy::from_raw_region(&b, 8, 6, 20, 10);
+        assert_eq!((region.origin, region.full), ((8, 6), (40, 30)));
+        let cropped = whole.crop([0.5, 0.5, 1.0, 1.0]);
+        assert_eq!((cropped.origin, cropped.full), ((20, 16), (40, 30)));
+        let mut sb = ProxyBuilder::new(40, 30, 300);
+        for y in 0..30 { sb.add_row(y, &vec![0.4; 120]); }
+        assert_eq!(sb.finish().full, (40, 30));
     }
 
     #[test]

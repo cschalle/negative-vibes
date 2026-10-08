@@ -31,6 +31,99 @@ pub enum DustMode {
     Mark,
 }
 
+/// A brush stroke, kept as fractions of the whole scan so it means the same
+/// thing at any resolution, in a tile, in the loupe, and in an export.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stroke {
+    /// Points along the stroke, `[x, y]` as fractions of the scan's width and height.
+    pub points: Vec<[f32; 2]>,
+    /// Brush radius as a fraction of the scan's longer side.
+    pub radius: f32,
+}
+
+/// Paint the strokes onto a mask for a proxy of `w × h` pixels placed at
+/// `origin` in a scan of `full` pixels, each proxy pixel covering `factor`
+/// scan pixels. A pixel is covered when its centre is within a brush radius
+/// of the stroke.
+pub fn rasterise(strokes: &[Stroke], w: usize, h: usize, factor: usize, origin: (usize, usize), full: (usize, usize)) -> Vec<u8> {
+    let mut mask = vec![0u8; w * h];
+    let long = full.0.max(full.1).max(1) as f32;
+    let f = factor.max(1) as f32;
+    for stroke in strokes {
+        // Brush centre and radius in this proxy's pixels.
+        let to_px = |p: &[f32; 2]| ((p[0] * full.0 as f32 - origin.0 as f32) / f, (p[1] * full.1 as f32 - origin.1 as f32) / f);
+        let r = (stroke.radius * long / f).max(0.5);
+        let pts: Vec<(f32, f32)> = stroke.points.iter().map(to_px).collect();
+        let mut stamp = |cx: f32, cy: f32| {
+            let (x0, x1) = (((cx - r).floor().max(0.0)) as usize, ((cx + r).ceil().max(0.0) as usize).min(w.saturating_sub(1)));
+            let (y0, y1) = (((cy - r).floor().max(0.0)) as usize, ((cy + r).ceil().max(0.0) as usize).min(h.saturating_sub(1)));
+            if cx + r < 0.0 || cy + r < 0.0 || cx - r > w as f32 || cy - r > h as f32 {
+                return;
+            }
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+                    if dx * dx + dy * dy <= r * r {
+                        mask[y * w + x] = 1;
+                    }
+                }
+            }
+        };
+        match pts.as_slice() {
+            [] => {}
+            [only] => stamp(only.0, only.1),
+            _ => {
+                for pair in pts.windows(2) {
+                    let (a, b) = (pair[0], pair[1]);
+                    // Discs at half-radius steps leave no gaps.
+                    let steps = (((b.0 - a.0).hypot(b.1 - a.1)) / (r * 0.5).max(0.5)).ceil().max(1.0) as usize;
+                    for k in 0..=steps {
+                        let t = k as f32 / steps as f32;
+                        stamp(a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+                    }
+                }
+            }
+        }
+    }
+    mask
+}
+
+/// Distance from point `p` to the segment `a`–`b`.
+fn point_segment(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 > 0.0 { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    (p[0] - (a[0] + t * dx)).hypot(p[1] - (a[1] + t * dy))
+}
+
+/// Distance between the segments `a`–`b` and `c`–`d`: zero if they cross.
+fn segment_segment(a: [f32; 2], b: [f32; 2], c: [f32; 2], d: [f32; 2]) -> f32 {
+    let side = |p: [f32; 2], q: [f32; 2], r: [f32; 2]| (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    if side(a, b, c) * side(a, b, d) < 0.0 && side(c, d, a) * side(c, d, b) < 0.0 {
+        return 0.0;
+    }
+    point_segment(a, c, d).min(point_segment(b, c, d)).min(point_segment(c, a, b)).min(point_segment(d, a, b))
+}
+
+/// The shortest distance between two strokes' paths (a lone point is a path of one point).
+fn path_distance(a: &[[f32; 2]], b: &[[f32; 2]]) -> f32 {
+    let segs = |p: &[[f32; 2]]| -> Vec<([f32; 2], [f32; 2])> {
+        match p {
+            [] => vec![],
+            [one] => vec![(*one, *one)],
+            _ => p.windows(2).map(|w| (w[0], w[1])).collect(),
+        }
+    };
+    let (sa, sb) = (segs(a), segs(b));
+    sa.iter().flat_map(|(p, q)| sb.iter().map(move |(r, s)| segment_segment(*p, *q, *r, *s))).fold(f32::MAX, f32::min)
+}
+
+/// Remove every stroke that the eraser (points and radius, as for a stroke)
+/// touches: whose brush and the eraser's overlap anywhere along their paths.
+pub fn erase_touching(strokes: &mut Vec<Stroke>, eraser: &Stroke) {
+    strokes.retain(|s| path_distance(&s.points, &eraser.points) > s.radius + eraser.radius);
+}
+
 /// Where dust is looked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -66,6 +159,13 @@ pub struct DustParams {
     /// Colour of Mark mode, as linear light (F§6 "mark colour").
     #[serde(default = "default_mark")]
     pub mark: [f32; 3],
+    /// Where dust removal must leave the picture alone (F§6 mask: fine detail
+    /// such as stars or eyelashes).
+    #[serde(default)]
+    pub exclude: Vec<Stroke>,
+    /// Where it must repair, whether or not anything was detected.
+    #[serde(default)]
+    pub include: Vec<Stroke>,
     /// Sensitivity, 1 to 20 (F§6 "Detection", default 12): higher finds more.
     pub detection: u8,
     /// The largest mark, in pixels of the full scan, that is still dust. Set
@@ -80,7 +180,7 @@ fn default_mark() -> [f32; 3] {
 
 impl Default for DustParams {
     fn default() -> Self {
-        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), detection: 12, max_area: None }
+        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), exclude: Vec::new(), include: Vec::new(), detection: 12, max_area: None }
     }
 }
 
@@ -518,14 +618,47 @@ pub fn repair(pixels: &mut [f32], mask: &[u8], w: usize, h: usize) {
 /// marks is done on the finished picture. Infrared detection needs `ir`;
 /// without it there is nothing to find and nothing changes.
 pub fn apply(pixels: &[f32], ir: Option<&[f32]>, w: usize, h: usize, params: &DustParams, factor: usize) -> (Vec<f32>, Option<DustReport>) {
+    apply_placed(pixels, ir, w, h, params, factor, (0, 0), (w * factor, h * factor))
+}
+
+/// [`apply`] for a block that sits at `origin` in a scan of `full` pixels,
+/// which is where the brush strokes are measured from.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_placed(pixels: &[f32], ir: Option<&[f32]>, w: usize, h: usize, params: &DustParams, factor: usize, origin: (usize, usize), full: (usize, usize)) -> (Vec<f32>, Option<DustReport>) {
     if params.mode == DustMode::Off {
         return (pixels.to_vec(), None);
     }
-    let report = match (params.method, ir) {
-        (DustMethod::Software, _) => detect_software(pixels, w, h, params, factor),
-        (DustMethod::Infrared, Some(ir)) => detect(pixels, ir, w, h, params, factor),
-        (DustMethod::Infrared, None) => return (pixels.to_vec(), None),
+    let detected = match (params.method, ir) {
+        (DustMethod::Software, _) => Some(detect_software(pixels, w, h, params, factor)),
+        (DustMethod::Infrared, Some(ir)) => Some(detect(pixels, ir, w, h, params, factor)),
+        (DustMethod::Infrared, None) => None,
     };
+    // Without a plane there is nothing to detect, but a stroke can still ask for a repair.
+    if detected.is_none() && params.include.is_empty() {
+        return (pixels.to_vec(), None);
+    }
+    let mut report = detected.unwrap_or(DustReport { mask: vec![0; w * h], marks: 0, covered: 0.0 });
+
+    // The person's brush wins over the detector: protected pixels are left
+    // alone, painted-in pixels are repaired.
+    if !params.exclude.is_empty() {
+        let keep = rasterise(&params.exclude, w, h, factor, origin, full);
+        for (m, k) in report.mask.iter_mut().zip(&keep) {
+            if *k != 0 {
+                *m = 0;
+            }
+        }
+    }
+    if !params.include.is_empty() {
+        let add = rasterise(&params.include, w, h, factor, origin, full);
+        for (m, a) in report.mask.iter_mut().zip(&add) {
+            if *a != 0 {
+                *m = 1;
+            }
+        }
+    }
+    report.covered = report.mask.iter().map(|m| *m as usize).sum::<usize>() as f32 / (w * h).max(1) as f32;
+
     let mut out = pixels.to_vec();
     if params.mode == DustMode::Correct {
         repair(&mut out, &report.mask, w, h);
@@ -780,5 +913,91 @@ mod tests {
         let (px, _) = clean();
         let (out, report) = apply(&px, None, W, H, &DustParams::default(), 1);
         assert!(report.is_none() && out == px);
+    }
+
+    // ── Brush strokes ──
+
+    fn dot(x: f32, y: f32, r: f32) -> Stroke {
+        Stroke { points: vec![[x, y]], radius: r }
+    }
+
+    #[test]
+    fn a_stroke_paints_a_disc_where_its_fractions_say() {
+        // A 200 × 100 scan, brush radius 5% of the long side = 10 px.
+        let m = rasterise(&[dot(0.5, 0.5, 0.05)], 200, 100, 1, (0, 0), (200, 100));
+        let area = m.iter().map(|v| *v as f32).sum::<f32>();
+        assert!((area - std::f32::consts::PI * 100.0).abs() < 12.0, "area {area}");
+        assert_eq!(m[50 * 200 + 100], 1);
+        assert_eq!(m[50 * 200 + 130], 0);
+        // A stroke is a line of discs with no gaps.
+        let line = rasterise(&[Stroke { points: vec![[0.1, 0.5], [0.9, 0.5]], radius: 0.01 }], 200, 100, 1, (0, 0), (200, 100));
+        assert!((20..=180).all(|x| line[50 * 200 + x] == 1), "gaps in a stroke");
+        // One that is off the picture paints nothing and does not panic.
+        assert!(rasterise(&[dot(3.0, 3.0, 0.05)], 200, 100, 1, (0, 0), (200, 100)).iter().all(|v| *v == 0));
+        assert!(rasterise(&[Stroke { points: vec![], radius: 0.1 }], 20, 10, 1, (0, 0), (20, 10)).iter().all(|v| *v == 0));
+    }
+
+    /// The same stroke covers the same part of the scan whatever the proxy's
+    /// size, and a block cut from the scan finds it where it belongs.
+    #[test]
+    fn a_stroke_means_the_same_thing_at_any_size_and_place() {
+        let stroke = [Stroke { points: vec![[0.3, 0.4], [0.6, 0.45]], radius: 0.04 }];
+        let full = (400usize, 300usize);
+        let whole = rasterise(&stroke, 400, 300, 1, (0, 0), full);
+        let half = rasterise(&stroke, 200, 150, 2, (0, 0), full);
+        let (a, b) = (whole.iter().map(|v| *v as f32).sum::<f32>() / (400.0 * 300.0), half.iter().map(|v| *v as f32).sum::<f32>() / (200.0 * 150.0));
+        assert!((a - b).abs() / a < 0.06, "{a} vs {b}");
+        // A block at (100, 50): pixel (x, y) of it is (x + 100, y + 50) of the scan.
+        let block = rasterise(&stroke, 150, 120, 1, (100, 50), full);
+        for (x, y) in [(30usize, 80usize), (60, 85), (140, 10), (5, 5)] {
+            assert_eq!(block[y * 150 + x], whole[(y + 50) * 400 + x + 100], "block pixel {x},{y}");
+        }
+    }
+
+    #[test]
+    fn the_eraser_removes_what_it_touches() {
+        let mut strokes = vec![dot(0.2, 0.2, 0.02), dot(0.8, 0.8, 0.02), Stroke { points: vec![[0.2, 0.7], [0.4, 0.7]], radius: 0.02 }];
+        erase_touching(&mut strokes, &dot(0.21, 0.21, 0.02));
+        assert_eq!(strokes.len(), 2);
+        erase_touching(&mut strokes, &Stroke { points: vec![[0.3, 0.71]], radius: 0.02 });
+        assert_eq!(strokes.len(), 1);
+        assert_eq!(strokes[0].points[0], [0.8, 0.8]);
+    }
+
+    #[test]
+    fn a_protect_stroke_keeps_dust_removal_off_the_picture_and_a_heal_stroke_forces_it() {
+        let (px, ir, _, spots) = dirty();
+        // Protect the first 3 × 3 spot (around pixel (40, 40) of 160 × 120).
+        let protect = Stroke { points: vec![[41.5 / W as f32, 41.5 / H as f32]], radius: 5.0 / W as f32 };
+        let params = DustParams { exclude: vec![protect], ..Default::default() };
+        let (fixed, report) = apply(&px, Some(&ir), W, H, &params, 1);
+        let spot = 41 * W + 41;
+        assert!(spots.contains(&spot) && report.unwrap().mask[spot] == 0, "the protected spot was marked");
+        assert_eq!(&fixed[spot * 3..spot * 3 + 3], &px[spot * 3..spot * 3 + 3], "the protected spot was repaired");
+        // The other dust is still found.
+        let (_, r2) = apply(&px, Some(&ir), W, H, &params, 1);
+        assert!(r2.unwrap().mask[spots[spots.len() - 1]] == 1);
+
+        // Heal: paint over a clean place, with no infrared at all.
+        let (clean_px, _) = clean();
+        let mut marked = clean_px.clone();
+        let (hx, hy) = (80usize, 60usize);
+        for c in 0..3 { marked[(hy * W + hx) * 3 + c] *= 0.2; } // a blemish nothing detects
+        let heal = DustParams { include: vec![Stroke { points: vec![[hx as f32 / W as f32, hy as f32 / H as f32]], radius: 3.0 / W as f32 }], ..Default::default() };
+        let (healed, rep) = apply(&marked, None, W, H, &heal, 1);
+        assert!(rep.is_some_and(|r| r.mask[hy * W + hx] == 1));
+        let want = clean_px[(hy * W + hx) * 3];
+        assert!((healed[(hy * W + hx) * 3] - want).abs() / want < 0.05, "healed {} want {want}", healed[(hy * W + hx) * 3]);
+        // And with no strokes and no plane there is still nothing to do.
+        assert!(apply(&marked, None, W, H, &DustParams::default(), 1).1.is_none());
+    }
+
+    #[test]
+    fn strokes_survive_json_and_old_settings_have_none() {
+        let p = DustParams { exclude: vec![dot(0.1, 0.2, 0.03)], include: vec![Stroke { points: vec![[0.5, 0.5], [0.6, 0.6]], radius: 0.01 }], ..Default::default() };
+        let back: DustParams = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(back, p);
+        let old: DustParams = serde_json::from_str(r#"{"mode":"correct","detection":12}"#).unwrap();
+        assert!(old.exclude.is_empty() && old.include.is_empty());
     }
 }

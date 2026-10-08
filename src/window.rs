@@ -32,6 +32,9 @@ pub(crate) mod imp {
         pub dust_mode_row: RefCell<Option<adw::ComboRow>>,
         pub dust_detection_row: RefCell<Option<adw::SpinRow>>,
         pub dust_note_row: RefCell<Option<adw::ActionRow>>,
+        pub brush_row: RefCell<Option<adw::SpinRow>>,
+        /// The stroke being painted, as fractions of the scan.
+        pub stroke_points: RefCell<Vec<[f32; 2]>>,
         // ── 1:1 loupe ─────────────────────────────────────────────────────
         pub loupe_on: Cell<bool>,
         pub loupe_frame: RefCell<Option<gtk::Frame>>,
@@ -202,6 +205,12 @@ pub(crate) mod imp {
         Black,
         Grey,
         White,
+        /// Paint where dust removal must leave the picture alone.
+        Protect,
+        /// Paint where it must repair.
+        Heal,
+        /// Take painted strokes back.
+        Unmask,
     }
 
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +257,7 @@ mod export_dialog;
 mod frames;
 mod history;
 mod loupe;
+mod mask;
 mod orient;
 mod render;
 mod scan_settings;
@@ -409,6 +419,9 @@ impl Window {
             (imp::CanvasTool::Black, "Black", "Pick black: click the darkest part that should be black"),
             (imp::CanvasTool::Grey, "Grey", "Pick grey: click something that should be neutral"),
             (imp::CanvasTool::White, "White", "Pick white: click the brightest part that should be white"),
+            (imp::CanvasTool::Protect, "Protect", "Paint where dust removal must leave the picture alone"),
+            (imp::CanvasTool::Heal, "Heal", "Paint where dust removal must repair"),
+            (imp::CanvasTool::Unmask, "Unmask", "Paint over a mask stroke to remove it"),
         ] {
             let b = gtk::ToggleButton::builder().label(label).tooltip_text(tip).active(tool == imp::CanvasTool::Frame).build();
             if let Some((_, first)) = tool_buttons.first() {
@@ -1008,6 +1021,26 @@ impl Window {
         dust_group.add(&dust_note_row);
         detail_page.add(&dust_group);
 
+        let mask_group = adw::PreferencesGroup::builder()
+            .title("Masks")
+            .description("Use the Protect, Heal and Unmask tools in the bottom bar. Protect keeps dust removal off fine detail; Heal repairs where you paint.")
+            .build();
+        let brush_row = adw::SpinRow::builder()
+            .title("Brush Size")
+            .subtitle("Percent of the picture's longer side")
+            .adjustment(&gtk::Adjustment::new(0.8, 0.1, 6.0, 0.1, 0.5, 0.0))
+            .digits(1)
+            .build();
+        let clear_row = adw::ActionRow::builder().title("Clear Masks").subtitle("Remove every stroke from this frame").build();
+        let clear_btn = gtk::Button::builder().label("Clear").valign(gtk::Align::Center).build();
+        clear_row.add_suffix(&clear_btn);
+        let weak = self.downgrade();
+        clear_btn.connect_clicked(move |_| { if let Some(win) = weak.upgrade() { win.clear_masks(); } });
+        mask_group.add(&brush_row);
+        mask_group.add(&clear_row);
+        detail_page.add(&mask_group);
+        *self.imp().brush_row.borrow_mut() = Some(brush_row);
+
         let sharp_group = adw::PreferencesGroup::builder().title("Sharpening").description("Unsharp mask, on brightness only").build();
         let usm_on = adw::SwitchRow::builder().title("Unsharp Mask").build();
         let usm_amount = adw::SpinRow::builder().title("Amount").subtitle("Percent").adjustment(&gtk::Adjustment::new(150.0, 0.0, 500.0, 10.0, 50.0, 0.0)).build();
@@ -1302,7 +1335,7 @@ impl Window {
         const RADIUS: usize = 3; // a 7 × 7 proxy-pixel patch, to average out grain
 
         let ok = match tool {
-            CanvasTool::Frame => false,
+            CanvasTool::Frame | CanvasTool::Protect | CanvasTool::Heal | CanvasTool::Unmask => false,
             CanvasTool::FilmBase => match nv_process::sample_proxy(&proxy, fx, fy, RADIUS) {
                 Some(base) => {
                     params.conversion.film_base = Some(base);
@@ -1390,30 +1423,35 @@ impl Window {
     fn setup_frame_overlay(&self, area: &gtk::DrawingArea) {
         use crate::canvas_geom as geom;
 
-        // Draw: dim everything outside the rectangle, outline the rectangle.
+        // Draw: dim everything outside the rectangle, outline the rectangle,
+        // then the brush strokes over the picture.
         let win_weak = self.downgrade();
         area.set_draw_func(move |_, cr, wid, hei| {
             let Some(win) = win_weak.upgrade() else { return };
-            let (Some(rect), Some((iw, ih))) = (win.frame_rect(), win.canvas_image_size()) else { return };
-            let rect = win.orientation().rect_from_source(rect);
-            let (cx, cy, cw, ch) = geom::content_rect(wid as f64, hei as f64, iw, ih);
-            let (x, y) = (cx + rect[0] * cw, cy + rect[1] * ch);
-            let (w, h) = ((rect[2] - rect[0]) * cw, (rect[3] - rect[1]) * ch);
+            let Some((iw, ih)) = win.canvas_image_size() else { return };
+            let content = geom::content_rect(wid as f64, hei as f64, iw, ih);
+            let (cx, cy, cw, ch) = content;
+            if let Some(rect) = win.frame_rect() {
+                let rect = win.orientation().rect_from_source(rect);
+                let (x, y) = (cx + rect[0] * cw, cy + rect[1] * ch);
+                let (w, h) = ((rect[2] - rect[0]) * cw, (rect[3] - rect[1]) * ch);
 
-            cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
-            cr.rectangle(cx, cy, cw, ch);
-            cr.rectangle(x, y, w, h);
-            cr.set_fill_rule(gtk::cairo::FillRule::EvenOdd);
-            let _ = cr.fill();
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
+                cr.rectangle(cx, cy, cw, ch);
+                cr.rectangle(x, y, w, h);
+                cr.set_fill_rule(gtk::cairo::FillRule::EvenOdd);
+                let _ = cr.fill();
 
-            cr.set_source_rgba(0.0, 0.0, 0.0, 0.8);
-            cr.set_line_width(3.0);
-            cr.rectangle(x, y, w, h);
-            let _ = cr.stroke();
-            cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-            cr.set_line_width(1.5);
-            cr.rectangle(x, y, w, h);
-            let _ = cr.stroke();
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.8);
+                cr.set_line_width(3.0);
+                cr.rectangle(x, y, w, h);
+                let _ = cr.stroke();
+                cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+                cr.set_line_width(1.5);
+                cr.rectangle(x, y, w, h);
+                let _ = cr.stroke();
+            }
+            win.draw_strokes(cr, content, (iw, ih));
         });
 
         // Drag out a new rectangle.
@@ -1424,7 +1462,15 @@ impl Window {
         let start_c = start.clone();
         drag.connect_drag_begin(move |g, x, y| {
             let Some(win) = win_weak.upgrade() else { return };
-            if win.imp().canvas_tool.get() != imp::CanvasTool::Frame {
+            let tool = win.imp().canvas_tool.get();
+            if mask::is_mask_tool(tool) {
+                start_c.set(None);
+                if let Some((fx, fy)) = g.widget().and_then(|w| win.canvas_fraction(&w, x, y)) {
+                    win.begin_stroke(fx, fy);
+                }
+                return;
+            }
+            if tool != imp::CanvasTool::Frame {
                 start_c.set(None);
                 return;
             }
@@ -1437,6 +1483,14 @@ impl Window {
         let start_c = start.clone();
         drag.connect_drag_update(move |g, dx, dy| {
             let Some(win) = win_weak.upgrade() else { return };
+            if mask::is_mask_tool(win.imp().canvas_tool.get()) {
+                if let (Some(w), Some((sx, sy))) = (g.widget(), g.start_point()) {
+                    if let Some((fx, fy)) = win.canvas_fraction(&w, sx + dx, sy + dy) {
+                        win.extend_stroke(fx, fy);
+                    }
+                }
+                return;
+            }
             let (Some(a), Some((iw, ih)), Some(widget), Some((sx, sy))) =
                 (start_c.get(), win.canvas_image_size(), g.widget(), g.start_point()) else { return };
             let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
@@ -1449,6 +1503,10 @@ impl Window {
         drag.connect_drag_end(move |_, _, _| {
             let Some(win) = win_weak.upgrade() else { return };
             start.set(None);
+            if mask::is_mask_tool(win.imp().canvas_tool.get()) {
+                win.end_stroke();
+                return;
+            }
             // A click, not a drag: leave no sliver behind.
             if let Some([x0, y0, x1, y1]) = win.frame_rect() {
                 if x1 - x0 < geom::MIN_SIDE || y1 - y0 < geom::MIN_SIDE {
@@ -1465,7 +1523,7 @@ impl Window {
         pick.connect_pressed(move |g, _, x, y| {
             let Some(win) = win_weak.upgrade() else { return };
             let (tool, Some((iw, ih)), Some(widget)) = (win.imp().canvas_tool.get(), win.canvas_image_size(), g.widget()) else { return };
-            if tool == imp::CanvasTool::Frame {
+            if tool == imp::CanvasTool::Frame || mask::is_mask_tool(tool) {
                 return;
             }
             let (cx, cy, cw, ch) = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);

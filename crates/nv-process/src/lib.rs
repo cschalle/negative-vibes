@@ -18,7 +18,7 @@ pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
 pub use detail::{DetailParams, NoiseLevel, Quality, UsmParams};
-pub use dust::{DefectType, DustMethod, DustMode, DustParams};
+pub use dust::{DefectType, DustMethod, DustMode, DustParams, Stroke};
 pub use orient::{DisplayOp, Orientation};
 pub use proxy::{Proxy, ProxyBuilder, DEFAULT_PROXY_PIXELS};
 
@@ -135,9 +135,10 @@ struct Converted {
 /// comes back, to be painted on the finished picture.
 fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec<u8>>) {
     // Infrared detection needs the plane; software detection needs only the picture.
-    let usable = params.dust.mode != dust::DustMode::Off && (params.dust.method == dust::DustMethod::Software || proxy.ir.is_some());
+    let usable = params.dust.mode != dust::DustMode::Off
+        && (params.dust.method == dust::DustMethod::Software || proxy.ir.is_some() || !params.dust.include.is_empty());
     let (repaired, mask) = if usable {
-        let (px, report) = dust::apply(&proxy.pixels, proxy.ir.as_deref(), proxy.width, proxy.height, &params.dust, proxy.factor);
+        let (px, report) = dust::apply_placed(&proxy.pixels, proxy.ir.as_deref(), proxy.width, proxy.height, &params.dust, proxy.factor, proxy.origin, proxy.full);
         match params.dust.mode {
             dust::DustMode::Correct => (Some(px), None),
             _ => (None, report.map(|r| r.mask)),

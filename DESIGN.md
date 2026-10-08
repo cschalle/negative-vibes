@@ -1091,11 +1091,28 @@ full quality, rendered off the UI thread after the pointer rests; a big scan is 
 disk for just that block (`RawReader::region`, a few strips), and the block equals the same
 place on the whole picture to within one level, upright or turned. **Cost** on a synthetic
 7200 dpi frame, release, 16 threads: a 16-bit Deflate export with sharpening and Medium
-noise reduction takes 19 s (3.6 s without), peaking 425 MB above the raw. Still not done:
-include/exclude brush masks (strokes stored per frame and rasterised at any resolution),
-patch-based repair for large marks (the fill is smooth), correction of infrared that is not
-registered with the colour (the 8200i's is), AACO, and a whole-viewport HQ preview beyond the
-loupe.
+noise reduction takes 19 s (3.6 s without), peaking 425 MB above the raw.
+
+**M5 status, third slice: brush masks.** Three canvas tools in the bottom bar: **Protect**
+(dust removal must leave the picture alone here: stars, eyelashes, fine detail that looks
+like dust), **Heal** (repair here, whether or not anything was detected, and with no
+infrared at all) and **Unmask** (take strokes back). Brush size is a setting in the Detail
+page, as a percentage of the scan's longer side, and Clear Masks empties the frame. A
+stroke is stored as points in fractions of the whole scan plus a radius (a fraction of the
+long side), so it means the same at any zoom, on a proxy, in a tile, in the loupe and in an
+export, and it follows the picture when it is rotated. For that a proxy now knows where it
+sits in its scan (`Proxy::origin` and `full`, kept through reduction, regions and crops) and
+`dust::rasterise` paints strokes onto whatever block is being rendered. Strokes belong to
+the frame whatever scope is selected (never the roll's), are saved in `roll.json` as the
+frame's overrides, are drawn over the picture in green (protected) and red (healed), and
+are one undo step each, with the rest of the frame's history. Tested: a stroke's area and
+position, the same coverage at half size and in a block cut from the scan, the eraser (it
+follows paths, not just points), protect and heal on synthetic dust (heal also with no
+infrared), strokes through JSON and old settings, and a stroke landing at the same place in
+a tiled export as in the whole-picture render. Still not done: patch-based repair for large
+marks (the fill is smooth), correction of infrared that is not registered with the colour
+(the 8200i's is), AACO, a whole-viewport HQ preview beyond the loupe, and trying the mask
+tools and the loupe with a real pointer on the screen.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

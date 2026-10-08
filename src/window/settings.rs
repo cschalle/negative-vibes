@@ -135,23 +135,33 @@ impl Window {
     /// [`record_edit`](Self::record_edit) in a given scope: an undo goes back
     /// to where the edit it undoes was made.
     pub(super) fn record_edit_in(&self, old: &ProcessParams, new: &ProcessParams, scope: Scope) {
-        let diff = Settings::diff(old, new);
+        let mut diff = Settings::diff(old, new);
+        // Brush strokes are marks on one frame's picture: whatever the scope,
+        // they are that frame's own and never the roll's.
+        let strokes = diff.take_strokes();
         let Some(idx) = *self.imp().selected_frame.borrow() else { return };
-        if diff.is_empty() {
+        if diff.is_empty() && strokes.is_empty() {
             return;
         }
         if let Some(roll) = self.imp().roll.borrow_mut().as_mut() {
-            match scope {
-                Scope::Roll => {
-                    roll.settings.process.merge(&diff);
-                    // This frame follows the roll now, for what it just set.
-                    if let Some(f) = roll.frame_mut(idx) {
-                        f.overrides.clear(&diff);
-                    }
+            if !strokes.is_empty() {
+                if let Some(f) = roll.frame_mut(idx) {
+                    f.overrides.merge(&strokes);
                 }
-                Scope::Frame => {
-                    if let Some(f) = roll.frame_mut(idx) {
-                        f.overrides.merge(&diff);
+            }
+            if !diff.is_empty() {
+                match scope {
+                    Scope::Roll => {
+                        roll.settings.process.merge(&diff);
+                        // This frame follows the roll now, for what it just set.
+                        if let Some(f) = roll.frame_mut(idx) {
+                            f.overrides.clear(&diff);
+                        }
+                    }
+                    Scope::Frame => {
+                        if let Some(f) = roll.frame_mut(idx) {
+                            f.overrides.merge(&diff);
+                        }
                     }
                 }
             }
