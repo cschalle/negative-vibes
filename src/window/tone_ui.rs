@@ -28,13 +28,13 @@ impl Window {
     // ── Live edits ────────────────────────────────────────────────────────────
 
     /// A drag starts: remember where the edit began.
-    fn begin_live_edit(&self) {
+    pub(super) fn begin_live_edit(&self) {
         *self.imp().live_old.borrow_mut() = self.imp().proc_params.borrow().clone();
     }
 
     /// Change the parameters while the mouse is down: show the result, but
     /// leave undo and the roll for when it is released.
-    fn update_live(&self, f: impl FnOnce(&mut ProcessParams)) {
+    pub(super) fn update_live(&self, f: impl FnOnce(&mut ProcessParams)) {
         let Some(mut p) = self.imp().proc_params.borrow().clone() else { return };
         f(&mut p);
         self.sync_widgets(&p);
@@ -47,7 +47,7 @@ impl Window {
     }
 
     /// The drag ends: one undo step from where it began.
-    fn end_live_edit(&self) {
+    pub(super) fn end_live_edit(&self) {
         let (Some(old), Some(new)) = (self.imp().live_old.borrow_mut().take(), self.imp().proc_params.borrow().clone()) else { return };
         if old == new {
             return;

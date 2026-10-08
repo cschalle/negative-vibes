@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod params;
 mod conversion;
 pub mod colour;
+pub mod densitometer;
 pub mod curves;
 pub mod detail;
 pub mod dust;

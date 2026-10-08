@@ -52,7 +52,7 @@ impl Window {
                 win.show_rgb8(w, h, &rgb);
                 *win.imp().histogram.borrow_mut() = Some(hist);
                 *win.imp().levels.borrow_mut() = Some(levels);
-                for area in [win.imp().levels_area.borrow(), win.imp().curve_area.borrow()] {
+                for area in [win.imp().levels_area.borrow(), win.imp().curve_area.borrow(), win.imp().wheel_area.borrow()] {
                     if let Some(a) = area.as_ref() { a.queue_draw(); }
                 }
                 if let Some(area) = win.imp().histogram_area.borrow().as_ref() {
@@ -70,6 +70,7 @@ impl Window {
         if w == 0 || h == 0 || rgb.len() < w * h * 3 {
             return;
         }
+        *self.imp().last_rgb.borrow_mut() = (w, h, rgb[..w * h * 3].to_vec());
         // Show the picture through the frame's rotation and flips.
         let oriented;
         let (w, h, rgb) = {

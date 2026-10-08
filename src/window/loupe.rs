@@ -58,13 +58,14 @@ impl Window {
         let weak = self.downgrade();
         motion.connect_motion(move |ctrl, x, y| {
             let (Some(win), Some(widget)) = (weak.upgrade(), ctrl.widget()) else { return };
-            if !win.imp().loupe_on.get() {
+            if !win.imp().loupe_on.get() && !win.imp().densi_on.get() {
                 return;
             }
             let Some((iw, ih)) = win.canvas_image_size() else { return };
             let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
             if let Some(p) = geom::point_to_frac(x, y, c) {
                 win.imp().loupe_pointer.set(Some(p));
+                win.update_densitometer(p);
                 win.schedule_loupe();
             }
         });
@@ -150,6 +151,33 @@ impl Window {
         let rgba: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
         let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), w * 4);
         pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));
+    }
+}
+
+// ── Densitometer ──────────────────────────────────────────────────────────────
+
+impl Window {
+    /// Read the colour at `(fx, fy)` of the picture as shown: the scan's own
+    /// (reduced) values, and the rendered picture's, side by side.
+    fn update_densitometer(&self, (fx, fy): (f64, f64)) {
+        let imp = self.imp();
+        if !imp.densi_on.get() {
+            return;
+        }
+        let Some(label) = imp.densi_label.borrow().clone() else { return };
+        let p = self.orientation().rect_to_source([fx, fy, fx, fy]);
+        let before = imp.proxy.borrow().as_ref().and_then(|px| nv_process::densitometer::sample(&px.pixels, px.width, px.height, 3, p[0], p[1], 1));
+        let after = {
+            let last = imp.last_rgb.borrow();
+            nv_process::densitometer::sample(&last.2, last.0, last.1, 3, p[0], p[1], 1)
+        };
+        label.set_label(&match (before, after) {
+            (Some(b), Some(a)) => format!(
+                "R {:4.1}→{:3.0}  G {:4.1}→{:3.0}  B {:4.1}→{:3.0}",
+                b[0] * 100.0, a[0], b[1] * 100.0, a[1], b[2] * 100.0, a[2]
+            ),
+            _ => String::new(),
+        });
     }
 }
 

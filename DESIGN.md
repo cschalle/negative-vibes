@@ -1148,6 +1148,16 @@ Restore Faded Colour and Convert to Grey rows. All round-trip through roll and f
 settings. Not done in M6: IT8 calibration (ArgyllCMS is not installed here), film profile
 builder, the wheel widget, densitometer, navigator, fine straighten, Kodachrome.
 
+**M6 status, second slice: wheel, densitometer, navigator.** A colour wheel widget on the
+Detail page (tabs for shadows, midtones, highlights; drag the dot towards a hue; a small
+dead zone at the centre snaps to no change; reset button). A densitometer (RGB toggle in
+the bottom bar) reads the 3 × 3 mean under the pointer: the scan's own values in percent
+transmission, then the rendered 8-bit values. A navigator ("Map" popover in the bottom bar)
+shows the oriented picture with the visible part outlined; press or drag to move the view.
+The sampling is unit-tested (`nv-process::densitometer`); the three widgets have only been
+built, not tried with a pointer on screen. Per-point fixed measurement and mini-histograms
+(F§5.8 options) are not done.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

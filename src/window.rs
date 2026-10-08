@@ -108,6 +108,13 @@ pub(crate) mod imp {
         pub curve_area: RefCell<Option<gtk::DrawingArea>>,
         /// 0 master, 1 red, 2 green, 3 blue.
         pub curve_channel: Cell<u8>,
+        pub wheel_area: RefCell<Option<gtk::DrawingArea>>,
+        pub wheel_region: Cell<usize>,
+        pub navigator_area: RefCell<Option<gtk::DrawingArea>>,
+        pub densi_on: Cell<bool>,
+        pub densi_label: RefCell<Option<gtk::Label>>,
+        /// The picture as last rendered (before orientation): width, height, RGB8.
+        pub last_rgb: RefCell<(usize, usize, Vec<u8>)>,
         /// Parameters when a drag began; the edit is recorded when it ends.
         pub live_old: RefCell<Option<nv_process::ProcessParams>>,
         pub balance_rows: RefCell<Vec<adw::SpinRow>>,
@@ -258,11 +265,13 @@ pub(crate) mod imp {
 }
 
 mod batch;
+mod colour_ui;
 mod export;
 mod export_dialog;
 mod frames;
 mod history;
 mod loupe;
+mod navigator;
 mod mask;
 mod orient;
 mod render;
@@ -417,6 +426,19 @@ impl Window {
         let weak = self.downgrade();
         loupe_btn.connect_toggled(move |b| { if let Some(win) = weak.upgrade() { win.set_loupe(b.is_active()); } });
         bottom_bar.append(&loupe_btn);
+        let densi_btn = gtk::ToggleButton::builder().label("RGB").tooltip_text("Densitometer: the colour under the pointer, before and after correction").margin_start(6).build();
+        let densi_label = gtk::Label::builder().margin_start(8).css_classes(["monospace", "dim-label"]).visible(false).build();
+        let weak = self.downgrade();
+        densi_btn.connect_toggled(move |b| {
+            if let Some(win) = weak.upgrade() {
+                win.imp().densi_on.set(b.is_active());
+                if let Some(l) = win.imp().densi_label.borrow().as_ref() { l.set_visible(b.is_active()); }
+            }
+        });
+        bottom_bar.append(&densi_btn);
+        bottom_bar.append(&self.build_navigator());
+        bottom_bar.append(&densi_label);
+        *self.imp().densi_label.borrow_mut() = Some(densi_label);
         let hq_btn = gtk::ToggleButton::builder().label("HQ").tooltip_text("Full-quality view of what is on screen, at 1:1 or more").margin_start(6).build();
         let weak = self.downgrade();
         hq_btn.connect_toggled(move |b| { if let Some(win) = weak.upgrade() { win.set_hq(b.is_active()); } });
@@ -1099,6 +1121,9 @@ impl Window {
         grey_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
         *self.imp().colour_rows.borrow_mut() = Some((saturation_row, acr_row, grey_row));
         detail_page.add(&colour_group);
+        let wheel_group = adw::PreferencesGroup::builder().title("Colour Balance").description("For shadows, midtones and highlights separately").build();
+        wheel_group.add(&self.build_colour_wheel());
+        detail_page.add(&wheel_group);
         let detail_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&detail_page).build();
         insp_stack.add_titled(&detail_scroll, Some("detail"), "Detail");
         *self.imp().dust_mode_row.borrow_mut() = Some(dust_mode_row.clone());

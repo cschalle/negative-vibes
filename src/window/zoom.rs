@@ -52,6 +52,9 @@ impl Window {
             l.set_label(&label);
         }
         self.schedule_hq();
+        if let Some(a) = imp.navigator_area.borrow().as_ref() {
+            a.queue_draw();
+        }
     }
 
     /// Set the zoom (`None` = fit), keeping the middle of the view in place.
