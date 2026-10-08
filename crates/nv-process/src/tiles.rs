@@ -14,7 +14,7 @@ use std::sync::{mpsc, Arc};
 use nv_image::FrameBuf;
 
 use crate::params::{ImageType, ProcessParams};
-use crate::{conversion, estimate_film_base_proxy, render, Proxy};
+use crate::{conversion, estimate_film_base_proxy, render, render_toned, Proxy};
 
 /// Tile edge in pixels.
 pub const TILE: usize = 512;
@@ -49,6 +49,58 @@ pub fn freeze(proxy: &Proxy, params: &ProcessParams) -> ProcessParams {
 /// 8-bit RGB, `w × h × 3`, clipped to the scan.
 pub fn render_block(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize, w: usize, h: usize) -> Vec<u8> {
     render(&Proxy::from_raw_region(raw, x0, y0, w, h), frozen)
+}
+
+/// The toned picture (linear light, `w × h × 3` floats) of the `w × h` block
+/// at `(x0, y0)`, clipped to the scan, rendered tile by tile on `threads`
+/// threads. This is what exporters encode, band by band, so memory stays at
+/// one band however large the frame.
+pub fn render_toned_region(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize, w: usize, h: usize, threads: usize) -> Vec<f32> {
+    let (rw, rh) = (raw.width as usize, raw.effective_height() as usize);
+    let (x1, y1) = ((x0 + w).min(rw), (y0 + h).min(rh));
+    if x0 >= x1 || y0 >= y1 {
+        return Vec::new();
+    }
+    let (w, h) = (x1 - x0, y1 - y0);
+    let mut out = vec![0f32; w * h * 3];
+
+    // Tiles are aligned to the scan, not to the block, so neighbouring bands
+    // cut the same tiles and the result is identical however it is split.
+    let (tx0, tx1) = (x0 / TILE, (x1 - 1) / TILE + 1);
+    let (ty0, ty1) = (y0 / TILE, (y1 - 1) / TILE + 1);
+    let n = (tx1 - tx0) * (ty1 - ty0);
+    let next = AtomicUsize::new(0);
+    let (send, recv) = mpsc::channel::<(usize, Vec<f32>)>();
+
+    std::thread::scope(|scope| {
+        for _ in 0..threads.clamp(1, n) {
+            let (send, next) = (send.clone(), &next);
+            scope.spawn(move || loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                if i >= n {
+                    break;
+                }
+                let (tx, ty) = (tx0 + i % (tx1 - tx0), ty0 + i / (tx1 - tx0));
+                let tile = render_toned(&Proxy::from_raw_region(raw, tx * TILE, ty * TILE, TILE, TILE), frozen);
+                if send.send((i, tile)).is_err() {
+                    break;
+                }
+            });
+        }
+        drop(send);
+        for (i, tile) in recv {
+            let (tx, ty) = (tx0 + i % (tx1 - tx0), ty0 + i / (tx1 - tx0));
+            let (px0, py0) = (tx * TILE, ty * TILE);
+            let tw = TILE.min(rw - px0);
+            let (cx0, cx1) = (x0.max(px0), x1.min(px0 + tw));
+            for y in y0.max(py0)..y1.min(py0 + TILE) {
+                let src = ((y - py0) * tw + (cx0 - px0)) * 3;
+                let dst = ((y - y0) * w + (cx0 - x0)) * 3;
+                out[dst..dst + (cx1 - cx0) * 3].copy_from_slice(&tile[src..src + (cx1 - cx0) * 3]);
+            }
+        }
+    });
+    out
 }
 
 /// The whole of `raw`, rendered tile by tile on `threads` threads.
@@ -207,6 +259,22 @@ mod tests {
         let whole = render(&Proxy::from_raw(&raw, usize::MAX), &frozen);
         assert_eq!(render_full(&raw, &frozen, 3), whole);
         assert_eq!(render_full(&raw, &frozen, 1), whole);
+    }
+
+    #[test]
+    fn toned_bands_equal_the_whole_picture_toned_at_once() {
+        let raw = scan(1300, 900);
+        let frozen = frozen_for(&raw, 0);
+        let whole = render_toned(&Proxy::from_raw(&raw, usize::MAX), &frozen);
+        // Bands that do not line up with tiles, as an exporter's strips will not.
+        let mut joined = Vec::new();
+        for (y, h) in [(0, 333), (333, 333), (666, 234)] {
+            joined.extend(render_toned_region(&raw, &frozen, 0, y, 1300, h, 3));
+        }
+        assert_eq!(joined, whole);
+        let part = render_toned_region(&raw, &frozen, 200, 100, 700, 500, 2);
+        assert_eq!(part.len(), 700 * 500 * 3);
+        assert_eq!(&part[..3], &whole[((100 * 1300) + 200) * 3..][..3]);
     }
 
     #[test]

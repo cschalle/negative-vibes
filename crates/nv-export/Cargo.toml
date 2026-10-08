@@ -3,11 +3,21 @@ name = "nv-export"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Output encoders: TIFF/JPEG/PNG/DNG with ICC and XMP metadata"
+description = "Output encoders: TIFF/JPEG/PNG with ICC, naming templates, export settings"
 
 [dependencies]
 nv-image = { path = "../nv-image" }
-tiff = "0.9"
+nv-process = { path = "../nv-process" }
+flate2 = "1"
+weezl = "0.1"
 jpeg-encoder = "0.6"
 png = "0.17"
+serde = { version = "1", features = ["derive"] }
 thiserror = "1"
+
+[dev-dependencies]
+tiff = "0.9"
+nv-store = { path = "../nv-store" }
+nv-film = { path = "../nv-film" }
+jpeg-decoder = "0.3"
+serde_json = "1"

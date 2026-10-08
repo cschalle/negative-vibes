@@ -956,6 +956,30 @@ mirrored), so orientation and polarity are right. Still open: a real slide. The 
 check is synthetic; `tests/fixtures/README.md` says how to add one, and `tests/fixtures.rs`
 picks up `slide-*` files and does nothing, saying so, until one exists. The timings above are on a warm file cache, not a cold disk.
 
+**M4 status (2026-10-08), first slice: the output engine.** `nv-export` now has: output
+colour spaces (sRGB and Adobe RGB, as a matrix on linear light plus each space's own transfer
+curve) with ICC profiles written in code (matrix/TRC v2.4 for RGB, a gamma-2.2 profile for
+grey); naming templates (`{roll}`, `{frame:02}`, `{label}`, `{film}`, `{date}`, unique names
+by " (2)" suffix, no path escapes); `ExportSettings` (format, depth, compression, JPEG
+quality, space, grey, embed profile, folder, template) with the Archive / Share / Print
+presets; and encoders that render a frame in tile-high bands and stream it to TIFF (8/16 bit,
+none/LZW/Deflate with the horizontal predictor, own writer), PNG (8/16 bit, iCCP) or JPEG (ICC).
+Files are written under a temporary name and renamed when complete; a cancelled export leaves
+nothing. `copy_raw` is the HDR RAW export (the roll's scan, byte for byte). HDRi RAW waits for
+IR capture (M5). The final encode in `nv-process` is now the true sRGB curve instead of a
+gamma-2.2 approximation, so the preview and an sRGB export agree; goldens were regenerated
+(mean change about 2.4 levels, none far off). Checks: read back with the `tiff`, `jpeg-decoder`
+and `png` crates; and an independent colour engine (ImageMagick/lcms) converts our Adobe RGB
+export to sRGB with our two profiles and lands on our sRGB export within 1.5 levels. The
+`tiff` crate (0.9) corrupts a compressed image written as strips, which is why the TIFF
+container is written here. Measured in release on a synthetic 7200 dpi frame (10368 × 7755):
+16-bit RGB TIFF with Deflate in 3.7 s and 8-bit uncompressed in 2.4 s, each adding about
+265 MB of memory on top of the 500 MB raw and proxy (`cargo test -p nv-export --release
+--test export -- --ignored --nocapture`). Not yet: the export queue and its header button,
+the Export dialog (Ctrl+E), exporting after each scan, Scan All / Scan Raw Only and the
+manual-advance batch loop, size presets and resampling, geometry (rotate, flip) in the
+pipeline, XMP metadata (M7), and checks H7 to H9 on the scanner.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

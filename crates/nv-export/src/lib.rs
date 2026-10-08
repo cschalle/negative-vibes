@@ -1,9 +1,18 @@
-//! Output encoders and metadata embedding.
+//! Getting the picture out: colour spaces and ICC profiles, naming
+//! templates, export settings, and encoders that stream a frame of any size
+//! to TIFF, JPEG or PNG a band at a time.
 //!
-//! Supports TIFF (8/16-bit, ICC tag 34675, XMP tag 700, tiled Deflate),
-//! JPEG (with ICC), PNG (16-bit, iCCP), and eventually DNG.
-//!
-//! The raw 16-bit linear TIFF written by `nv-store` doubles as the HDR RAW
-//! and HDRi RAW export format (§6.3), so no separate "save raw" path exists.
+//! The raw 16-bit linear TIFF that `nv-store` writes into the roll doubles as
+//! the HDR RAW export (DESIGN.md §6.3): [`copy_raw`] hands it over unchanged.
 
-// TODO (M4): implement TiffEncoder, JpegEncoder, PngEncoder.
+pub mod colour;
+pub mod encode;
+pub mod icc;
+pub mod naming;
+pub mod settings;
+mod tiff;
+
+pub use colour::ColourSpace;
+pub use encode::{copy_raw, export_image, ExportError, ExportReport};
+pub use naming::{render_template, unique_path, NameContext, NameError};
+pub use settings::{Compression, ExportFormat, ExportSettings};

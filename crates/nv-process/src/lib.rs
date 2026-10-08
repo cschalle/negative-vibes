@@ -171,34 +171,47 @@ fn percentile_98(vals: &mut Vec<f32>) -> f32 {
     vals[idx].max(0.01)
 }
 
-fn encode_output(pixels: &[f32], greyscale: bool) -> Vec<u8> {
-    let n = pixels.len() / 3;
-    let mut out = vec![0u8; n * 3];
-    for i in 0..n {
-        let r = pixels[i * 3];
-        let g = pixels[i * 3 + 1];
-        let b = pixels[i * 3 + 2];
-
-        if greyscale {
-            // Green-weighted luminance for B&W display.
-            let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            let v = gamma22(lum);
-            out[i * 3] = v;
-            out[i * 3 + 1] = v;
-            out[i * 3 + 2] = v;
-        } else {
-            out[i * 3] = gamma22(r);
-            out[i * 3 + 1] = gamma22(g);
-            out[i * 3 + 2] = gamma22(b);
-        }
+/// B&W negatives are one density channel: collapse to green-weighted
+/// luminance, replicated to all three channels so every consumer can keep
+/// treating the picture as RGB.
+fn collapse_to_grey(pixels: &mut [f32]) {
+    for px in pixels.chunks_exact_mut(3) {
+        let lum = 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2];
+        px.fill(lum);
     }
-    out
 }
 
+/// The picture after stage 5, as linear light in sRGB primaries, `w × h × 3`
+/// in `[0, 1]`: what the exporters turn into 8- or 16-bit files in the
+/// colour space the user chose. B&W negatives come out grey.
+pub fn render_toned(proxy: &Proxy, params: &ProcessParams) -> Vec<f32> {
+    if proxy.is_empty() {
+        return Vec::new();
+    }
+    let mut toned = tone::apply_tone(&convert(proxy, params), &params.tone);
+    if params.image_type == ImageType::BwNegative {
+        collapse_to_grey(&mut toned);
+    }
+    toned
+}
+
+/// The sRGB opto-electronic transfer function: linear light to encoded value.
 #[inline]
-fn gamma22(v: f32) -> u8 {
+pub fn srgb_oetf(v: f32) -> f32 {
     let v = v.clamp(0.0, 1.0);
-    (v.powf(1.0 / 2.2) * 255.0 + 0.5) as u8
+    if v <= 0.003_130_8 { 12.92 * v } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+}
+
+fn encode_output(pixels: &[f32], greyscale: bool) -> Vec<u8> {
+    let mut linear;
+    let pixels = if greyscale {
+        linear = pixels.to_vec();
+        collapse_to_grey(&mut linear);
+        &linear[..]
+    } else {
+        pixels
+    };
+    pixels.iter().map(|v| (srgb_oetf(*v) * 255.0 + 0.5) as u8).collect()
 }
 
 /// Build default ProcessParams for a given film profile.
