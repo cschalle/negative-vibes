@@ -188,6 +188,9 @@ pub fn write_dng<W: Write + Seek>(
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
 ) -> Result<(u32, u32), ExportError> {
+    if raw.width == 0 || raw.bytes_per_row == 0 {
+        return Err(ExportError::Empty);
+    }
     let (w, h) = (raw.width as usize, raw.effective_height().min(raw.rows_available()) as usize);
     if w == 0 || h == 0 {
         return Err(ExportError::Empty);
