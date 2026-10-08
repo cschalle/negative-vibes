@@ -27,6 +27,9 @@ impl Window {
                 f.overrides.apply_to(&mut p);
             }
         }
+        // How marks are painted is a preference, not part of a frame's look.
+        let m = self.imp().prefs.borrow().mark_colour;
+        p.dust.mark = [0, 1, 2].map(|c| nv_export::ColourSpace::Srgb.decode(m[c]));
         p
     }
 
@@ -91,12 +94,19 @@ impl Window {
     /// Dust removal needs an infrared plane: say so when the scan on the
     /// canvas has none, and do not offer controls that would do nothing.
     pub(super) fn update_dust_availability(&self) {
-        let has_ir = self.imp().proxy.borrow().as_ref().is_some_and(|p| p.ir.is_some());
-        for r in [self.imp().dust_mode_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone()), self.imp().dust_detection_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone())].into_iter().flatten() {
-            r.set_sensitive(has_ir);
+        let imp = self.imp();
+        let has_ir = imp.proxy.borrow().as_ref().is_some_and(|p| p.ir.is_some());
+        let software = imp.dust_method_row.borrow().as_ref().is_some_and(|r| r.selected() == 1);
+        // Software detection works on any scan; infrared needs the plane.
+        let usable = has_ir || software;
+        for r in [imp.dust_mode_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone()), imp.dust_detection_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone())].into_iter().flatten() {
+            r.set_sensitive(usable);
         }
-        if let Some(n) = self.imp().dust_note_row.borrow().as_ref() {
-            n.set_visible(!has_ir);
+        if let Some(n) = imp.dust_note_row.borrow().as_ref() {
+            n.set_visible(!has_ir && !software);
+        }
+        if let Some(d) = imp.dust_defect_row.borrow().as_ref() {
+            d.set_visible(software);
         }
     }
 

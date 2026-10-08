@@ -287,7 +287,17 @@ fn a_7200_dpi_frame_exports_in_bounded_memory() {
     let frozen = freeze(&proxy, &default_params_for(&builtin_profiles()[0]));
     let before = peak_rss_mb();
 
+    // The same frame with sharpening and noise reduction on: the cost of the detail stage.
+    let mut detailed = frozen.clone();
+    detailed.detail.usm = nv_process::UsmParams { enabled: true, amount: 150.0, radius: 1.4, threshold: 0 };
+    detailed.detail.noise = nv_process::NoiseLevel::Medium;
     let dir = scratch("big");
+    {
+        let t = std::time::Instant::now();
+        let r = export_image(&raw, &detailed, Orientation::IDENTITY, &ExportSettings::default(), &dir.join("detail.tif"), &|_| {}, &AtomicBool::new(false)).unwrap();
+        eprintln!("tiff16-deflate with sharpening and noise reduction: {}x{} in {:?}, peak RSS {} MB", r.width, r.height, t.elapsed(), peak_rss_mb());
+        let _ = std::fs::remove_file(&r.path);
+    }
     for (name, s) in [
         ("tiff16-deflate", ExportSettings::default()),
         ("tiff8-none", ExportSettings { bit_depth: 8, compression: Compression::None, ..Default::default() }),

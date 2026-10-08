@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod params;
 mod conversion;
 pub mod curves;
+pub mod detail;
 pub mod dust;
 pub mod orient;
 pub mod settings;
@@ -16,7 +17,8 @@ pub use params::{ImageType, ProcessParams};
 pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
-pub use dust::{DustMode, DustParams};
+pub use detail::{DetailParams, NoiseLevel, Quality, UsmParams};
+pub use dust::{DefectType, DustMethod, DustMode, DustParams};
 pub use orient::{DisplayOp, Orientation};
 pub use proxy::{Proxy, ProxyBuilder, DEFAULT_PROXY_PIXELS};
 
@@ -110,10 +112,16 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
     }
 
     let mut toned = tone::apply_tone(&converted.pixels, &params.tone);
-    if let Some(mask) = &converted.mask {
-        paint_marks(&mut toned, mask);
+    detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, Quality::Preview);
+    // B&W is one grey channel; collapse it before painting, or the marks go grey too.
+    let grey = params.image_type == ImageType::BwNegative;
+    if grey {
+        collapse_to_grey(&mut toned);
     }
-    Rendered { rgb: encode_output(&toned, params.image_type == ImageType::BwNegative), levels }
+    if let Some(mask) = &converted.mask {
+        paint_marks(&mut toned, mask, params.dust.mark);
+    }
+    Rendered { rgb: encode_output(&toned, false), levels }
 }
 
 /// The stage 4 result and, in Mark mode, what dust detection found.
@@ -126,15 +134,16 @@ struct Converted {
 /// negative converted. In Mark mode the pixels are untouched and the mask
 /// comes back, to be painted on the finished picture.
 fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec<u8>>) {
-    let (repaired, mask) = match (&proxy.ir, params.dust.mode) {
-        (Some(ir), mode) if mode != dust::DustMode::Off => {
-            let (px, report) = dust::apply(&proxy.pixels, ir, proxy.width, proxy.height, &params.dust, proxy.factor);
-            match mode {
-                dust::DustMode::Correct => (Some(px), None),
-                _ => (None, report.map(|r| r.mask)),
-            }
+    // Infrared detection needs the plane; software detection needs only the picture.
+    let usable = params.dust.mode != dust::DustMode::Off && (params.dust.method == dust::DustMethod::Software || proxy.ir.is_some());
+    let (repaired, mask) = if usable {
+        let (px, report) = dust::apply(&proxy.pixels, proxy.ir.as_deref(), proxy.width, proxy.height, &params.dust, proxy.factor);
+        match params.dust.mode {
+            dust::DustMode::Correct => (Some(px), None),
+            _ => (None, report.map(|r| r.mask)),
         }
-        _ => (None, None),
+    } else {
+        (None, None)
     };
     let src = repaired.as_deref().unwrap_or(&proxy.pixels);
     let out = match params.image_type {
@@ -150,12 +159,12 @@ pub fn convert(proxy: &Proxy, params: &ProcessParams) -> Vec<f32> {
     convert_stage(proxy, params).0
 }
 
-/// Paint what dust detection found, for Mark mode: bright magenta, which is
-/// in no picture of a tulip field or anything else.
-fn paint_marks(toned: &mut [f32], mask: &[u8]) {
+/// Paint what dust detection found, for Mark mode, in the chosen colour
+/// (bright magenta unless told otherwise).
+fn paint_marks(toned: &mut [f32], mask: &[u8], colour: [f32; 3]) {
     for (px, m) in toned.chunks_exact_mut(3).zip(mask) {
         if *m != 0 {
-            px.copy_from_slice(&[1.0, 0.0, 1.0]);
+            px.copy_from_slice(&colour);
         }
     }
 }
@@ -228,16 +237,23 @@ fn collapse_to_grey(pixels: &mut [f32]) {
 /// in `[0, 1]`: what the exporters turn into 8- or 16-bit files in the
 /// colour space the user chose. B&W negatives come out grey.
 pub fn render_toned(proxy: &Proxy, params: &ProcessParams) -> Vec<f32> {
+    render_toned_q(proxy, params, Quality::Full)
+}
+
+/// [`render_toned`] at a chosen quality: `Preview` leaves out the noise
+/// reduction, which is too slow for the editing preview.
+pub fn render_toned_q(proxy: &Proxy, params: &ProcessParams, quality: Quality) -> Vec<f32> {
     if proxy.is_empty() {
         return Vec::new();
     }
     let (converted, mask) = convert_stage(proxy, params);
     let mut toned = tone::apply_tone(&converted, &params.tone);
+    detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, quality);
     if params.image_type == ImageType::BwNegative {
         collapse_to_grey(&mut toned);
     }
     if let Some(mask) = &mask {
-        paint_marks(&mut toned, mask);
+        paint_marks(&mut toned, mask, params.dust.mark);
     }
     toned
 }
@@ -247,6 +263,11 @@ pub fn render_toned(proxy: &Proxy, params: &ProcessParams) -> Vec<f32> {
 pub fn srgb_oetf(v: f32) -> f32 {
     let v = v.clamp(0.0, 1.0);
     if v <= 0.003_130_8 { 12.92 * v } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+}
+
+/// Linear light to 8-bit sRGB, as the canvas shows it.
+pub fn encode_srgb8(pixels: &[f32]) -> Vec<u8> {
+    encode_output(pixels, false)
 }
 
 pub(crate) fn encode_output(pixels: &[f32], greyscale: bool) -> Vec<u8> {
@@ -285,6 +306,7 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
         },
         tone: ToneParams::default(),
         // Silver black and white film blocks infrared: no dust removal by default.
+        detail: DetailParams::default(),
         dust: params::DustParams {
             mode: if image_type == ImageType::BwNegative { dust::DustMode::Off } else { dust::DustMode::Correct },
             ..Default::default()

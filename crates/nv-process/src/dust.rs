@@ -31,9 +31,41 @@ pub enum DustMode {
     Mark,
 }
 
+/// Where dust is looked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DustMethod {
+    /// In the infrared plane (F§6 iSRD): exact, but needs the plane, and
+    /// silver black and white film blocks infrared.
+    #[default]
+    Infrared,
+    /// In the picture itself (F§6 SRDx): small specks that stand out from
+    /// their surroundings. Works on any scan, and can mistake fine detail
+    /// for dust.
+    Software,
+}
+
+/// Which specks software detection looks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DefectType {
+    /// Darker than the surroundings in the scan, which is dust on the film.
+    #[default]
+    Dark,
+    Bright,
+    Both,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DustParams {
     pub mode: DustMode,
+    #[serde(default)]
+    pub method: DustMethod,
+    #[serde(default)]
+    pub defect: DefectType,
+    /// Colour of Mark mode, as linear light (F§6 "mark colour").
+    #[serde(default = "default_mark")]
+    pub mark: [f32; 3],
     /// Sensitivity, 1 to 20 (F§6 "Detection", default 12): higher finds more.
     pub detection: u8,
     /// The largest mark, in pixels of the full scan, that is still dust. Set
@@ -42,9 +74,13 @@ pub struct DustParams {
     pub max_area: Option<usize>,
 }
 
+fn default_mark() -> [f32; 3] {
+    [1.0, 0.0, 1.0]
+}
+
 impl Default for DustParams {
     fn default() -> Self {
-        Self { mode: DustMode::Correct, detection: 12, max_area: None }
+        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), detection: 12, max_area: None }
     }
 }
 
@@ -224,9 +260,29 @@ pub fn detect(pixels: &[f32], ir: &[f32], w: usize, h: usize, params: &DustParam
     // Dust is dark in the infrared and may be darker than the film window's
     // own cut-off, so candidates are not limited to the window: what lies
     // outside it is one enormous mark, and the size limit throws that out.
-    let candidate: Vec<bool> = resid.iter().map(|r| *r < thr).collect();
+    // Dust and fibres are dark in the infrared; a scratch in the emulsion
+    // scatters light and can be bright. The same margin serves both sides.
+    let (dark, bright) = match params.defect {
+        DefectType::Dark => (true, false),
+        DefectType::Bright => (false, true),
+        DefectType::Both => (true, true),
+    };
+    let score: Vec<f32> = resid
+        .iter()
+        .map(|r| {
+            let d = if dark { med - *r } else { f32::MIN };
+            let b = if bright { *r - med } else { f32::MIN };
+            d.max(b)
+        })
+        .collect();
+    marks_from(&score, med - thr, w, h, params, factor, false)
+}
 
-    // Marks: connected, of a plausible size.
+/// From a score per pixel (higher is more dust-like) and the score at which a
+/// pixel becomes a candidate: connected candidates that are of a plausible
+/// size, grown to cover their soft edges.
+fn marks_from(score: &[f32], margin: f32, w: usize, h: usize, params: &DustParams, factor: usize, compact: bool) -> DustReport {
+    let candidate: Vec<bool> = score.iter().map(|s| *s > margin).collect();
     let max_area = params.max_area.unwrap_or_else(|| ((0.004 * (w * h) as f64) as usize).max(50));
     let max_area_here = (max_area / (factor * factor).max(1)).max(8);
     let mut label = vec![0u32; w * h];
@@ -242,7 +298,8 @@ pub fn detect(pixels: &[f32], ir: &[f32], w: usize, h: usize, params: &DustParam
         let mut members = vec![start];
         label[start] = id;
         stack.push(start);
-        let mut strongest = resid[start];
+        let mut strongest = score[start];
+        let (mut bx0, mut bx1, mut by0, mut by1) = (start % w, start % w, start / w, start / w);
         while let Some(p) = stack.pop() {
             let (px, py) = (p % w, p / w);
             // Eight neighbours: a hair is a thin diagonal line, and its pixels
@@ -256,16 +313,23 @@ pub fn detect(pixels: &[f32], ir: &[f32], w: usize, h: usize, params: &DustParam
                     let q = ny as usize * w + nx as usize;
                     if candidate[q] && label[q] == 0 {
                         label[q] = id;
-                        strongest = strongest.min(resid[q]);
+                        strongest = strongest.max(score[q]);
+                        let (qx, qy) = (q % w, q / w);
+                        (bx0, bx1, by0, by1) = (bx0.min(qx), bx1.max(qx), by0.min(qy), by1.max(qy));
                         members.push(q);
                         stack.push(q);
                     }
                 }
             }
         }
-        // A lone pixel is noise unless it is far below the threshold.
-        let strong = strongest < med - 2.0 * (med - thr);
-        if members.len() > max_area_here || (members.len() < 2 && !strong) {
+        // A lone pixel is noise unless it is far past the threshold.
+        let strong = strongest > 2.0 * margin;
+        // Software detection cannot tell a speck from the picture's own fine
+        // lines, so it keeps only what is compact: a speck is a few pixels
+        // across, a rim or a hair of a glass is long.
+        let side = (bx1 - bx0).max(by1 - by0) + 1;
+        let too_long = compact && (side > (10 / factor).max(4) || members.len() > (60 / (factor * factor)).max(6));
+        if members.len() > max_area_here || too_long || (members.len() < 2 && !strong) {
             marks -= 1;
             continue;
         }
@@ -279,6 +343,90 @@ pub fn detect(pixels: &[f32], ir: &[f32], w: usize, h: usize, params: &DustParam
     let mask = dilate(&mask, w, h, radius);
     let covered = mask.iter().map(|m| *m as usize).sum::<usize>() as f32 / (w * h) as f32;
     DustReport { mask, marks, covered }
+}
+
+// ── Software detection (SRDx) ─────────────────────────────────────────────────
+
+/// Grey-scale erosion (`min`) or dilation (`max`) over a square of radius `r`,
+/// separably.
+fn morph(a: &[f32], w: usize, h: usize, r: usize, max: bool) -> Vec<f32> {
+    let pick = |x: f32, y: f32| if max { x.max(y) } else { x.min(y) };
+    let init = if max { f32::MIN } else { f32::MAX };
+    let mut tmp = vec![0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut v = init;
+            for xx in x.saturating_sub(r)..(x + r + 1).min(w) {
+                v = pick(v, a[y * w + xx]);
+            }
+            tmp[y * w + x] = v;
+        }
+    }
+    let mut out = vec![0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut v = init;
+            for yy in y.saturating_sub(r)..(y + r + 1).min(h) {
+                v = pick(v, tmp[yy * w + x]);
+            }
+            out[y * w + x] = v;
+        }
+    }
+    out
+}
+
+/// Find specks in the picture itself: what a morphological top-hat lifts out,
+/// the part of each small dark (or bright) feature that rises above its
+/// surroundings. The picture's own detail narrower than a few pixels looks
+/// like dust to this, which is why it is for films that infrared cannot see
+/// through, and why masks exist.
+pub fn detect_software(pixels: &[f32], w: usize, h: usize, params: &DustParams, factor: usize) -> DustReport {
+    let none = || DustReport { mask: vec![0; w * h], marks: 0, covered: 0.0 };
+    if w < 16 || h < 16 || pixels.len() < w * h * 3 {
+        return none();
+    }
+    // Log transmission of the mean of the channels: density-like, so a speck
+    // of a given opacity is the same step whatever it sits on.
+    let l: Vec<f32> = pixels.chunks_exact(3).map(|p| ((p[0] + p[1] + p[2]) / 3.0).max(1e-4).ln()).collect();
+    let r = ((3.0 / factor as f32).round() as usize).max(1);
+
+    let score_of = |dark: bool| -> (Vec<f32>, f32) {
+        // Dark specks: closing minus the picture. Bright: the picture minus opening.
+        let t: Vec<f32> = if dark {
+            let closed = morph(&morph(&l, w, h, r, true), w, h, r, false);
+            closed.iter().zip(&l).map(|(c, v)| c - v).collect()
+        } else {
+            let opened = morph(&morph(&l, w, h, r, false), w, h, r, true);
+            l.iter().zip(&opened).map(|(v, o)| v - o).collect()
+        };
+        let (bx, by) = (w / 12, h / 12);
+        let inner: Vec<f32> = (by..h - by).flat_map(|y| (bx..w - bx).map(move |x| (y, x))).map(|(y, x)| t[y * w + x]).collect();
+        let (med, mad) = median_mad(&inner);
+        // At least a few percent: a smooth picture has no spread to measure.
+        let margin = (threshold_mads(params.detection) * mad).max(0.10);
+        (t.iter().map(|v| v - med).collect(), margin)
+    };
+    let (dark, bright) = match params.defect {
+        DefectType::Dark => (true, false),
+        DefectType::Bright => (false, true),
+        DefectType::Both => (true, true),
+    };
+    let mut best: Option<(Vec<f32>, f32)> = None;
+    for kind in [dark.then_some(true), bright.then_some(false)].into_iter().flatten() {
+        let (score, margin) = score_of(kind);
+        best = Some(match best {
+            None => (score, margin),
+            // Both kinds: a pixel counts for whichever is stronger, against the larger margin.
+            Some((a, ma)) => {
+                let m = ma.max(margin);
+                (a.iter().zip(&score).map(|(x, y)| x.max(*y)).collect(), m)
+            }
+        });
+    }
+    match best {
+        Some((score, margin)) => marks_from(&score, margin, w, h, params, factor, true),
+        None => none(),
+    }
 }
 
 /// Grow a mask by `r` pixels in every direction (a disk, not a square: a
@@ -367,12 +515,17 @@ pub fn repair(pixels: &mut [f32], mask: &[u8], w: usize, h: usize) {
 
 /// Detect and, unless the mode is Off, repair. Returns the (possibly new)
 /// pixels and what was found. `Mark` leaves the pixels alone: painting the
-/// marks is done on the finished picture.
-pub fn apply(pixels: &[f32], ir: &[f32], w: usize, h: usize, params: &DustParams, factor: usize) -> (Vec<f32>, Option<DustReport>) {
+/// marks is done on the finished picture. Infrared detection needs `ir`;
+/// without it there is nothing to find and nothing changes.
+pub fn apply(pixels: &[f32], ir: Option<&[f32]>, w: usize, h: usize, params: &DustParams, factor: usize) -> (Vec<f32>, Option<DustReport>) {
     if params.mode == DustMode::Off {
         return (pixels.to_vec(), None);
     }
-    let report = detect(pixels, ir, w, h, params, factor);
+    let report = match (params.method, ir) {
+        (DustMethod::Software, _) => detect_software(pixels, w, h, params, factor),
+        (DustMethod::Infrared, Some(ir)) => detect(pixels, ir, w, h, params, factor),
+        (DustMethod::Infrared, None) => return (pixels.to_vec(), None),
+    };
     let mut out = pixels.to_vec();
     if params.mode == DustMode::Correct {
         repair(&mut out, &report.mask, w, h);
@@ -444,7 +597,7 @@ mod tests {
         assert!(report.covered < 0.06, "mask covers {:.1}%", report.covered * 100.0);
         assert!((4..=8).contains(&report.marks), "{} marks", report.marks);
 
-        let (fixed, _) = apply(&px, &ir, W, H, &DustParams::default(), 1);
+        let (fixed, _) = apply(&px, Some(&ir), W, H, &DustParams::default(), 1);
         // Away from the marks the picture is exactly as it was.
         for i in 0..W * H {
             if report.mask[i] == 0 {
@@ -482,6 +635,25 @@ mod tests {
     }
 
     #[test]
+    fn a_bright_scratch_in_the_infrared_is_found_only_when_asked() {
+        let (px, mut ir, _, _) = dirty();
+        let mut scratch = Vec::new();
+        for t in 0..30 {
+            let i = (100 + t / 6) * W + 15 + t;
+            scratch.push(i);
+            ir[i] *= 1.8; // emulsion scratch: brighter
+        }
+        let found = |defect| detect(&px, &ir, W, H, &DustParams { defect, ..Default::default() }, 1).mask;
+        let (dark, bright, both) = (found(DefectType::Dark), found(DefectType::Bright), found(DefectType::Both));
+        assert!(scratch.iter().all(|i| dark[*i] == 0), "dark mode took a bright scratch");
+        assert!(scratch.iter().all(|i| bright[*i] == 1), "bright mode missed it");
+        assert!(scratch.iter().all(|i| both[*i] == 1));
+        // And the dust is still dust in "both".
+        let spot = 40 * W + 40;
+        assert!(dark[spot] == 1 && both[spot] == 1 && bright[spot] == 0);
+    }
+
+    #[test]
     fn higher_detection_finds_more() {
         let (px, mut ir, _, _) = dirty();
         for (i, v) in ir.iter_mut().enumerate() {
@@ -500,9 +672,9 @@ mod tests {
     #[test]
     fn off_changes_nothing_and_mark_does_not_repair() {
         let (px, ir, _, _) = dirty();
-        let (off, r) = apply(&px, &ir, W, H, &DustParams { mode: DustMode::Off, ..Default::default() }, 1);
+        let (off, r) = apply(&px, Some(&ir), W, H, &DustParams { mode: DustMode::Off, ..Default::default() }, 1);
         assert!(r.is_none() && off == px);
-        let (mark, r) = apply(&px, &ir, W, H, &DustParams { mode: DustMode::Mark, ..Default::default() }, 1);
+        let (mark, r) = apply(&px, Some(&ir), W, H, &DustParams { mode: DustMode::Mark, ..Default::default() }, 1);
         assert!(r.is_some_and(|r| r.marks > 0));
         assert_eq!(mark, px, "mark mode leaves the pixels for the renderer to paint over");
     }
@@ -534,5 +706,79 @@ mod tests {
         assert_eq!((r.marks, r.covered), (0, 0.0));
         let (px, ir) = clean();
         assert_eq!(detect(&px, &ir[..10], W, H, &DustParams::default(), 1).marks, 0);
+    }
+
+    // ── Software detection ──
+
+    /// A smooth picture with a mild texture, and dark specks of 2–3 pixels.
+    fn speckled() -> (Vec<f32>, Vec<f32>, Vec<usize>) {
+        let (mut px, _) = clean();
+        let clean_px = px.clone();
+        for (i, v) in px.iter_mut().enumerate() {
+            *v *= 1.0 + 0.004 * noise(i);
+        }
+        let mut specks = Vec::new();
+        for (cx, cy) in [(30usize, 30usize), (90, 50), (60, 90), (120, 20)] {
+            for dy in 0..2 {
+                for dx in 0..3 {
+                    let i = (cy + dy) * W + cx + dx;
+                    specks.push(i);
+                    for c in 0..3 {
+                        px[i * 3 + c] *= 0.45;
+                    }
+                }
+            }
+        }
+        (px, clean_px, specks)
+    }
+
+    #[test]
+    fn software_detection_finds_specks_without_any_infrared() {
+        let (px, clean_px, specks) = speckled();
+        let params = DustParams { method: DustMethod::Software, ..Default::default() };
+        let r = detect_software(&px, W, H, &params, 1);
+        assert!(specks.iter().all(|i| r.mask[*i] == 1), "missed a speck");
+        assert!(r.covered < 0.05, "{:.1}%", r.covered * 100.0);
+        let (fixed, _) = apply(&px, None, W, H, &params, 1);
+        let worst = specks.iter().flat_map(|i| (0..3).map(move |c| (*i, c))).map(|(i, c)| ((fixed[i * 3 + c] - clean_px[i * 3 + c]) / clean_px[i * 3 + c]).abs()).fold(0.0f32, f32::max);
+        assert!(worst < 0.06, "repair {:.1}% off", worst * 100.0);
+    }
+
+    #[test]
+    fn software_detection_leaves_edges_and_smooth_gradients_alone() {
+        let (mut px, _) = clean();
+        // A hard edge down the middle of the picture: not a speck.
+        for y in 0..H {
+            for x in W / 2..W {
+                for c in 0..3 {
+                    px[(y * W + x) * 3 + c] *= 0.5;
+                }
+            }
+        }
+        let r = detect_software(&px, W, H, &DustParams { method: DustMethod::Software, defect: DefectType::Both, ..Default::default() }, 1);
+        assert_eq!(r.marks, 0, "an edge or a gradient was taken for dust ({:.2}% covered)", r.covered * 100.0);
+    }
+
+    #[test]
+    fn defect_type_chooses_dark_or_bright() {
+        let (mut px, _, specks) = speckled();
+        // Add a bright speck.
+        let bright = 100 * W + 20;
+        for c in 0..3 {
+            px[bright * 3 + c] *= 2.6;
+            px[(bright + 1) * 3 + c] *= 2.6;
+        }
+        let find = |defect| detect_software(&px, W, H, &DustParams { method: DustMethod::Software, defect, ..Default::default() }, 1).mask;
+        let (dark, bright_only, both) = (find(DefectType::Dark), find(DefectType::Bright), find(DefectType::Both));
+        assert!(dark[specks[0]] == 1 && dark[bright] == 0, "dark mode");
+        assert!(bright_only[bright] == 1 && bright_only[specks[0]] == 0, "bright mode");
+        assert!(both[specks[0]] == 1 && both[bright] == 1, "both");
+    }
+
+    #[test]
+    fn infrared_method_without_a_plane_changes_nothing() {
+        let (px, _) = clean();
+        let (out, report) = apply(&px, None, W, H, &DustParams::default(), 1);
+        assert!(report.is_none() && out == px);
     }
 }

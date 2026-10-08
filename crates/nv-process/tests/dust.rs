@@ -50,7 +50,7 @@ fn the_real_scan_has_dust_that_is_found_in_the_infrared_and_repaired() {
     assert!(marked / n_marked < 0.975 && other / n_other > 0.99, "marked {:.3} vs the rest {:.3} of their surroundings", marked / n_marked, other / n_other);
 
     // Repair touches only the mask.
-    let (fixed, _) = apply(&p.pixels, ir, p.width, p.height, &params, 1);
+    let (fixed, _) = apply(&p.pixels, Some(ir), p.width, p.height, &params, 1);
     let changed = (0..p.width * p.height).filter(|i| fixed[i * 3..i * 3 + 3] != p.pixels[i * 3..i * 3 + 3]).count();
     let masked = report.mask.iter().filter(|m| **m == 1).count();
     assert!(changed <= masked && changed > masked / 2, "{changed} changed of {masked} masked");

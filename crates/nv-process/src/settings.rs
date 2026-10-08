@@ -26,11 +26,18 @@ pub struct Settings {
     pub curves: Option<crate::curves::Curves>,
     pub dust_mode: Option<crate::dust::DustMode>,
     pub dust_detection: Option<u8>,
+    pub dust_method: Option<crate::dust::DustMethod>,
+    pub dust_defect: Option<crate::dust::DefectType>,
+    pub usm_enabled: Option<bool>,
+    pub usm_amount: Option<f32>,
+    pub usm_radius: Option<f32>,
+    pub usm_threshold: Option<u8>,
+    pub noise: Option<crate::detail::NoiseLevel>,
 }
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection)
+        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, usm_enabled, usm_amount, usm_radius, usm_threshold, noise)
     };
 }
 
@@ -60,6 +67,13 @@ impl Settings {
         if let Some(v) = &self.curves { p.tone.curves = v.clone(); }
         if let Some(v) = self.dust_mode { p.dust.mode = v; }
         if let Some(v) = self.dust_detection { p.dust.detection = v; }
+        if let Some(v) = self.dust_method { p.dust.method = v; }
+        if let Some(v) = self.dust_defect { p.dust.defect = v; }
+        if let Some(v) = self.usm_enabled { p.detail.usm.enabled = v; }
+        if let Some(v) = self.usm_amount { p.detail.usm.amount = v; }
+        if let Some(v) = self.usm_radius { p.detail.usm.radius = v; }
+        if let Some(v) = self.usm_threshold { p.detail.usm.threshold = v; }
+        if let Some(v) = self.noise { p.detail.noise = v; }
     }
 
     /// The fields that differ between `old` and `new`.
@@ -94,6 +108,13 @@ impl Settings {
             curves: (old.tone.curves != new.tone.curves).then(|| new.tone.curves.clone()),
             dust_mode: ch(old.dust.mode, new.dust.mode),
             dust_detection: ch(old.dust.detection, new.dust.detection),
+            dust_method: ch(old.dust.method, new.dust.method),
+            dust_defect: ch(old.dust.defect, new.dust.defect),
+            usm_enabled: ch(old.detail.usm.enabled, new.detail.usm.enabled),
+            usm_amount: chf(old.detail.usm.amount, new.detail.usm.amount),
+            usm_radius: chf(old.detail.usm.radius, new.detail.usm.radius),
+            usm_threshold: ch(old.detail.usm.threshold, new.detail.usm.threshold),
+            noise: ch(old.detail.noise, new.detail.noise),
         }
     }
 

@@ -165,6 +165,16 @@ impl Window {
         self.add_action(&action);
     }
 
+    /// Put the preferred mark colour on the frame on screen and redraw it.
+    fn apply_mark_colour(&self) {
+        let m = self.imp().prefs.borrow().mark_colour;
+        let linear = [0, 1, 2].map(|c| nv_export::ColourSpace::Srgb.decode(m[c]));
+        if let Some(p) = self.imp().proc_params.borrow_mut().as_mut() {
+            p.dust.mark = linear;
+        }
+        self.refresh_canvas();
+    }
+
     fn open_preferences(&self) {
         let prefs = self.imp().prefs.borrow().clone();
         let save = {
@@ -264,6 +274,24 @@ impl Window {
                 save(&|p| p.export.after_scan = on);
             });
         }
+        let marks = adw::PreferencesGroup::builder().title("Dust Marks").description("The colour Mark mode paints over what it found").build();
+        let mark_row = adw::ActionRow::builder().title("Mark Colour").build();
+        let mark_btn = gtk::ColorDialogButton::builder().dialog(&gtk::ColorDialog::new()).valign(gtk::Align::Center).build();
+        mark_btn.set_rgba(&gtk::gdk::RGBA::new(prefs.mark_colour[0], prefs.mark_colour[1], prefs.mark_colour[2], 1.0));
+        mark_row.add_suffix(&mark_btn);
+        {
+            let (save, weak) = (save.clone(), self.downgrade());
+            mark_btn.connect_rgba_notify(move |b| {
+                let c = b.rgba();
+                save(&|p| p.mark_colour = [c.red(), c.green(), c.blue()]);
+                // The frame on screen repaints in the new colour.
+                if let Some(win) = weak.upgrade() {
+                    win.apply_mark_colour();
+                }
+            });
+        }
+        marks.add(&mark_row);
+
         output.add(&format);
         output.add(&space);
         output.add(&folder_row);
@@ -272,6 +300,7 @@ impl Window {
 
         page.add(&scanning);
         page.add(&output);
+        page.add(&marks);
         win.add(&page);
         win.present();
     }

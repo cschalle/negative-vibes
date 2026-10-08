@@ -2,6 +2,7 @@ use nv_film::FilmProfile;
 use serde::{Deserialize, Serialize};
 
 pub use crate::curves::{Curve, Curves};
+pub use crate::detail::DetailParams;
 pub use crate::dust::DustParams;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,4 +83,7 @@ pub struct ProcessParams {
     /// Infrared dust removal (stage 2).
     #[serde(default)]
     pub dust: DustParams,
+    /// Sharpening and noise reduction (stage 7).
+    #[serde(default)]
+    pub detail: DetailParams,
 }

@@ -55,16 +55,20 @@ pub fn render_block(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize
     encode_output(&tile_toned(raw, frozen, x0, y0, w, h), false)
 }
 
-/// The toned picture of one block of the scan. With dust removal on and an
-/// infrared plane in the scan, the block is rendered with a margin around it
-/// and trimmed, so marks and repairs at its edge see what lies beyond.
+/// The toned picture of one block of the scan. With dust removal on (and an
+/// infrared plane in the scan), sharpening or noise reduction, the block is
+/// rendered with a margin around it and trimmed, so what works on
+/// neighbourhoods sees what lies beyond the block's edge.
 fn tile_toned(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize, w: usize, h: usize) -> Vec<f32> {
-    if frozen.dust.mode == DustMode::Off || raw.channels != 4 {
+    let dust_possible = raw.channels == 4 || frozen.dust.method == crate::dust::DustMethod::Software;
+    let dust = if frozen.dust.mode != DustMode::Off && dust_possible { TILE_MARGIN } else { 0 };
+    let margin = dust.max(crate::detail::margin(&frozen.detail, 1));
+    if margin == 0 {
         return render_toned(&Proxy::from_raw_region(raw, x0, y0, w, h), frozen);
     }
     let (sw, sh) = (raw.width as usize, raw.effective_height() as usize);
-    let (mx0, my0) = (x0.saturating_sub(TILE_MARGIN), y0.saturating_sub(TILE_MARGIN));
-    let (mx1, my1) = ((x0 + w + TILE_MARGIN).min(sw), (y0 + h + TILE_MARGIN).min(sh));
+    let (mx0, my0) = (x0.saturating_sub(margin), y0.saturating_sub(margin));
+    let (mx1, my1) = ((x0 + w + margin).min(sw), (y0 + h + margin).min(sh));
     let big = render_toned(&Proxy::from_raw_region(raw, mx0, my0, mx1 - mx0, my1 - my0), frozen);
     let (bw, cw, ch) = (mx1 - mx0, (x0 + w).min(sw) - x0, (y0 + h).min(sh) - y0);
     let mut out = Vec::with_capacity(cw * ch * 3);
@@ -362,6 +366,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Sharpening and noise reduction look at neighbours: with a margin, a
+    /// tile gives what the whole picture gives.
+    #[test]
+    fn detail_filters_tile_without_seams() {
+        let raw = scan(1300, 900);
+        let mut frozen = frozen_for(&raw, 0);
+        frozen.dust.mode = DustMode::Off;
+        frozen.detail.usm = crate::detail::UsmParams { enabled: true, amount: 200.0, radius: 2.0, threshold: 0 };
+        frozen.detail.noise = crate::detail::NoiseLevel::Medium;
+        let whole = render_toned(&Proxy::from_raw(&raw, usize::MAX), &frozen);
+        let tiled = render_toned_region(&raw, &frozen, 0, 0, 1300, 900, 3);
+        let worst = whole.iter().zip(&tiled).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(worst < 1e-4, "a seam of {worst}");
+        // And it changed something, or the test proves nothing.
+        let mut plain = frozen.clone();
+        plain.detail = Default::default();
+        assert_ne!(render_toned(&Proxy::from_raw(&raw, usize::MAX), &plain), whole);
     }
 
     #[test]

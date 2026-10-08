@@ -43,6 +43,17 @@ impl RawWriter {
 pub struct RawReader;
 
 impl RawReader {
+    /// The `w × h` block at `(x0, y0)` of a scan on disk, clipped to the scan.
+    /// A strip-based TIFF is read only as far as the strips that hold the
+    /// block, so a 1:1 look at one corner of a 482 MB frame reads a few
+    /// megabytes. Anything else is read whole and cropped.
+    pub fn region(path: &Path, x0: u32, y0: u32, w: u32, h: u32) -> Result<FrameBuf> {
+        if let Some(b) = region_from_strips(path, x0, y0, w, h)? {
+            return Ok(b);
+        }
+        Ok(Self::read(path)?.crop(x0, y0, w, h))
+    }
+
     /// The working-size copy of a scan on disk, and the scan's size in pixels.
     ///
     /// A strip-based TIFF (what the roll stores) is reduced as it is read, a
@@ -184,6 +195,64 @@ fn read_full<R: std::io::Read>(r: &mut R, out: &mut [u8]) -> io::Result<usize> {
         }
     }
     Ok(n)
+}
+
+/// [`RawReader::region`] for a TIFF stored in strips, or `None` when the file
+/// is something else.
+fn region_from_strips(path: &Path, x0: u32, y0: u32, w: u32, h: u32) -> Result<Option<FrameBuf>> {
+    use tiff::decoder::{ChunkType, DecodingResult, Limits};
+
+    let mut head = [0u8; 4];
+    if std::fs::File::open(path)?.read(&mut head)? < 4 || !(&head == b"II*\0" || &head == b"MM\0*") {
+        return Ok(None);
+    }
+    let mut d = tiff::decoder::Decoder::new(std::io::BufReader::new(std::fs::File::open(path)?))?.with_limits(Limits::unlimited());
+    if d.find_tag(tiff::tags::Tag::Unknown(50706))?.is_some() || d.get_chunk_type() != ChunkType::Strip {
+        return Ok(None);
+    }
+    let (sw, sh) = d.dimensions()?;
+    let (channels, depth) = match d.colortype()? {
+        tiff::ColorType::Gray(8) => (1u8, 8u8),
+        tiff::ColorType::Gray(16) => (1, 16),
+        tiff::ColorType::RGB(8) => (3, 8),
+        tiff::ColorType::RGB(16) => (3, 16),
+        tiff::ColorType::RGBA(8) => (4, 8),
+        tiff::ColorType::RGBA(16) => (4, 16),
+        _ => return Ok(None),
+    };
+    let (x1, y1) = (x0.saturating_add(w).min(sw), y0.saturating_add(h).min(sh));
+    if x0 >= x1 || y0 >= y1 {
+        return Ok(Some(FrameBuf::new(0, Some(0), depth, channels)));
+    }
+    let mut out = FrameBuf::new(x1 - x0, Some(y1 - y0), depth, channels);
+    let mut first_row = 0u32;
+    for i in 0..d.strip_count()? {
+        let (_, rows) = d.chunk_data_dimensions(i);
+        let (s0, s1) = (first_row, first_row + rows);
+        first_row = s1;
+        if s1 <= y0 {
+            continue;
+        }
+        if s0 >= y1 {
+            break;
+        }
+        let samples: Vec<u16> = match d.read_chunk(i)? {
+            DecodingResult::U8(v) => v.into_iter().map(u16::from).collect(),
+            DecodingResult::U16(v) => v,
+            _ => return Ok(None),
+        };
+        let per_row = sw as usize * channels as usize;
+        for y in s0.max(y0)..s1.min(y1) {
+            let row = &samples[(y - s0) as usize * per_row..][..per_row];
+            let part = &row[x0 as usize * channels as usize..x1 as usize * channels as usize];
+            if depth == 16 {
+                out.append(&part.iter().flat_map(|v| v.to_ne_bytes()).collect::<Vec<u8>>());
+            } else {
+                out.append(&part.iter().map(|v| *v as u8).collect::<Vec<u8>>());
+            }
+        }
+    }
+    Ok(Some(out))
 }
 
 /// `dir/name-ir.pgm` for `dir/name.pnm`, if it exists.
@@ -373,6 +442,41 @@ mod tests {
             assert_eq!((streamed.width, streamed.height, streamed.factor), (whole.width, whole.height, whole.factor), "{channels}x{depth}");
             let worst = streamed.pixels.iter().zip(&whole.pixels).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
             assert!(worst < 1e-5, "{channels}x{depth}: {worst}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A block read from the strips of a TIFF is the block of the whole frame.
+    #[test]
+    fn a_region_read_from_strips_equals_the_crop_of_the_whole_frame() {
+        let dir = scratch("region");
+        for (channels, depth, w, h) in [(3u8, 16u8, 130u32, 100u32), (4, 16, 70, 90), (1, 8, 53, 41)] {
+            let mut buf = FrameBuf::new(w, Some(h), depth, channels);
+            for i in 0..(w * h * channels as u32) {
+                let v = i.wrapping_mul(2654435761) >> 9;
+                if depth == 16 { buf.append(&(v as u16).to_ne_bytes()) } else { buf.append(&[v as u8]) }
+            }
+            let path = dir.join(format!("r{channels}x{depth}.tif"));
+            if channels == 4 {
+                // Four channels: the colour plus an infrared plane, as the app writes them.
+                let (mut rgb, mut ir) = (FrameBuf::new(w, Some(h), depth, 3), FrameBuf::new(w, Some(h), depth, 1));
+                for i in 0..w * h {
+                    let v = i.wrapping_mul(2654435761) >> 9;
+                    for c in 0..3u32 { rgb.append(&(v.wrapping_add(c) as u16).to_ne_bytes()) }
+                    ir.append(&((v >> 2) as u16).to_ne_bytes());
+                }
+                RawWriter::write_scan_with_ir(&rgb, Some(&ir), &path).unwrap();
+            } else {
+                RawWriter::write_scan(&buf, &path).unwrap();
+            }
+            let whole = RawReader::read(&path).unwrap();
+            for (x0, y0, bw, bh) in [(0, 0, 20, 20), (13, 37, 31, 29), (w - 10, h - 5, 50, 50), (5, 33, 1, 1), (0, 0, w, h)] {
+                let got = RawReader::region(&path, x0, y0, bw, bh).unwrap();
+                let want = whole.crop(x0, y0, bw, bh);
+                assert_eq!((got.width, got.effective_height(), got.channels, got.depth), (want.width, want.effective_height(), want.channels, want.depth), "{channels}x{depth} {x0},{y0}");
+                assert_eq!(got.as_bytes(), want.as_bytes(), "{channels}x{depth} block {x0},{y0} {bw}x{bh}");
+            }
+            assert_eq!(RawReader::region(&path, w + 5, 0, 10, 10).unwrap().width, 0);
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

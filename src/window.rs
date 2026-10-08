@@ -32,6 +32,20 @@ pub(crate) mod imp {
         pub dust_mode_row: RefCell<Option<adw::ComboRow>>,
         pub dust_detection_row: RefCell<Option<adw::SpinRow>>,
         pub dust_note_row: RefCell<Option<adw::ActionRow>>,
+        // ── 1:1 loupe ─────────────────────────────────────────────────────
+        pub loupe_on: Cell<bool>,
+        pub loupe_frame: RefCell<Option<gtk::Frame>>,
+        pub loupe_picture: RefCell<Option<gtk::Picture>>,
+        /// Where the pointer last was on the picture, as fractions of it.
+        pub loupe_pointer: Cell<Option<(f64, f64)>>,
+        pub loupe_timer: RefCell<Option<glib::SourceId>>,
+        pub loupe_gen: Cell<u32>,
+        /// Parameters measured for the loupe: proxy id, the params, the frozen params.
+        pub loupe_frozen: RefCell<Option<(u64, nv_process::ProcessParams, nv_process::ProcessParams)>>,
+        pub dust_method_row: RefCell<Option<adw::ComboRow>>,
+        pub dust_defect_row: RefCell<Option<adw::ComboRow>>,
+        pub usm_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow, adw::SpinRow, adw::SpinRow)>>,
+        pub noise_row: RefCell<Option<adw::ComboRow>>,
         /// Where inspector edits go: the roll's defaults or this frame.
         pub scope: Cell<Scope>,
         /// Undo history of the frames not on screen, by frame number
@@ -233,6 +247,7 @@ mod export;
 mod export_dialog;
 mod frames;
 mod history;
+mod loupe;
 mod orient;
 mod render;
 mod scan_settings;
@@ -382,6 +397,10 @@ impl Window {
             turn_box.append(&gtk::Button::builder().icon_name(icon).action_name(action).tooltip_text(tip).build());
         }
         bottom_bar.append(&turn_box);
+        let loupe_btn = gtk::ToggleButton::builder().label("1:1").tooltip_text("Loupe: the picture at the scan's resolution under the pointer").margin_start(12).build();
+        let weak = self.downgrade();
+        loupe_btn.connect_toggled(move |b| { if let Some(win) = weak.upgrade() { win.set_loupe(b.is_active()); } });
+        bottom_bar.append(&loupe_btn);
         let tool_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).build();
         let mut tool_buttons: Vec<(imp::CanvasTool, gtk::ToggleButton)> = Vec::new();
         for (tool, label, tip) in [
@@ -472,7 +491,13 @@ impl Window {
             .orientation(gtk::Orientation::Vertical)
             .build();
         canvas_box.append(&advance_banner);
-        canvas_box.append(&canvas_scroll);
+        let loupe = self.build_loupe();
+        let viewport_overlay = gtk::Overlay::new();
+        viewport_overlay.set_child(Some(&canvas_scroll));
+        viewport_overlay.add_overlay(&loupe);
+        viewport_overlay.set_vexpand(true);
+        *self.imp().loupe_frame.borrow_mut() = Some(loupe);
+        canvas_box.append(&viewport_overlay);
 
         let main_stack = gtk::Stack::new();
         main_stack.add_named(&no_scanner, Some("no-scanner"));
@@ -597,6 +622,7 @@ impl Window {
         *self.imp().next_frame_btn.borrow_mut() = Some(next_frame_btn.clone());
         *self.imp().frame_overlay.borrow_mut() = Some(frame_overlay.clone());
         self.setup_frame_overlay(&frame_overlay);
+        self.setup_loupe_pointer(&frame_overlay);
         *self.imp().frame_list.borrow_mut() = Some(frame_list.clone());
         *self.imp().toast_overlay.borrow_mut() = Some(toast_overlay);
         *self.imp().header_title.borrow_mut() = Some(title_widget);
@@ -964,19 +990,65 @@ impl Window {
             .build();
         let dust_note_row = adw::ActionRow::builder().title("Infrared").subtitle("This scan has no infrared plane").build();
         dust_note_row.add_css_class("property");
+        let dust_method_row = adw::ComboRow::builder()
+            .title("Method")
+            .subtitle("Infrared needs the infrared plane; software looks for specks in the picture itself")
+            .model(&gtk::StringList::new(&["Infrared", "Software"]))
+            .build();
+        let dust_defect_row = adw::ComboRow::builder()
+            .title("Defect Type")
+            .subtitle("Dust on the film is dark in the scan")
+            .model(&gtk::StringList::new(&["Dark", "Bright", "Both"]))
+            .visible(false)
+            .build();
         dust_group.add(&dust_mode_row);
+        dust_group.add(&dust_method_row);
+        dust_group.add(&dust_defect_row);
         dust_group.add(&dust_detection_row);
         dust_group.add(&dust_note_row);
         detail_page.add(&dust_group);
+
+        let sharp_group = adw::PreferencesGroup::builder().title("Sharpening").description("Unsharp mask, on brightness only").build();
+        let usm_on = adw::SwitchRow::builder().title("Unsharp Mask").build();
+        let usm_amount = adw::SpinRow::builder().title("Amount").subtitle("Percent").adjustment(&gtk::Adjustment::new(150.0, 0.0, 500.0, 10.0, 50.0, 0.0)).build();
+        let usm_radius = adw::SpinRow::builder().title("Radius").subtitle("Pixels of the finished picture").adjustment(&gtk::Adjustment::new(1.4, 0.3, 10.0, 0.1, 0.5, 0.0)).digits(1).build();
+        let usm_threshold = adw::SpinRow::builder().title("Threshold").subtitle("Leave differences smaller than this alone").adjustment(&gtk::Adjustment::new(0.0, 0.0, 50.0, 1.0, 5.0, 0.0)).build();
+        for r in [usm_on.upcast_ref::<gtk::Widget>(), usm_amount.upcast_ref(), usm_radius.upcast_ref(), usm_threshold.upcast_ref()] {
+            sharp_group.add(r);
+        }
+        detail_page.add(&sharp_group);
+
+        let noise_group = adw::PreferencesGroup::builder().title("Grain and Noise").build();
+        let noise_row = adw::ComboRow::builder()
+            .title("Reduction")
+            .subtitle("Shown at 1:1 and applied in exports; too slow for the whole-frame preview")
+            .model(&gtk::StringList::new(&["Off", "Light", "Medium", "Strong"]))
+            .build();
+        noise_group.add(&noise_row);
+        detail_page.add(&noise_group);
         let detail_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&detail_page).build();
         insp_stack.add_titled(&detail_scroll, Some("detail"), "Detail");
         *self.imp().dust_mode_row.borrow_mut() = Some(dust_mode_row.clone());
         *self.imp().dust_detection_row.borrow_mut() = Some(dust_detection_row.clone());
         *self.imp().dust_note_row.borrow_mut() = Some(dust_note_row.clone());
+        *self.imp().dust_method_row.borrow_mut() = Some(dust_method_row.clone());
+        *self.imp().dust_defect_row.borrow_mut() = Some(dust_defect_row.clone());
+        *self.imp().usm_rows.borrow_mut() = Some((usm_on.clone(), usm_amount.clone(), usm_radius.clone(), usm_threshold.clone()));
+        *self.imp().noise_row.borrow_mut() = Some(noise_row.clone());
         let weak = self.downgrade();
         dust_mode_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
         let weak = self.downgrade();
         dust_detection_row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        for row in [&dust_method_row, &dust_defect_row, &noise_row] {
+            let weak = self.downgrade();
+            row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.update_dust_availability(); win.on_params_changed(); } });
+        }
+        let weak = self.downgrade();
+        usm_on.connect_active_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        for row in [&usm_amount, &usm_radius, &usm_threshold] {
+            let weak = self.downgrade();
+            row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        }
 
         insp_stack.add_titled(&self.build_scan_page(), Some("scan"), "Scan");
         inspector_box.append(&switcher);
@@ -1105,6 +1177,23 @@ impl Window {
             _ => nv_process::DustMode::Correct,
         };
         let dust_detection = self.imp().dust_detection_row.borrow().as_ref()?.value() as u8;
+        let dust_method = if self.imp().dust_method_row.borrow().as_ref()?.selected() == 1 { nv_process::DustMethod::Software } else { nv_process::DustMethod::Infrared };
+        let dust_defect = match self.imp().dust_defect_row.borrow().as_ref()?.selected() {
+            1 => nv_process::DefectType::Bright,
+            2 => nv_process::DefectType::Both,
+            _ => nv_process::DefectType::Dark,
+        };
+        let (usm_enabled, usm_amount, usm_radius, usm_threshold) = {
+            let rows = self.imp().usm_rows.borrow();
+            let (on, a, r, t) = rows.as_ref()?;
+            (on.is_active(), a.value() as f32, r.value() as f32, t.value() as u8)
+        };
+        let noise = match self.imp().noise_row.borrow().as_ref()?.selected() {
+            1 => nv_process::NoiseLevel::Light,
+            2 => nv_process::NoiseLevel::Medium,
+            3 => nv_process::NoiseLevel::Strong,
+            _ => nv_process::NoiseLevel::Off,
+        };
         let balance = {
             let rows = self.imp().balance_rows.borrow();
             if rows.len() != 3 { return None; }
@@ -1121,6 +1210,10 @@ impl Window {
         p.conversion.cast_removal = cast_removal;
         p.dust.mode = dust_mode;
         p.dust.detection = dust_detection;
+        p.dust.method = dust_method;
+        p.dust.defect = dust_defect;
+        p.detail.usm = nv_process::UsmParams { enabled: usm_enabled, amount: usm_amount, radius: usm_radius, threshold: usm_threshold };
+        p.detail.noise = noise;
         p.tone = ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast, balance, ..p.tone.clone() };
         Some(p)
     }
@@ -1161,6 +1254,19 @@ impl Window {
             r.set_selected(match params.dust.mode { nv_process::DustMode::Off => 0, nv_process::DustMode::Correct => 1, nv_process::DustMode::Mark => 2 });
         }
         if let Some(r) = self.imp().dust_detection_row.borrow().as_ref() { r.set_value(params.dust.detection as f64); }
+        if let Some(r) = self.imp().dust_method_row.borrow().as_ref() { r.set_selected(u32::from(params.dust.method == nv_process::DustMethod::Software)); }
+        if let Some(r) = self.imp().dust_defect_row.borrow().as_ref() {
+            r.set_selected(match params.dust.defect { nv_process::DefectType::Dark => 0, nv_process::DefectType::Bright => 1, nv_process::DefectType::Both => 2 });
+        }
+        if let Some((on, a, r, t)) = self.imp().usm_rows.borrow().as_ref() {
+            on.set_active(params.detail.usm.enabled);
+            a.set_value(params.detail.usm.amount as f64);
+            r.set_value(params.detail.usm.radius as f64);
+            t.set_value(params.detail.usm.threshold as f64);
+        }
+        if let Some(r) = self.imp().noise_row.borrow().as_ref() {
+            r.set_selected(match params.detail.noise { nv_process::NoiseLevel::Off => 0, nv_process::NoiseLevel::Light => 1, nv_process::NoiseLevel::Medium => 2, nv_process::NoiseLevel::Strong => 3 });
+        }
         for (row, v) in self.imp().balance_rows.borrow().iter().zip(params.tone.balance) {
             row.set_value(v as f64);
         }
@@ -1802,6 +1908,7 @@ impl Window {
     // ── Film base auto-estimation ─────────────────────────────────────────────
     // ── Canvas ────────────────────────────────────────────────────────────────
     fn refresh_canvas(&self) {
+        self.schedule_loupe();
         // A finished scan renders from the proxy, in the background.
         if self.imp().film_base_ready.get() && self.imp().proxy.borrow().is_some() {
             self.request_render();

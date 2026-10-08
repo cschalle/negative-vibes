@@ -1068,10 +1068,34 @@ within 1% of samples by more than 8 levels (it cannot be exact: each tile measur
 lamp surface and noise). On the tulip at default sensitivity it finds 114 marks over 0.8%
 of the picture (24 at 6, 271 at 20); the large specks, hairs and scratches go, but the fine
 white sparkle of this film, which is not in the infrared plane, stays. The cleaned golden
-images were regenerated. Not yet: bright defects (scratches are bright in the infrared),
-the mark colour preference, include/exclude brush masks, patch-based repair for large
-marks, IR/colour alignment when a scanner does not deliver them registered, SRDx (software
-dust for silver B&W), unsharp mask, GANE, AACO, and the 1:1 and HQ previews.
+images were regenerated. **M5 status, second slice: detail, software dust, loupe.** *Stage 7 detail* (`nv-process::detail`):
+unsharp mask (amount, radius in pixels of the finished picture, threshold in 8-bit levels,
+on luminance of the sRGB-encoded picture, colour untouched) and grain and noise reduction
+(non-local means, Light / Medium / Strong, on luminance and, harder, on colour
+differences; done offset by offset with a box filter over the difference image, so it is
+a few passes over the picture, not a loop per pixel). Noise reduction is left out of the
+whole-frame preview (`Quality::Preview`) and applied at 1:1 and in exports; the USM radius
+shrinks with a proxy's reduction and does nothing below a third of a pixel. Tiles render
+with a margin sized by what is on (dust 24 px, USM three radii, NLM 5 px), and tiles with
+detail on join the whole-picture render to within 1e-4. **Software dust (SRDx):**
+`DustMethod::Software` finds small specks in the picture itself with a morphological
+top-hat on log transmission (dark, bright or both), keeps only compact marks (a long thin
+mark is the picture's own detail: a rim, a hair of a glass), and uses the same mark
+filtering and repair as the infrared path. On the silver B&W negative it still marks some
+of the sunglass reflections and glass highlights at the default, which is its known limit
+and why B&W stays Off by default and why brush masks matter. **Infrared:** bright defects
+(an emulsion scratch is bright in the plane) are found when Defect Type is Bright or Both;
+Mark's colour is a preference. **The 1:1 loupe:** a toggle in the bottom bar shows 360 × 360
+pixels of the picture at the scan's own resolution around the pointer, with every filter at
+full quality, rendered off the UI thread after the pointer rests; a big scan is read from
+disk for just that block (`RawReader::region`, a few strips), and the block equals the same
+place on the whole picture to within one level, upright or turned. **Cost** on a synthetic
+7200 dpi frame, release, 16 threads: a 16-bit Deflate export with sharpening and Medium
+noise reduction takes 19 s (3.6 s without), peaking 425 MB above the raw. Still not done:
+include/exclude brush masks (strokes stored per frame and rasterised at any resolution),
+patch-based repair for large marks (the fill is smooth), correction of infrared that is not
+registered with the colour (the 8200i's is), AACO, and a whole-viewport HQ preview beyond the
+loupe.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

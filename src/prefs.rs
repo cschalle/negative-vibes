@@ -17,11 +17,13 @@ pub struct Prefs {
     pub export: ExportSettings,
     /// Scan resolution a new roll starts with.
     pub scan_dpi: u32,
+    /// Colour dust is painted in by Mark mode, as sRGB values (F§6).
+    pub mark_colour: [f32; 3],
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { export: ExportSettings::default(), scan_dpi: DEFAULT_DPI }
+        Self { export: ExportSettings::default(), scan_dpi: DEFAULT_DPI, mark_colour: [1.0, 0.0, 1.0] }
     }
 }
 
@@ -72,6 +74,7 @@ mod tests {
         let p = Prefs {
             export: ExportSettings { template: "{date}-{frame}".into(), after_scan: false, ..Default::default() },
             scan_dpi: 3600,
+            mark_colour: [0.0, 0.8, 0.2],
         };
         p.save_to(&file).unwrap();
         assert_eq!(Prefs::load_from(&file), p);

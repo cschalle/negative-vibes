@@ -64,6 +64,23 @@ impl FrameBuf {
         self.height.unwrap_or_else(|| self.rows_available())
     }
 
+    /// The `w × h` block at `(x0, y0)` as a frame of its own, clipped to this
+    /// one. Empty when the block lies outside it.
+    pub fn crop(&self, x0: u32, y0: u32, w: u32, h: u32) -> FrameBuf {
+        let (sw, sh) = (self.width, self.rows_available().min(self.effective_height()));
+        let (x1, y1) = (x0.saturating_add(w).min(sw), y0.saturating_add(h).min(sh));
+        if x0 >= x1 || y0 >= y1 {
+            return FrameBuf::new(0, Some(0), self.depth, self.channels);
+        }
+        let px = self.channels as usize * (self.depth as usize / 8);
+        let mut out = FrameBuf::new(x1 - x0, Some(y1 - y0), self.depth, self.channels);
+        for y in y0..y1 {
+            let start = y as usize * self.bytes_per_row + x0 as usize * px;
+            out.append(&self.data[start..start + (x1 - x0) as usize * px]);
+        }
+        out
+    }
+
     /// A small RGBA8 copy for list thumbnails, longest side `max_side`.
     ///
     /// `region` is `[x0, y0, x1, y1]` as fractions of the image (a frame's
@@ -200,6 +217,23 @@ mod tests {
     fn reads_past_the_end_are_zero() {
         assert_eq!(read_sample(&[0x01], 0, 2), 0);
         assert_eq!(read_sample(&[], 0, 1), 0);
+    }
+
+    // ── crop ──
+
+    #[test]
+    fn a_crop_is_the_block_and_is_clipped_to_the_frame() {
+        let mut b = FrameBuf::with_stride(4, Some(3), 8, 2, 10); // padded rows
+        for y in 0..3u8 {
+            b.append(&[y * 10, y * 10 + 1, y * 10 + 2, y * 10 + 3, y * 10 + 4, y * 10 + 5, y * 10 + 6, y * 10 + 7, 99, 99]);
+        }
+        let c = b.crop(1, 1, 2, 2);
+        assert_eq!((c.width, c.effective_height(), c.channels), (2, 2, 2));
+        assert_eq!(c.as_bytes(), &[12, 13, 14, 15, 22, 23, 24, 25]);
+        let edge = b.crop(3, 2, 10, 10);
+        assert_eq!((edge.width, edge.effective_height()), (1, 1));
+        assert_eq!(edge.as_bytes(), &[26, 27]);
+        assert_eq!(b.crop(9, 9, 2, 2).width, 0);
     }
 
     // ── thumbnails ──
