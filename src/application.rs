@@ -53,6 +53,10 @@ mod imp {
             app.set_accels_for_action("win.delete-frame", &["Delete"]);
             app.set_accels_for_action("win.duplicate-frame", &["<Ctrl>d"]);
             window.present();
+            if window.should_show_guide() {
+                let w = window.clone();
+                glib::idle_add_local_once(move || gio::prelude::ActionGroupExt::activate_action(&w, "guided", None));
+            }
 
             self.pump_events();
 

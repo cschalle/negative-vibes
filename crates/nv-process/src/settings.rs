@@ -165,6 +165,35 @@ impl Settings {
     }
 }
 
+/// The three looks the guided flow offers after the automatic one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Look {
+    Lighter,
+    Neutral,
+    Warmer,
+}
+
+impl Look {
+    pub const ALL: [Look; 3] = [Look::Lighter, Look::Neutral, Look::Warmer];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Look::Lighter => "Lighter",
+            Look::Neutral => "Neutral",
+            Look::Warmer => "Warmer",
+        }
+    }
+
+    /// What this look changes, on top of the automatic conversion.
+    pub fn settings(self) -> Settings {
+        match self {
+            Look::Lighter => Settings { exposure: Some(0.4), ..Default::default() },
+            Look::Neutral => Settings { exposure: Some(0.0), balance: Some([1.0, 1.0, 1.0]), ..Default::default() },
+            Look::Warmer => Settings { balance: Some([1.06, 1.0, 0.93]), ..Default::default() },
+        }
+    }
+}
+
 /// Default tone, for resets.
 pub fn default_tone() -> ToneParams {
     ToneParams::default()
@@ -231,6 +260,18 @@ mod tests {
         let back: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
         assert!(serde_json::from_str::<Settings>("{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn looks_change_what_they_say_and_neutral_undoes_the_others() {
+        let mut p = base();
+        let plain = p.clone();
+        Look::Lighter.settings().apply_to(&mut p);
+        assert!(p.conversion.exposure > plain.conversion.exposure);
+        Look::Warmer.settings().apply_to(&mut p);
+        assert!(p.tone.balance[0] > p.tone.balance[2]);
+        Look::Neutral.settings().apply_to(&mut p);
+        assert_eq!((p.conversion.exposure, p.tone.balance), (plain.conversion.exposure, plain.tone.balance));
     }
 
     #[test]

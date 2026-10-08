@@ -19,11 +19,13 @@ pub struct Prefs {
     pub scan_dpi: u32,
     /// Colour dust is painted in by Mark mode, as sRGB values (F§6).
     pub mark_colour: [f32; 3],
+    /// Open the Scan a Roll guide when the app starts (for newcomers).
+    pub guided_on_start: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { export: ExportSettings::default(), scan_dpi: DEFAULT_DPI, mark_colour: [1.0, 0.0, 1.0] }
+        Self { export: ExportSettings::default(), scan_dpi: DEFAULT_DPI, mark_colour: [1.0, 0.0, 1.0], guided_on_start: true }
     }
 }
 

@@ -88,6 +88,62 @@ impl OutputSize {
     }
 }
 
+/// What the scans are for (the guided flow's second step): each sets the
+/// resolution and the export settings that suit it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    /// The best the scanner gives, kept as a 16-bit master.
+    Archive,
+    /// Small enough for the web and social media.
+    Share,
+    /// Enough for a large print.
+    Print,
+}
+
+impl Purpose {
+    pub const ALL: [Purpose; 3] = [Purpose::Archive, Purpose::Share, Purpose::Print];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Purpose::Archive => "Archive",
+            Purpose::Share => "Share",
+            Purpose::Print => "Print",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Purpose::Archive => "Highest resolution, 16-bit TIFF in Adobe RGB, plus the raw scan",
+            Purpose::Share => "JPEG in sRGB, 3000 pixels on the long side",
+            Purpose::Print => "16-bit TIFF in Adobe RGB at 2400 dpi, enough for a large print",
+        }
+    }
+
+    /// The scan resolution wanted, before it is fitted to what the scanner offers.
+    pub fn dpi(self) -> u32 {
+        match self {
+            Purpose::Archive => 3600,
+            Purpose::Share | Purpose::Print => 2400,
+        }
+    }
+
+    /// Change `s` to suit this purpose; the folder, naming and metadata stay.
+    pub fn apply(self, s: &mut ExportSettings) {
+        let base = ExportSettings::default();
+        let (format, bit_depth, compression, jpeg_quality, colour_space, size) = match self {
+            Purpose::Archive => (ExportFormat::Tiff, 16, Compression::Deflate, base.jpeg_quality, ColourSpace::AdobeRgb, OutputSize::Original),
+            Purpose::Share => (ExportFormat::Jpeg, 8, base.compression, 90, ColourSpace::Srgb, OutputSize::LongEdge { pixels: 3000 }),
+            Purpose::Print => (ExportFormat::Tiff, 16, Compression::Lzw, base.jpeg_quality, ColourSpace::AdobeRgb, OutputSize::Original),
+        };
+        s.format = format;
+        s.bit_depth = bit_depth;
+        s.compression = compression;
+        s.jpeg_quality = jpeg_quality;
+        s.colour_space = colour_space;
+        s.size = size;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ExportSettings {
@@ -153,6 +209,29 @@ impl ExportSettings {
             ("Share", ExportSettings { format: ExportFormat::Jpeg, bit_depth: 8, jpeg_quality: 90, colour_space: ColourSpace::Srgb, ..Default::default() }),
             ("Print", ExportSettings { format: ExportFormat::Tiff, bit_depth: 8, compression: Compression::Lzw, colour_space: ColourSpace::AdobeRgb, ..Default::default() }),
         ]
+    }
+}
+
+#[cfg(test)]
+mod purpose_tests {
+    use super::*;
+
+    #[test]
+    fn each_purpose_sets_a_distinct_valid_export_and_leaves_the_rest() {
+        let mut seen = Vec::new();
+        for p in Purpose::ALL {
+            let mut s = ExportSettings { folder: Some("/x".into()), template: "{frame}".into(), embed_metadata: false, ..Default::default() };
+            p.apply(&mut s);
+            assert_eq!(s, s.normalised(), "{} must already be a valid setting", p.name());
+            assert_eq!((s.folder.as_deref(), s.template.as_str(), s.embed_metadata), (Some(std::path::Path::new("/x")), "{frame}", false));
+            assert!(p.dpi() >= 600 && !p.description().is_empty());
+            seen.push((s.format, s.bit_depth, s.colour_space, s.size));
+        }
+        seen.dedup();
+        assert_eq!(seen.len(), 3);
+        let mut share = ExportSettings::default();
+        Purpose::Share.apply(&mut share);
+        assert_eq!((share.format, share.bit_depth, share.size.dims(5000, 3000)), (ExportFormat::Jpeg, 8, (3000, 1800)));
     }
 }
 

@@ -1242,6 +1242,23 @@ IPTC-IIM block and EXIF tags in JPEG (XMP is what current software reads), and p
 overrides beyond the label. Also fixed in this slice: the DNG choice in the Export dialog
 could not be selected (the format index was capped at PNG).
 
+**M7 status, third slice: the guided flow.** *Scan a Roll* (main menu; opens at start while
+"Show the Scan a Roll Guide at Start" is on, in the guide and in Preferences; never in the
+headless modes) is a six-step window that stays beside the main window and drives the same
+actions: **Film** (type including Kodachrome, a stock from the profiles that suit the type,
+number of frames; sets the roll's image type, profile and film stock), **Purpose** (Archive,
+Share, Print or Custom, from `nv_export::Purpose`: each sets the scan resolution, fitted to
+the steps the scanner offers, and format, depth, compression, colour space and size, and turns
+export-after-scan on), **Preview** (starts the preview and waits for frames), **Look**
+(three rendered thumbnails, Lighter, Neutral and Warmer, from `nv_process::Look`; picking
+one sets it on the roll), **Scan** (Scan All, with the manual-advance banner doing the
+prompting on one-frame scanners; Finish enables once a frame is scanned) and **Done** (counts,
+Open Folder, Scan Another Roll). The pure parts (purposes, looks, resolution fitting, stock
+lists, the reduced proxy) are tested; the window itself has been started but not clicked
+through, and the preview and scan steps need the scanner. Opening the app prints about two
+dozen GTK allocation warnings (negative sizes) with or without the guide; they were there
+before this slice and have not been chased down.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

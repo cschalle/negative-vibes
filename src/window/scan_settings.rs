@@ -47,7 +47,7 @@ impl Window {
         self.imp().device_ir.get() && self.imp().roll.borrow().as_ref().and_then(|r| r.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get())
     }
 
-    fn resolutions(&self) -> Vec<u32> {
+    pub(super) fn resolutions(&self) -> Vec<u32> {
         let r = self.imp().device_resolutions.borrow().clone();
         if r.is_empty() { FALLBACK_DPI.to_vec() } else { r }
     }
@@ -194,6 +194,15 @@ impl Window {
         let page = adw::PreferencesPage::builder().title("General").icon_name("preferences-system-symbolic").build();
 
         let scanning = adw::PreferencesGroup::builder().title("Scanning").description("What a new roll starts with").build();
+        let guide = adw::SwitchRow::builder().title("Show the Scan a Roll Guide at Start").subtitle("A step-by-step way to scan a roll; also in the main menu").active(prefs.guided_on_start).build();
+        {
+            let save = save.clone();
+            guide.connect_active_notify(move |r| {
+                let on = r.is_active();
+                save(&|p| p.guided_on_start = on);
+            });
+        }
+        scanning.add(&guide);
         let list = self.resolutions();
         let labels: Vec<String> = list.iter().map(|d| dpi_label(*d)).collect();
         let res = adw::ComboRow::builder().title("Scan Resolution").model(&gtk::StringList::new(&labels.iter().map(String::as_str).collect::<Vec<_>>())).build();

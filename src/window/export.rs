@@ -92,6 +92,15 @@ impl Window {
             self.add_action(&action);
         }
 
+        let guided = gio::SimpleAction::new("guided", None);
+        let weak = self.downgrade();
+        guided.connect_activate(move |_, _| {
+            if let Some(win) = weak.upgrade() {
+                win.open_guided();
+            }
+        });
+        self.add_action(&guided);
+
         let metadata = gio::SimpleAction::new("metadata", None);
         let weak = self.downgrade();
         metadata.connect_activate(move |_, _| {

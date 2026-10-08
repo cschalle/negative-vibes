@@ -18,7 +18,7 @@ mod tone;
 pub use histogram::Histogram;
 pub use analysis::{analyse_frame, analysis_fields, roll_analysis, FrameAnalysis};
 pub use params::{ImageType, ProcessParams};
-pub use settings::Settings;
+pub use settings::{Look, Settings};
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
 pub use input::InputProfile;

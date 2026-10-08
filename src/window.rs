@@ -113,6 +113,7 @@ pub(crate) mod imp {
         pub wheel_area: RefCell<Option<gtk::DrawingArea>>,
         pub wheel_region: Cell<usize>,
         pub film_profiles: RefCell<Vec<nv_film::FilmProfile>>,
+        pub guide: RefCell<Option<adw::Window>>,
         pub scanner_profile_row: RefCell<Option<adw::ComboRow>>,
         pub navigator_area: RefCell<Option<gtk::DrawingArea>>,
         pub densi_on: Cell<bool>,
@@ -272,6 +273,7 @@ mod batch;
 mod calibrate_ui;
 mod colour_ui;
 mod film_ui;
+mod guided_ui;
 mod export;
 mod export_dialog;
 mod frames;
@@ -354,6 +356,7 @@ impl Window {
         let queue_btn = self.build_queue_button();
 
         let main_menu = gio::Menu::new();
+        main_menu.append(Some("Scan a Roll…"), Some("win.guided"));
         main_menu.append(Some("Metadata…"), Some("win.metadata"));
         main_menu.append(Some("Calibrate with IT8 Target…"), Some("win.calibrate"));
         let film_menu = gio::Menu::new();
