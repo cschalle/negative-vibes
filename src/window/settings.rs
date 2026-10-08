@@ -98,12 +98,15 @@ impl Window {
         let has_ir = imp.proxy.borrow().as_ref().is_some_and(|p| p.ir.is_some());
         let software = imp.dust_method_row.borrow().as_ref().is_some_and(|r| r.selected() == 1);
         // Software detection works on any scan; infrared needs the plane.
-        let usable = has_ir || software;
+        let kodachrome = imp.proc_params.borrow().as_ref().is_some_and(|p| p.image_type == nv_process::params::ImageType::Kodachrome);
+        // Kodachrome's dyes block infrared, so the plane cannot show its dust.
+        let usable = (has_ir && !kodachrome) || software;
         for r in [imp.dust_mode_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone()), imp.dust_detection_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone())].into_iter().flatten() {
             r.set_sensitive(usable);
         }
         if let Some(n) = imp.dust_note_row.borrow().as_ref() {
-            n.set_visible(!has_ir && !software);
+            n.set_subtitle(if kodachrome { "Kodachrome blocks infrared like the picture, so use the software method" } else { "This scan has no infrared plane" });
+            n.set_visible((!has_ir || kodachrome) && !software);
         }
         if let Some(d) = imp.dust_defect_row.borrow().as_ref() {
             d.set_visible(software);

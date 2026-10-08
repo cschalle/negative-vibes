@@ -29,6 +29,52 @@ impl Window {
         }
     }
 
+    /// The fine straightening of frame `idx`, in degrees clockwise.
+    pub(super) fn angle_of(&self, idx: u32) -> f32 {
+        self.imp().roll.borrow().as_ref().and_then(|r| r.frame(idx)).map_or(0.0, |f| f.geometry.angle)
+    }
+
+    /// The straightening of the picture on the canvas.
+    pub(super) fn angle(&self) -> f32 {
+        match *self.imp().selected_frame.borrow() {
+            Some(idx) if self.imp().roll.borrow().as_ref().is_some_and(|r| r.frame(idx).is_some()) => self.angle_of(idx),
+            _ => self.imp().loose_angle.get(),
+        }
+    }
+
+    pub(super) fn set_angle(&self, degrees: f32) {
+        let imp = self.imp();
+        let degrees = degrees.clamp(-nv_process::straighten::MAX_ANGLE, nv_process::straighten::MAX_ANGLE);
+        match *imp.selected_frame.borrow() {
+            Some(idx) if imp.roll.borrow().as_ref().is_some_and(|r| r.frame(idx).is_some()) => {
+                if let Some(f) = imp.roll.borrow_mut().as_mut().and_then(|r| r.frame_mut(idx)) {
+                    f.geometry.angle = degrees;
+                }
+                self.schedule_autosave();
+                self.spawn_thumbnails(vec![idx]);
+            }
+            _ => imp.loose_angle.set(degrees),
+        }
+        self.refresh_canvas();
+        self.schedule_hq();
+    }
+
+    /// A point of the picture as shown, as a point of the oriented scan.
+    pub(super) fn unstraighten(&self, fx: f64, fy: f64) -> (f64, f64) {
+        match self.canvas_image_size() {
+            Some(size) => nv_process::straighten::display_to_picture(self.angle(), size, fx, fy),
+            None => (fx, fy),
+        }
+    }
+
+    /// The inverse of [`unstraighten`](Self::unstraighten).
+    pub(super) fn straighten_point(&self, px: f64, py: f64) -> (f64, f64) {
+        match self.canvas_image_size() {
+            Some(size) => nv_process::straighten::picture_to_display(self.angle(), size, px, py),
+            None => (px, py),
+        }
+    }
+
     /// Whether there is a picture on the canvas.
     pub(super) fn has_image(&self) -> bool {
         self.imp().scan_buf.borrow().is_some() || self.imp().scan_dims.get().is_some()

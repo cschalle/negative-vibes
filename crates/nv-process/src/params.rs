@@ -11,6 +11,16 @@ pub enum ImageType {
     ColourNegative,
     BwNegative,
     Positive,
+    /// Kodachrome slides: the positive path, but its dyes are not transparent
+    /// to infrared, so the infrared channel cannot find its dust (F§3).
+    Kodachrome,
+}
+
+impl ImageType {
+    /// Slides, which are not inverted.
+    pub fn is_positive(self) -> bool {
+        matches!(self, ImageType::Positive | ImageType::Kodachrome)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

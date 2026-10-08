@@ -156,6 +156,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
     let image_type = match args.image_type.as_str() {
         "bw-negative" | "bw" | "grey" | "gray" => ImageType::BwNegative,
         "positive" | "slide" | "reversal" => ImageType::Positive,
+        "kodachrome" => ImageType::Kodachrome,
         _ => ImageType::ColourNegative,
     };
 

@@ -49,7 +49,7 @@ pub fn freeze(proxy: &Proxy, params: &ProcessParams) -> ProcessParams {
         }
     }
     match p.image_type {
-        ImageType::Positive => {
+        ImageType::Positive | ImageType::Kodachrome => {
             if p.conversion.positive_range.is_none() {
                 let (min, max) = conversion::positive_range(&proxy.pixels, &p);
                 p.conversion.positive_range = Some([[min[0], max[0]], [min[1], max[1]], [min[2], max[2]]]);
@@ -188,6 +188,37 @@ pub fn render_toned_region_oriented(
         }
     }
     out
+}
+
+/// [`render_toned_region_oriented`] for the picture turned by `angle_deg`
+/// ([`crate::straighten`]): the block of the straightened picture, made from
+/// just the part of the oriented picture it needs.
+#[allow(clippy::too_many_arguments)]
+pub fn render_toned_region_straightened(
+    raw: &FrameBuf,
+    frozen: &ProcessParams,
+    orientation: Orientation,
+    angle_deg: f32,
+    x0: usize,
+    y0: usize,
+    w: usize,
+    h: usize,
+    threads: usize,
+) -> Vec<f32> {
+    if angle_deg.abs() < 0.005 {
+        return render_toned_region_oriented(raw, frozen, orientation, x0, y0, w, h, threads);
+    }
+    let (pw, ph) = orientation.output_size(raw.width as usize, raw.effective_height() as usize);
+    let (x1, y1) = ((x0 + w).min(pw), (y0 + h).min(ph));
+    if x0 >= x1 || y0 >= y1 {
+        return Vec::new();
+    }
+    let block = (x0, y0, x1 - x0, y1 - y0);
+    let bounds = crate::straighten::source_bounds(angle_deg, (pw, ph), block);
+    let src = render_toned_region_oriented(raw, frozen, orientation, bounds.0, bounds.1, bounds.2, bounds.3, threads);
+    // The renderer clips to the picture, so the block it returns may be smaller than asked.
+    let bounds = (bounds.0, bounds.1, bounds.2.min(pw - bounds.0), bounds.3.min(ph - bounds.1));
+    crate::straighten::straighten_block(&src, bounds, (pw, ph), angle_deg, block, 3)
 }
 
 /// The whole of `raw`, rendered tile by tile on `threads` threads.
@@ -384,6 +415,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_straightened_region_is_the_same_block_of_the_straightened_whole() {
+        let raw = scan(1300, 900);
+        let frozen = frozen_for(&raw, 0);
+        let whole = render_toned(&Proxy::from_raw(&raw, usize::MAX), &frozen);
+        for rotation in [0u8, 1] {
+            let o = Orientation { rotation, flip_h: false, flip_v: false };
+            let (ow, oh, upright) = o.apply(&whole, 1300, 900, 3);
+            let all = crate::straighten::straighten_block(&upright, (0, 0, ow, oh), (ow, oh), 2.3, (0, 0, ow, oh), 3);
+            for (x0, y0, w, h) in [(0, 0, ow, 256.min(oh)), (300, 400, 600.min(ow - 300), 300.min(oh - 400)), (0, oh - 70, ow, 70)] {
+                let got = render_toned_region_straightened(&raw, &frozen, o, 2.3, x0, y0, w, h, 2);
+                let mut want = Vec::new();
+                for y in y0..y0 + h {
+                    want.extend_from_slice(&all[(y * ow + x0) * 3..(y * ow + x0 + w) * 3]);
+                }
+                let worst = got.iter().zip(&want).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+                assert!(worst < 1e-5, "rotation {rotation} block {x0},{y0} {w}x{h}: {worst}");
+            }
+        }
+        // No angle is the plain oriented render.
+        let o = Orientation::IDENTITY;
+        assert_eq!(render_toned_region_straightened(&raw, &frozen, o, 0.0, 10, 10, 100, 50, 1), render_toned_region_oriented(&raw, &frozen, o, 10, 10, 100, 50, 1));
     }
 
     /// Sharpening and noise reduction look at neighbours: with a margin, a

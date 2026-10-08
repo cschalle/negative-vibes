@@ -29,6 +29,7 @@ pub(super) struct Source {
     pub is_preview: bool,
     pub crop: Option<[u32; 4]>,
     pub orientation: nv_process::Orientation,
+    pub angle: f32,
 }
 
 fn now_iso() -> String {
@@ -79,10 +80,10 @@ impl Window {
         let frame = roll.as_ref()?.frame(idx)?;
         let orient = nv_process::Orientation { rotation: frame.geometry.rotation % 4, flip_h: frame.geometry.flip_h, flip_v: frame.geometry.flip_v };
         if let Some(prev) = &frame.preview {
-            Some(Source { path: self.raw_file(prev)?, is_preview: true, crop: frame.geometry.crop, orientation: orient })
+            Some(Source { path: self.raw_file(prev)?, is_preview: true, crop: frame.geometry.crop, orientation: orient, angle: frame.geometry.angle })
         } else {
             let raw = frame.raw.as_ref()?;
-            Some(Source { path: self.raw_file(&raw.filename)?, is_preview: false, crop: None, orientation: orient })
+            Some(Source { path: self.raw_file(&raw.filename)?, is_preview: false, crop: None, orientation: orient, angle: frame.geometry.angle })
         }
     }
 
@@ -360,6 +361,7 @@ impl Window {
                         proxy.thumbnail_rgba(THUMB_SIDE)
                     };
                     let (w, h, px) = src.orientation.apply(&px, w as usize, h as usize, 4);
+                    let px = nv_process::straighten::straighten_u8(&px, w, h, 4, src.angle);
                     Some((w as u32, h as u32, px))
                 })
                 .await;

@@ -31,6 +31,7 @@ impl Window {
 
     /// A point on the picture as shown (fractions of it) as a point on the scan.
     fn display_to_scan(&self, fx: f64, fy: f64) -> [f32; 2] {
+        let (fx, fy) = self.unstraighten(fx, fy);
         let p = self.orientation().rect_to_source([fx, fy, fx, fy]);
         [p[0] as f32, p[1] as f32]
     }
@@ -101,7 +102,8 @@ impl Window {
         let long = iw.max(ih) * cw / iw;
         let to_canvas = |p: &[f32; 2]| -> (f64, f64) {
             let d = o.rect_from_source([p[0] as f64, p[1] as f64, p[0] as f64, p[1] as f64]);
-            (cx + d[0] * cw, cy + d[1] * ch)
+            let (dx, dy) = self.straighten_point(d[0], d[1]);
+            (cx + dx * cw, cy + dy * ch)
         };
         let paint = |strokes: &[Stroke], (r, g, b): (f64, f64, f64), alpha: f64| {
             for s in strokes {

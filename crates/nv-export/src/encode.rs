@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use nv_image::FrameBuf;
-use nv_process::tiles::{render_toned_region_oriented, TILE};
+use nv_process::tiles::{render_toned_region_straightened, TILE};
 use nv_process::{Orientation, ProcessParams};
 
 use crate::colour::{ColourSpace, GREY_GAMMA};
@@ -176,6 +176,22 @@ pub fn export_image(
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
 ) -> Result<ExportReport, ExportError> {
+    export_image_straightened(raw, frozen, orientation, 0.0, settings, dest, progress, cancel)
+}
+
+/// [`export_image`] with the picture turned by `angle_deg` (see
+/// `nv_process::straighten`) after the orientation.
+#[allow(clippy::too_many_arguments)]
+pub fn export_image_straightened(
+    raw: &FrameBuf,
+    frozen: &ProcessParams,
+    orientation: Orientation,
+    angle_deg: f32,
+    settings: &ExportSettings,
+    dest: &Path,
+    progress: &dyn Fn(f32),
+    cancel: &AtomicBool,
+) -> Result<ExportReport, ExportError> {
     let (sw, sh) = (raw.width as usize, raw.effective_height() as usize);
     if sw == 0 || sh == 0 {
         return Err(ExportError::Empty);
@@ -186,7 +202,7 @@ pub fn export_image(
     let (w, h) = s.size.dims(pw, ph);
     let part = temp_name(dest);
 
-    let result = write_file(raw, frozen, orientation, &s, &part, (pw, ph), (w, h), progress, cancel);
+    let result = write_file(raw, frozen, orientation, angle_deg, &s, &part, (pw, ph), (w, h), progress, cancel);
     match result {
         Ok(()) => {
             std::fs::rename(&part, dest)?;
@@ -205,6 +221,7 @@ fn write_file(
     raw: &FrameBuf,
     frozen: &ProcessParams,
     orientation: Orientation,
+    angle_deg: f32,
     s: &ExportSettings,
     part: &Path,
     (pw, ph): (usize, usize),
@@ -237,7 +254,7 @@ fn write_file(
                 return Err(ExportError::Cancelled);
             }
             let rows = TILE.min(ph - y);
-            let toned = render_toned_region_oriented(raw, frozen, orientation, 0, y, pw, rows, threads);
+            let toned = render_toned_region_straightened(raw, frozen, orientation, angle_deg, 0, y, pw, rows, threads);
             let out = match scaler.as_mut() {
                 Some(d) => d.push_rows(&toned, pw),
                 None => toned,

@@ -242,4 +242,33 @@ mod pipeline_tests {
         p.input = None;
         assert_eq!(neg_with, crate::convert(&proxy, &p));
     }
+
+    /// Kodachrome converts like a slide, and never trusts the infrared plane.
+    #[test]
+    fn kodachrome_is_a_slide_that_does_not_use_infrared() {
+        let (w, h) = (96usize, 96usize);
+        let pixels: Vec<f32> = (0..w * h).flat_map(|i| { let (x, y) = ((i % w) as f32, (i / w) as f32);
+            let v = 0.45 + 0.3 * (x * 0.05).sin() * (y * 0.04).cos() + 0.1 * (x / w as f32); [v, v * 0.9, v * 0.7] }).collect();
+        // A plane with a dark spot: infrared would call it dust.
+        let mut ir: Vec<f32> = (0..w * h).map(|i| 0.9 + 0.01 * ((i as u32).wrapping_mul(2654435761) >> 24) as f32 / 128.0).collect();
+        for y in 40..44 { for x in 40..44 { ir[y * w + x] = 0.1; } }
+        let mut proxy = Proxy::new(w, h, 1, pixels);
+        proxy.ir = Some(ir);
+        let mut p = default_params_for(&builtin_profiles()[0]);
+        p.dust.align = false; // this plane is flat, with nothing to register on
+        // Mark mode paints what was found, so we can see what each type looked at.
+        p.dust.mode = crate::dust::DustMode::Mark;
+        p.dust.method = crate::dust::DustMethod::Infrared;
+        let at = (41 * w + 41) * 3;
+        let marked = |t: ImageType, method: crate::dust::DustMethod| {
+            let mut q = p.clone();
+            q.image_type = t;
+            q.dust.method = method;
+            let out = crate::render_toned_q(&proxy, &q, crate::Quality::Preview);
+            out[at..at + 3] == q.dust.mark
+        };
+        assert!(marked(ImageType::Positive, crate::dust::DustMethod::Infrared), "a slide must find dust in the plane");
+        assert!(!marked(ImageType::Kodachrome, crate::dust::DustMethod::Infrared), "Kodachrome must not trust the plane");
+        assert!(ImageType::Kodachrome.is_positive() && ImageType::Positive.is_positive() && !ImageType::ColourNegative.is_positive());
+    }
 }

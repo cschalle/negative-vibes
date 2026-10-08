@@ -100,6 +100,7 @@ impl Window {
         };
         // The pointer is on the picture as shown; the scan may be turned.
         let (fx, fy) = imp.loupe_pointer.get().unwrap_or((0.5, 0.5));
+        let (fx, fy) = self.unstraighten(fx, fy);
         let o = self.orientation();
         let p = o.rect_to_source([fx, fy, fx, fy]);
         let (cx, cy) = ((p[0] * sw as f64) as i64, (p[1] * sh as f64) as i64);
@@ -165,6 +166,7 @@ impl Window {
             return;
         }
         let Some(label) = imp.densi_label.borrow().clone() else { return };
+        let (fx, fy) = self.unstraighten(fx, fy);
         let p = self.orientation().rect_to_source([fx, fy, fx, fy]);
         let before = imp.proxy.borrow().as_ref().and_then(|px| nv_process::densitometer::sample(&px.pixels, px.width, px.height, 3, p[0], p[1], 1));
         let after = {
@@ -241,6 +243,11 @@ impl Window {
         };
         // Only where each scan pixel is at least a screen pixel: below that the
         // ordinary preview already shows more than the eye can use.
+        if self.angle().abs() >= 0.005 {
+            hide();
+            self.show_toast("The full-quality view needs the straightening set to zero");
+            return;
+        }
         let Some(z) = imp.zoom.get().filter(|z| *z >= 1.0) else {
             hide();
             self.show_toast("Zoom to 1:1 or more for the full-quality view");

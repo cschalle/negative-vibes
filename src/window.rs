@@ -102,6 +102,8 @@ pub(crate) mod imp {
         pub scan_size_row: RefCell<Option<adw::ActionRow>>,
         /// Orientation of a picture that has no frame (a loose file).
         pub loose_orientation: Cell<nv_process::Orientation>,
+        pub loose_angle: Cell<f32>,
+        pub angle_row: RefCell<Option<adw::SpinRow>>,
         /// Histogram of the picture entering the tone stage, for the levels.
         pub levels: RefCell<Option<[u32; 256]>>,
         pub levels_area: RefCell<Option<gtk::DrawingArea>>,
@@ -835,9 +837,25 @@ impl Window {
         let image_type_row = adw::ComboRow::builder()
             .title("Type")
             .build();
-        let type_model = gtk::StringList::new(&["Colour Negative", "B&W Negative", "Positive"]);
+        let type_model = gtk::StringList::new(&["Colour Negative", "B&W Negative", "Positive", "Kodachrome"]);
         image_type_row.set_model(Some(&type_model));
         image_group.add(&image_type_row);
+        let angle_row = adw::SpinRow::builder()
+            .title("Straighten")
+            .subtitle("Degrees clockwise; the picture is enlarged a little to fill the frame")
+            .digits(1)
+            .adjustment(&gtk::Adjustment::new(0.0, -(nv_process::straighten::MAX_ANGLE as f64), nv_process::straighten::MAX_ANGLE as f64, 0.1, 1.0, 0.0))
+            .build();
+        let weak = self.downgrade();
+        angle_row.connect_value_notify(move |r| {
+            if let Some(win) = weak.upgrade() {
+                if !win.imp().updating_ui.get() {
+                    win.set_angle(r.value() as f32);
+                }
+            }
+        });
+        image_group.add(&angle_row);
+        *self.imp().angle_row.borrow_mut() = Some(angle_row);
 
         let profiles = nv_film::all_profiles();
         *self.imp().film_profiles.borrow_mut() = profiles.clone();
@@ -1186,7 +1204,7 @@ impl Window {
         // ── Connect inspector signals ─────────────────────────────────────
         let win_weak = self.downgrade();
         image_type_row.connect_selected_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); win.update_dust_availability(); }
         });
         let win_weak = self.downgrade();
         profile_row.connect_selected_notify(move |_| {
@@ -1266,7 +1284,8 @@ impl Window {
             match row.selected() {
                 0 => nv_process::params::ImageType::ColourNegative,
                 1 => nv_process::params::ImageType::BwNegative,
-                _ => nv_process::params::ImageType::Positive,
+                2 => nv_process::params::ImageType::Positive,
+                _ => nv_process::params::ImageType::Kodachrome,
             }
         };
 
@@ -1358,10 +1377,14 @@ impl Window {
     fn sync_widgets(&self, params: &ProcessParams) {
         self.imp().updating_ui.set(true);
 
+        if let Some(r) = self.imp().angle_row.borrow().as_ref() {
+            r.set_value(self.angle() as f64);
+        }
         let image_type_idx = match params.image_type {
             nv_process::params::ImageType::ColourNegative => 0u32,
             nv_process::params::ImageType::BwNegative => 1,
             nv_process::params::ImageType::Positive => 2,
+            nv_process::params::ImageType::Kodachrome => 3,
         };
         if let Some(r) = self.imp().image_type_row.borrow().as_ref() {
             r.set_selected(image_type_idx);

@@ -181,7 +181,7 @@ impl Window {
             self.imp().next_export_id.set(id);
             let label = format!("Frame {idx}");
             self.imp().export_jobs.borrow_mut().push(JobInfo { id, frame: idx, label: label.clone(), state: JobState::Queued, fraction: 0.0 });
-            queue.enqueue(ExportJob { id, frame: idx, label, raw, params: self.effective_params(idx), orientation: self.orientation_of(idx), settings: settings.clone(), dir: dir.clone(), stem });
+            queue.enqueue(ExportJob { id, frame: idx, label, raw, params: self.effective_params(idx), orientation: self.orientation_of(idx), angle: self.angle_of(idx), settings: settings.clone(), dir: dir.clone(), stem });
             queued += 1;
         }
         self.refresh_queue_ui();

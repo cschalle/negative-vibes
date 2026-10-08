@@ -1191,6 +1191,24 @@ Current, Delete Current. Crosstalk cannot be told from a grey wedge and stays at
 and a wedge; the builder has not been run on a real wedge scan, and the dialog has not
 been used on screen. M6 still has fine-angle straighten and Kodachrome.
 
+**M6 status, fifth slice: straighten and Kodachrome.** *Straighten* (`nv-process::straighten`,
+Straighten row on the Conversion page, −15° to +15° in tenths, clockwise positive): the
+oriented picture is turned about its centre and enlarged by the least amount that fills the
+frame, so there are no empty corners and the size and aspect stay those of the oriented scan,
+which keeps every canvas position a fraction of the same picture. The angle lives in the
+frame's geometry (it already had the field) and is applied to the canvas, the thumbnails and
+exports; an export samples only the part of the picture each band needs, so the cost stays
+one band (tested: a straightened block equals the same block of the straightened whole, and
+the real-scan export equals the straightened 8-bit render to within 1.5 levels on average).
+Brush strokes, the loupe pointer and the densitometer map through the angle; the full-quality
+view is switched off while an angle is set, and the frame rectangle and the navigator map
+stay in unrotated terms. *Kodachrome* is a fourth image type: the positive path, but its
+dyes block infrared like the picture, so the infrared plane cannot find dust; its dust is
+always looked for in the colour (software method) and the panel says so. The scanner profile
+row is where a Kodachrome input profile goes (build one from a Kodachrome IT8 target); no
+built-in Kodachrome colour data ships, because none has been measured. M6 is complete apart
+from measured stocks and the real-hardware checks (IT8 on a real target, wedge scan).
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

@@ -83,6 +83,13 @@ impl Window {
                 (ow, oh, &oriented[..])
             }
         };
+        let straightened;
+        let rgb = if self.angle().abs() >= 0.005 {
+            straightened = nv_process::straighten::straighten_u8(&rgb[..w * h * 3], w, h, 3, self.angle());
+            &straightened[..]
+        } else {
+            rgb
+        };
         // R8G8B8 (3-byte packed) is not natively supported by most GPU
         // drivers, and GTK's conversion corrupts it on Wayland/Vulkan; R8G8B8A8
         // is universally supported.

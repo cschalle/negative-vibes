@@ -4,6 +4,7 @@ mod conversion;
 pub mod colour;
 pub mod densitometer;
 pub mod input;
+pub mod straighten;
 pub mod curves;
 pub mod detail;
 pub mod dust;
@@ -25,6 +26,7 @@ pub use colour::{ColourParams, GreyMix, GREY_PRESETS};
 pub use detail::{AacoGrid, DetailParams, NoiseLevel, Placement, Quality, UsmParams};
 pub use dust::{DefectType, DustMethod, DustMode, DustParams, Stroke};
 pub use orient::{DisplayOp, Orientation};
+pub use tiles::render_toned_region_straightened;
 pub use proxy::{Proxy, ProxyBuilder, DEFAULT_PROXY_PIXELS};
 
 use nv_image::FrameBuf;
@@ -140,6 +142,17 @@ struct Converted {
 /// negative converted. In Mark mode the pixels are untouched and the mask
 /// comes back, to be painted on the finished picture.
 fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec<u8>>) {
+    // Kodachrome's dyes block infrared as the picture does, so the plane shows
+    // the picture, not the dust: look for dust in the colour instead.
+    let kodachrome;
+    let params = if params.image_type == ImageType::Kodachrome && params.dust.method == dust::DustMethod::Infrared {
+        let mut p = params.clone();
+        p.dust.method = dust::DustMethod::Software;
+        kodachrome = p;
+        &kodachrome
+    } else {
+        params
+    };
     // Infrared detection needs the plane; software detection needs only the picture.
     let usable = params.dust.mode != dust::DustMode::Off
         && (params.dust.method == dust::DustMethod::Software || proxy.ir.is_some() || !params.dust.include.is_empty());
@@ -155,7 +168,7 @@ fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec
     let src = repaired.as_deref().unwrap_or(&proxy.pixels);
     let out = match params.image_type {
         ImageType::ColourNegative | ImageType::BwNegative => conversion::convert_negative(src, proxy.width, proxy.height, params),
-        ImageType::Positive => match &params.input {
+        ImageType::Positive | ImageType::Kodachrome => match &params.input {
             // The scanner's own colour, from its IT8 profile, before the picture is normalised.
             Some(profile) => {
                 let mut matched = src.to_vec();

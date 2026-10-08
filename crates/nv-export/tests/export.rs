@@ -424,3 +424,25 @@ fn an_export_of_a_scan_with_infrared_removes_dust() {
     let (_, _, _, undusted, _) = tiff_pixels(&export(&raw, &off, &s, &dir, "n.tif"));
     assert!(px != undusted, "the export did not remove any dust");
 }
+
+#[test]
+fn a_straightened_export_keeps_its_size_and_matches_the_straightened_render() {
+    let (raw, frozen, reference) = tulip();
+    let dir = scratch("straight");
+    let settings = ExportSettings::default();
+    let none = dir.join("none.tif");
+    nv_export::export_image_straightened(&raw, &frozen, Orientation::IDENTITY, 0.0, &settings, &none, &|_| {}, &AtomicBool::new(false)).unwrap();
+    let (_, _, _, plain, _) = tiff_pixels(&none);
+    let flat = export(&raw, &frozen, &settings, &dir, "flat.tif");
+    assert_eq!(plain, tiff_pixels(&flat).3, "no angle must be the plain export");
+
+    let turned = dir.join("turned.tif");
+    nv_export::export_image_straightened(&raw, &frozen, Orientation::IDENTITY, 2.5, &settings, &turned, &|_| {}, &AtomicBool::new(false)).unwrap();
+    let (w, h, _, px, _) = tiff_pixels(&turned);
+    assert_eq!((w, h), (864, 645), "straightening must not change the size");
+    // The same straightening of the 8-bit render, to within interpolation of 8-bit values.
+    let want = nv_process::straighten::straighten_u8(&reference, 864, 645, 3, 2.5);
+    let mean = mean_abs_diff(px.iter().map(|v| *v as f64 / 257.0), want.iter().map(|v| *v as f64));
+    assert!(mean < 1.5, "mean difference {mean} levels");
+    assert_ne!(px, plain);
+}

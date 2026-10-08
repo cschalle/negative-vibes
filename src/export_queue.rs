@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_channel::{Receiver, Sender};
-use nv_export::{export_image, unique_path, ExportReport, ExportSettings};
+use nv_export::{export_image_straightened, unique_path, ExportReport, ExportSettings};
 use nv_process::{tiles::freeze, ProcessParams, Proxy, DEFAULT_PROXY_PIXELS};
 
 /// One frame to export.
@@ -25,6 +25,8 @@ pub struct ExportJob {
     pub params: ProcessParams,
     /// The frame's rotation and flips.
     pub orientation: nv_process::Orientation,
+    /// Fine straightening, degrees clockwise.
+    pub angle: f32,
     pub settings: ExportSettings,
     /// Folder (created if missing) and file name without extension.
     pub dir: PathBuf,
@@ -138,7 +140,7 @@ fn run(job: &ExportJob, events: &Sender<ExportEvent>, cancel: &AtomicBool) -> Re
             let _ = events.send_blocking(ExportEvent::Progress { id, fraction: f });
         }
     };
-    export_image(&raw, &frozen, job.orientation, &job.settings, &dest, &progress, cancel)
+    export_image_straightened(&raw, &frozen, job.orientation, job.angle, &job.settings, &dest, &progress, cancel)
 }
 
 #[cfg(test)]
@@ -159,6 +161,7 @@ mod tests {
             raw,
             params: nv_process::default_params_for(&builtin_profiles()[0]),
             orientation: nv_process::Orientation::IDENTITY,
+            angle: 0.0,
             settings: ExportSettings { bit_depth: 8, ..Default::default() },
             dir: dir.to_owned(),
             stem: "roll-01".into(),
