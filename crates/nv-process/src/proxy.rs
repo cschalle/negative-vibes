@@ -62,6 +62,21 @@ impl Proxy {
         Self { width: w, height: h, factor, pixels }
     }
 
+    /// The part of the proxy inside `rect` (`[x0, y0, x1, y1]`, fractions).
+    pub fn crop(&self, rect: [f32; 4]) -> Proxy {
+        let px = |f: f32, n: usize| ((f.clamp(0.0, 1.0) * n as f32).round() as usize).min(n);
+        let (x0, x1) = (px(rect[0], self.width), px(rect[2], self.width));
+        let (y0, y1) = (px(rect[1], self.height), px(rect[3], self.height));
+        if x1 <= x0 || y1 <= y0 {
+            return Proxy { width: 0, height: 0, factor: self.factor, pixels: Vec::new() };
+        }
+        let mut pixels = Vec::with_capacity((x1 - x0) * (y1 - y0) * 3);
+        for y in y0..y1 {
+            pixels.extend_from_slice(&self.pixels[(y * self.width + x0) * 3..(y * self.width + x1) * 3]);
+        }
+        Proxy { width: x1 - x0, height: y1 - y0, factor: self.factor, pixels }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.pixels.is_empty()
     }
@@ -92,6 +107,17 @@ mod tests {
         assert!(p.width * p.height <= 10_000, "{}x{}", p.width, p.height);
         assert!(p.factor >= 4);
         assert!((p.pixels[0] - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn crop_takes_the_rectangle() {
+        let mut b = FrameBuf::new(4, Some(2), 8, 1);
+        b.append(&[10, 20, 30, 40, 50, 60, 70, 80]);
+        let p = Proxy::from_raw(&b, 100);
+        let c = p.crop([0.5, 0.5, 1.0, 1.0]);
+        assert_eq!((c.width, c.height), (2, 1));
+        assert!((c.pixels[0] - 70.0 / 255.0).abs() < 1e-6 && (c.pixels[3] - 80.0 / 255.0).abs() < 1e-6);
+        assert!(p.crop([0.5, 0.5, 0.5, 1.0]).is_empty());
     }
 
     #[test]

@@ -918,18 +918,22 @@ detection on real previews. Still open: crop handles (the rectangle is redrawn, 
 edited), aspect lock and holder templates (F§7), rotation and flip.
 
 **M3 status (2026-10-08).** Built: the editing proxy (decode once, box-reduce to about
-2 Mpx; `nv-process::Proxy`), rendering from it on a worker thread with latest-wins
-coalescing, auto levels (F§5.1 thresholds, median to middle grey), a live histogram,
-colour-cast removal (a trimmed least-squares fit of red and blue density against green,
-with a strength control), per-channel colour balance, and four pipettes on the canvas
-(film base, black, grey, white; one-shot, one undo step each). Also: one undoable step
-per button press, a fix for undo losing its history after the first step, and golden
-tests on the tulip fixture (`tests/goldens/`), including grey-picking the wall.
-Auto does not guess a colour cast: equalising channel medians turned the tulip wall
-blue-green because the scene is mostly red and green, so it is left to the cast fit and
-the grey pipette. Still open: draggable levels on the histogram, curves, roll analysis,
-roll/frame scopes and per-frame settings in `roll.json`, per-frame undo, the stage
-cache, and a check on a real 7200 dpi raw.
+2 Mpx) and rendering from it on a worker thread with latest-wins coalescing; auto
+levels; histogram; colour-cast removal (a trimmed least-squares fit of red and blue
+density against green); per-channel colour balance; four canvas pipettes (film base,
+black, grey, white); draggable black and white points on a levels histogram of the
+picture entering the tone stage; master and per-channel curves (monotone cubic, applied
+in the gamma-2.2 encoding); roll and frame scopes (`Settings` in `roll.json`: the roll's
+defaults, with per-frame overrides, chosen by a Whole Roll / This Frame switch); per-frame
+undo history, kept while the app runs; Roll Analysis (median film base, density range and
+colour axis over the roll, fixed as roll-wide values; frames are measured inside their own
+rectangle). Golden tests on the tulip fixture (`tests/goldens/`) include grey-picking the
+wall. Auto does not guess a colour cast: equalising channel medians turned the tulip wall
+blue-green because the scene is mostly red and green. Still open: a midtone handle on the
+levels, undo history that survives restarts, the stage cache, a "needs three previewed
+frames" prompt for Analyse Roll, undo of roll-wide edits across frames, and a check on a
+real 7200 dpi raw. M3's "done when" also asks for B&W and positive conversion to be
+checked against fixtures; only the colour negative has one.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

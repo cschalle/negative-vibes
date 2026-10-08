@@ -8,8 +8,10 @@ description = "Image pipeline stages: geometry, dust, colour, tone, detail, outp
 [dependencies]
 nv-image = { path = "../nv-image" }
 nv-film  = { path = "../nv-film" }
+serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 
 [dev-dependencies]
 nv-store = { path = "../nv-store" }
 png = "0.17"
+serde_json = "1"

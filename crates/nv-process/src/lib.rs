@@ -1,12 +1,18 @@
+pub mod analysis;
 pub mod params;
 mod conversion;
+pub mod curves;
+pub mod settings;
 pub mod histogram;
 pub mod proxy;
 mod tone;
 
 pub use histogram::Histogram;
+pub use analysis::{analyse_frame, analysis_fields, roll_analysis, FrameAnalysis};
 pub use params::{ImageType, ProcessParams};
+pub use settings::Settings;
 pub use params::ToneParams;
+pub use curves::{Curve, Curves};
 pub use proxy::{Proxy, DEFAULT_PROXY_PIXELS};
 
 use nv_image::FrameBuf;
@@ -18,13 +24,37 @@ pub fn process(raw: &FrameBuf, params: &ProcessParams) -> Vec<u8> {
     render(&Proxy::from_raw(raw, usize::MAX), params)
 }
 
+/// A render and the histogram of what went into the tone stage.
+pub struct Rendered {
+    /// Display-ready sRGB, `w × h × 3`.
+    pub rgb: Vec<u8>,
+    /// 256-bin histogram of the converted picture's luminance, in the
+    /// perceptual encoding, before black and white points: the levels
+    /// widget draws it with the points on top.
+    pub levels: [u32; 256],
+}
+
 /// Run the pipeline on a proxy: 4 Conversion → 5 Tone → 8 gamma-2.2 output.
 pub fn render(proxy: &Proxy, params: &ProcessParams) -> Vec<u8> {
+    render_detailed(proxy, params).rgb
+}
+
+/// [`render`], plus the levels histogram, from the same conversion.
+pub fn render_detailed(proxy: &Proxy, params: &ProcessParams) -> Rendered {
     if proxy.is_empty() {
-        return Vec::new();
+        return Rendered { rgb: Vec::new(), levels: [0; 256] };
     }
-    let toned = tone::apply_tone(&convert(proxy, params), &params.tone);
-    encode_output(&toned, params.image_type == ImageType::BwNegative)
+    let converted = convert(proxy, params);
+
+    let mut levels = [0u32; 256];
+    let b = params.tone.balance;
+    for px in converted.chunks_exact(3) {
+        let l = (0.2126 * px[0] * b[0] + 0.7152 * px[1] * b[1] + 0.0722 * px[2] * b[2]).clamp(0.0, 1.0);
+        levels[((l.powf(1.0 / 2.2) * 255.0 + 0.5) as usize).min(255)] += 1;
+    }
+
+    let toned = tone::apply_tone(&converted, &params.tone);
+    Rendered { rgb: encode_output(&toned, params.image_type == ImageType::BwNegative), levels }
 }
 
 /// Stage 4 only: the converted positive in linear light, before tone.
@@ -47,7 +77,7 @@ pub fn auto_tone(proxy: &Proxy, params: &ProcessParams) -> ToneParams {
     }
     let neutral = ProcessParams { tone: ToneParams::default(), ..params.clone() };
     let converted = convert(proxy, &neutral);
-    let t = tone::auto_tone(&converted, proxy.width, proxy.height, 0.10, 0.02, 0.98, params.tone.balance);
+    let t = tone::auto_tone(&converted, proxy.width, proxy.height, params.conversion.region.or(Some([0.0, 0.0, 1.0, 1.0])), 0.02, 0.98, params.tone.balance);
     ToneParams { contrast: params.tone.contrast, ..t }
 }
 
@@ -139,6 +169,9 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
             tolerance: 0.0016,
             auto_ccr: true,
             cast_removal: 1.0,
+            d_max: None,
+            cast_fit: None,
+            region: None,
         },
         tone: ToneParams::default(),
     }

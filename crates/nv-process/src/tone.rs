@@ -1,5 +1,8 @@
 use crate::params::ToneParams;
 
+/// Entries in a curve lookup table: finer than one 8-bit step of the encoding.
+const CURVE_LUT: usize = 1024;
+
 /// Stage 5 — tone adjustments (black/white point, midtone gamma, contrast).
 ///
 /// Input/output: linear f32 [0,1] (before gamma-2.2 output encoding).
@@ -15,6 +18,10 @@ pub fn apply_tone(pixels: &[f32], p: &ToneParams) -> Vec<f32> {
     // Contrast: S-curve steepness around 0.5. contrast in [-1,1].
     let contrast = p.contrast.clamp(-1.0, 1.0);
 
+    // Curves work on the perceptual encoding, so a point at 0.5 is a mid-grey
+    // as the eye sees it. Skipped, free of cost, when no curve was touched.
+    let luts = (!p.curves.is_identity()).then(|| p.curves.luts(CURVE_LUT));
+
     for i in 0..n {
         for c in 0..3 {
             let v = pixels[i * 3 + c] * p.balance[c];
@@ -24,7 +31,16 @@ pub fn apply_tone(pixels: &[f32], p: &ToneParams) -> Vec<f32> {
             let v = v.powf(mid_exp);
             // Contrast: simple sigmoid-like boost around 0.5.
             let v = apply_contrast(v, contrast);
-            out[i * 3 + c] = v.clamp(0.0, 1.0);
+            let v = v.clamp(0.0, 1.0);
+            out[i * 3 + c] = match &luts {
+                Some(l) => {
+                    let e = v.powf(1.0 / 2.2) * (CURVE_LUT - 1) as f32;
+                    let (k, t) = (e as usize, e.fract());
+                    let y = l[c][k] * (1.0 - t) + l[c][(k + 1).min(CURVE_LUT - 1)] * t;
+                    y.powf(2.2)
+                }
+                None => v,
+            };
         }
     }
     out
@@ -57,11 +73,9 @@ fn apply_contrast(v: f32, contrast: f32) -> f32 {
 /// and the midtone that puts its median at middle grey. Colour cast is not
 /// guessed here: equalising channel medians turned the tulip wall blue-green,
 /// because the scene is mostly red and green. Cast removal is a fit in the
-/// conversion, and the grey pipette is for the rest. `inset` is the fraction of each side ignored, so rebate and
-/// holder do not set the points.
-pub fn auto_tone(converted: &[f32], w: usize, h: usize, inset: f32, low: f32, high: f32, balance: [f32; 3]) -> ToneParams {
-    let (bw, bh) = ((w as f32 * inset) as usize, (h as f32 * inset) as usize);
-    let (x0, x1, y0, y1) = if w > 2 * bw + 2 && h > 2 * bh + 2 { (bw, w - bw, bh, h - bh) } else { (0, w, 0, h) };
+/// conversion, and the grey pipette is for the rest. 
+pub fn auto_tone(converted: &[f32], w: usize, h: usize, region: Option<[f32; 4]>, low: f32, high: f32, balance: [f32; 3]) -> ToneParams {
+    let (x0, x1, y0, y1) = crate::conversion::interior(w, h, region);
 
     const BINS: usize = 2048;
     let bin = |v: f32| ((v.clamp(0.0, 1.0) * (BINS - 1) as f32) as usize).min(BINS - 1);
@@ -94,21 +108,22 @@ pub fn auto_tone(converted: &[f32], w: usize, h: usize, inset: f32, low: f32, hi
     // Median after the black/white stretch, moved to 18% linear (middle grey).
     let v = ((med - bp) / (wp - bp)).clamp(0.01, 0.99);
     let midtone = (v.ln() / 0.18f32.ln()).clamp(0.4, 2.5);
-    ToneParams { black_point: bp, white_point: wp, midtone, contrast: 0.0, balance }
+    ToneParams { black_point: bp, white_point: wp, midtone, contrast: 0.0, balance, curves: Default::default() }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::curves::Curves;
 
     /// A ramp from 0.2 to 0.6 is stretched to the full range.
     #[test]
     fn auto_levels_stretch_a_narrow_ramp() {
         let w = 400;
         let px: Vec<f32> = (0..w * 40).flat_map(|i| { let v = 0.2 + 0.4 * (i % w) as f32 / w as f32; [v, v, v] }).collect();
-        let t = auto_tone(&px, w, 40, 0.0, 0.02, 0.98, [1.0; 3]);
-        assert!((t.black_point - 0.208).abs() < 0.01, "{t:?}");
-        assert!((t.white_point - 0.592).abs() < 0.01, "{t:?}");
+        let t = auto_tone(&px, w, 40, None, 0.02, 0.98, [1.0; 3]);
+        assert!((t.black_point - 0.240).abs() < 0.01, "{t:?}");
+        assert!((t.white_point - 0.560).abs() < 0.01, "{t:?}");
         let out = apply_tone(&px, &t);
         let lo = out.iter().cloned().fold(1.0f32, f32::min);
         let hi = out.iter().cloned().fold(0.0f32, f32::max);
@@ -118,7 +133,7 @@ mod tests {
     #[test]
     fn auto_levels_leave_a_flat_image_alone() {
         let px = vec![0.4f32; 30 * 30 * 3];
-        let t = auto_tone(&px, 30, 30, 0.0, 0.02, 0.98, [1.0; 3]);
+        let t = auto_tone(&px, 30, 30, None, 0.02, 0.98, [1.0; 3]);
         assert_eq!((t.black_point, t.white_point, t.midtone), (0.0, 1.0, 1.0));
     }
 
@@ -127,11 +142,30 @@ mod tests {
     fn auto_midtone_puts_the_median_at_middle_grey() {
         let w = 400;
         let px: Vec<f32> = (0..w * 40).flat_map(|i| { let v = (i % w) as f32 / w as f32; [v * v, v * v, v * v] }).collect();
-        let t = auto_tone(&px, w, 40, 0.0, 0.0, 1.0, [1.0; 3]);
+        let t = auto_tone(&px, w, 40, None, 0.0, 1.0, [1.0; 3]);
         let out = apply_tone(&px, &t);
         let mut luma: Vec<f32> = out.chunks(3).map(|p| p[1]).collect();
         luma.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let med = luma[luma.len() / 2];
         assert!((med - 0.18).abs() < 0.03, "median {med}, {t:?}");
+    }
+
+    #[test]
+    fn curves_change_the_midtones_and_leave_the_ends() {
+        use crate::curves::Curve;
+        let p = ToneParams {
+            curves: Curves { master: Curve(vec![[0.0, 0.0], [0.5, 0.35], [1.0, 1.0]]), ..Default::default() },
+            ..ToneParams::default()
+        };
+        let out = apply_tone(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.218, 0.218, 0.218], &p);
+        assert!(out[0].abs() < 1e-3 && (out[3] - 1.0).abs() < 1e-3, "{out:?}");
+        // 0.218 linear is 0.5 encoded; the curve takes it to 0.35 encoded.
+        assert!((out[6] - 0.35f32.powf(2.2)).abs() < 0.01, "{}", out[6]);
+    }
+
+    #[test]
+    fn identity_curves_change_nothing() {
+        let px = [0.1, 0.4, 0.8];
+        assert_eq!(apply_tone(&px, &ToneParams::default()), px.to_vec());
     }
 }

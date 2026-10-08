@@ -1,16 +1,22 @@
 use crate::params::ProcessParams;
 
-/// Stage 4 — colour negative inversion (§7.4 of DESIGN.md).
-///
-/// Input:  linear f32 [0,1] transmission values (T_c).
-/// Output: linear f32 [0,1] positive light values ready for tone stage.
-pub fn convert_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessParams) -> Vec<f32> {
+/// What a picture says about its own conversion: the range and the colour
+/// axis. Roll analysis collects these over a roll and fixes their median.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Measured {
+    pub d_max: [f32; 3],
+    /// `(offset, slope)` per channel; green is `(0, 1)`.
+    pub cast_fit: [[f32; 2]; 3],
+}
+
+/// Density above base, profile gamma and cast alignment: stage 4 up to the
+/// point where the range is measured. Also returns the cast fit used.
+fn density_stage(pixels: &[f32], w: usize, h: usize, params: &ProcessParams) -> (Vec<f32>, [[f32; 2]; 3]) {
     let p = &params.conversion;
     let profile = &params.profile;
 
-    // Film base: use override, or auto-estimate later injected by the caller
-    // (in process() we call estimate_film_base before this stage).
-    // Here the base comes through ConversionParams::film_base (already set).
+    // Film base: the override (set from the rebate, a pipette or roll
+    // analysis), or the profile's.
     let base = p.film_base.unwrap_or(profile.base_rgb);
     let base = [base[0].max(0.001), base[1].max(0.001), base[2].max(0.001)];
 
@@ -21,36 +27,60 @@ pub fn convert_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessPara
     for i in 0..n {
         for c in 0..3 {
             let t = pixels[i * 3 + c].max(0.0001);
-            let d = (base[c] / t).log10().max(0.0);
-            density[i * 3 + c] = d;
+            density[i * 3 + c] = (base[c] / t).log10().max(0.0);
         }
     }
 
-    // Step 2: dye-gamma alignment (CCR) — scale each channel by profile.gamma
-    // so all three share one neutral axis.
+    // Step 2: dye-gamma alignment from the film profile.
     if p.auto_ccr {
         let g = profile.gamma;
         for i in 0..n {
-            density[i * 3]     = density[i * 3].powf(g[0]);
-            density[i * 3 + 1] = density[i * 3 + 1].powf(g[1]);
-            density[i * 3 + 2] = density[i * 3 + 2].powf(g[2]);
+            for c in 0..3 {
+                density[i * 3 + c] = density[i * 3 + c].powf(g[c]);
+            }
         }
     }
 
     // Step 2b: colour cast removal. Line red and blue density up with green
-    // along the picture's own neutral axis, so neutral things come out
-    // neutral through the midtones as well as at the ends.
+    // along the picture's own neutral axis (or the roll's), so neutral things
+    // come out neutral through the midtones as well as at the ends.
+    let fit = p.cast_fit.unwrap_or_else(|| {
+        let f = cast_fit(&density, w, h, p.region);
+        [[f[0].0, f[0].1], [f[1].0, f[1].1], [f[2].0, f[2].1]]
+    });
     if p.cast_removal > 0.0 {
-        let fit = cast_fit(&density, w, h);
         let k = p.cast_removal.clamp(0.0, 1.0);
         for i in 0..n {
             for c in [0usize, 2] {
                 let d = density[i * 3 + c];
-                let aligned = (d - fit[c].0) / fit[c].1;
+                let aligned = (d - fit[c][0]) / fit[c][1];
                 density[i * 3 + c] = (d + (aligned - d) * k).max(0.0);
             }
         }
     }
+    (density, fit)
+}
+
+/// Measure a picture's own range and colour axis, ignoring any roll-wide
+/// values in `params`.
+pub fn measure_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessParams) -> Measured {
+    let mut own = params.clone();
+    own.conversion.d_max = None;
+    own.conversion.cast_fit = None;
+    let (density, cast_fit) = density_stage(pixels, w, h, &own);
+    let d_max = interior_percentile(&density, w, h, 1.0 - own.conversion.tolerance, own.conversion.region);
+    Measured { d_max, cast_fit }
+}
+
+/// Stage 4 — colour negative inversion (§7.4 of DESIGN.md).
+///
+/// Input:  linear f32 [0,1] transmission values (T_c).
+/// Output: linear f32 [0,1] positive light values ready for tone stage.
+pub fn convert_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessParams) -> Vec<f32> {
+    let p = &params.conversion;
+    let profile = &params.profile;
+    let (density, _) = density_stage(pixels, w, h, params);
+    let n = pixels.len() / 3;
 
     // Step 3: D_max per channel from a high percentile of the IMAGE.
     //
@@ -63,7 +93,7 @@ pub fn convert_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessPara
     // range. Sample the interior only, the same region estimate_film_base()
     // treats as "not border".
     let tol = p.tolerance;
-    let d_max = interior_percentile(&density, w, h, 1.0 - tol);
+    let d_max = p.d_max.unwrap_or_else(|| interior_percentile(&density, w, h, 1.0 - tol, p.region));
 
     // Step 4: exposure offset (stops).
     let exp_scale = 2.0f32.powf(p.exposure);
@@ -148,11 +178,9 @@ fn scurve(t: f32, toe: f32, shoulder: f32) -> f32 {
 /// brightness: most of the picture is closer to neutral than to any one
 /// colour. Slopes outside 0.5–2 are not film, they are a failed fit, and
 /// are not applied.
-fn cast_fit(density: &[f32], w: usize, h: usize) -> [(f32, f32); 3] {
+fn cast_fit(density: &[f32], w: usize, h: usize, region: Option<[f32; 4]>) -> [(f32, f32); 3] {
     let identity = [(0.0, 1.0); 3];
-    let bw = (w / 12).max(4);
-    let bh = (h / 12).max(4);
-    let (x0, x1, y0, y1) = if w > 2 * bw && h > 2 * bh { (bw, w - bw, bh, h - bh) } else { (0, w, 0, h) };
+    let (x0, x1, y0, y1) = interior(w, h, region);
 
     // Green's 10th and 90th percentiles, from a histogram.
     let scale = DENSITY_BINS as f32 / DENSITY_RANGE;
@@ -217,6 +245,23 @@ fn cast_fit(density: &[f32], w: usize, h: usize) -> [(f32, f32); 3] {
     fit
 }
 
+/// Pixel bounds `(x0, x1, y0, y1)` of the part of the image to measure: the
+/// frame's region with a tenth of it trimmed off every side, or, with no
+/// region, the whole image less its outer twelfth (rebate and holder).
+pub(crate) fn interior(w: usize, h: usize, region: Option<[f32; 4]>) -> (usize, usize, usize, usize) {
+    let (x0, x1, y0, y1) = match region {
+        Some([a, b, c, d]) => {
+            let (rw, rh) = ((c - a).max(0.0), (d - b).max(0.0));
+            (a + rw * 0.1, c - rw * 0.1, b + rh * 0.1, d - rh * 0.1)
+        }
+        None => (1.0 / 12.0, 11.0 / 12.0, 1.0 / 12.0, 11.0 / 12.0),
+    };
+    let px = |f: f32, n: usize| ((f.clamp(0.0, 1.0) * n as f32).round() as usize).min(n);
+    let (ix0, ix1, iy0, iy1) = (px(x0, w), px(x1, w), px(y0, h), px(y1, h));
+    // Too small to measure (a tiny proxy or a sliver): use everything.
+    if ix1 < ix0 + 4 || iy1 < iy0 + 4 { (0, w, 0, h) } else { (ix0, ix1, iy0, iy1) }
+}
+
 /// Largest density the histogram resolves; transmission is clamped at 1e-4,
 /// which is density 4.
 const DENSITY_RANGE: f32 = 4.5;
@@ -228,10 +273,8 @@ const DENSITY_BINS: usize = 4096;
 ///
 /// Uses a histogram rather than a sort: this runs on every parameter change,
 /// and the answer is only needed to a thousandth of a density unit.
-fn interior_percentile(pixels: &[f32], w: usize, h: usize, p: f32) -> [f32; 3] {
-    let bw = (w / 12).max(4);
-    let bh = (h / 12).max(4);
-    let (x0, x1, y0, y1) = if w > 2 * bw && h > 2 * bh { (bw, w - bw, bh, h - bh) } else { (0, w, 0, h) };
+fn interior_percentile(pixels: &[f32], w: usize, h: usize, p: f32, region: Option<[f32; 4]>) -> [f32; 3] {
+    let (x0, x1, y0, y1) = interior(w, h, region);
 
     let mut hist = vec![[0u32; 3]; DENSITY_BINS];
     let scale = DENSITY_BINS as f32 / DENSITY_RANGE;
@@ -288,7 +331,7 @@ mod tests {
         ProcessParams {
             image_type: ImageType::ColourNegative,
             profile: FilmProfile::identity(),
-            conversion: ConversionParams { film_base: Some(base), exposure: 0.0, tolerance: 0.0016, auto_ccr: false, cast_removal },
+            conversion: ConversionParams { film_base: Some(base), exposure: 0.0, tolerance: 0.0016, auto_ccr: false, cast_removal, d_max: None, cast_fit: None, region: None },
             tone: ToneParams::default(),
         }
     }

@@ -29,6 +29,21 @@ pub(crate) mod imp {
         pub midtone_row: RefCell<Option<adw::SpinRow>>,
         pub contrast_row: RefCell<Option<adw::SpinRow>>,
         pub cast_row: RefCell<Option<adw::SpinRow>>,
+        /// Where inspector edits go: the roll's defaults or this frame.
+        pub scope: Cell<Scope>,
+        /// Undo history of the frames not on screen, by frame number
+        /// (key 0 is an image that has no frame).
+        pub history: RefCell<std::collections::HashMap<u32, (Vec<nv_process::ProcessParams>, usize)>>,
+        pub history_key: Cell<u32>,
+        pub analysing: Cell<bool>,
+        /// Histogram of the picture entering the tone stage, for the levels.
+        pub levels: RefCell<Option<[u32; 256]>>,
+        pub levels_area: RefCell<Option<gtk::DrawingArea>>,
+        pub curve_area: RefCell<Option<gtk::DrawingArea>>,
+        /// 0 master, 1 red, 2 green, 3 blue.
+        pub curve_channel: Cell<u8>,
+        /// Parameters when a drag began; the edit is recorded when it ends.
+        pub live_old: RefCell<Option<nv_process::ProcessParams>>,
         pub balance_rows: RefCell<Vec<adw::SpinRow>>,
         /// What a click on the canvas does.
         pub canvas_tool: Cell<CanvasTool>,
@@ -105,6 +120,13 @@ pub(crate) mod imp {
         pub histogram_area: RefCell<Option<gtk::DrawingArea>>,
     }
 
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Scope {
+        #[default]
+        Roll,
+        Frame,
+    }
+
     /// The tool on the canvas: draw a frame, or pick a pixel for a pipette.
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
     pub enum CanvasTool {
@@ -156,6 +178,8 @@ pub(crate) mod imp {
 
 mod frames;
 mod render;
+mod settings;
+mod tone_ui;
 mod zoom;
 
 use adw::prelude::*;
@@ -164,7 +188,7 @@ use gtk::gdk;
 use nv_acquire::ScanEvent;
 use nv_film::builtin_profiles;
 use nv_image::FrameBuf;
-use nv_process::{ProcessParams, params::{ConversionParams, ToneParams}};
+use nv_process::{ProcessParams, params::ToneParams};
 use nv_store::{Roll, RollStore};
 
 glib::wrapper! {
@@ -496,6 +520,7 @@ impl Window {
         // Initialise default processing params (generic colour negative).
         let profiles = builtin_profiles();
         let default_params = nv_process::default_params_for(&profiles[0]);
+        let _ = &profiles;
         let mut stack = Vec::new();
         stack.push(default_params.clone());
         *self.imp().proc_params.borrow_mut() = Some(default_params);
@@ -703,8 +728,24 @@ impl Window {
             .build();
         colour_group.add(&cast_row);
 
+        let roll_group = adw::PreferencesGroup::builder()
+            .title("Roll")
+            .description("Fix the film base, density range and colour axis from the whole roll, so every frame is converted alike")
+            .build();
+        let analyse_row = adw::ActionRow::builder().title("Roll Analysis").build();
+        let analyse_btn = gtk::Button::builder().label("Analyse").valign(gtk::Align::Center).css_classes(["suggested-action"]).build();
+        let analyse_reset = gtk::Button::builder().label("Reset").valign(gtk::Align::Center).build();
+        analyse_row.add_suffix(&analyse_reset);
+        analyse_row.add_suffix(&analyse_btn);
+        roll_group.add(&analyse_row);
+        let weak = self.downgrade();
+        analyse_btn.connect_clicked(move |_| { if let Some(win) = weak.upgrade() { win.analyse_roll(); } });
+        let weak = self.downgrade();
+        analyse_reset.connect_clicked(move |_| { if let Some(win) = weak.upgrade() { win.set_roll_analysis(None); } });
+
         conv_page.add(&exp_group);
         conv_page.add(&colour_group);
+        conv_page.add(&roll_group);
         conv_page.add(&base_group);
         conv_scroll.set_child(Some(&conv_page));
         insp_stack.add_titled(&conv_scroll, Some("conversion"), "Conversion");
@@ -782,10 +823,35 @@ impl Window {
             balance_rows.push(row);
         }
 
+        let levels_group = adw::PreferencesGroup::builder().title("Levels").description("Drag the black and white points").build();
+        let levels_area = self.build_levels();
+        *self.imp().levels_area.borrow_mut() = Some(levels_area.clone());
+        levels_group.add(&levels_area);
+
+        let curves_group = adw::PreferencesGroup::builder().title("Curves").build();
+        curves_group.add(&self.build_curves());
+
+        tone_page.add(&levels_group);
         tone_page.add(&tone_group);
         tone_page.add(&balance_group);
+        tone_page.add(&curves_group);
         tone_scroll.set_child(Some(&tone_page));
         insp_stack.add_titled(&tone_scroll, Some("tone"), "Tone");
+
+        let scope_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).margin_end(12).margin_bottom(6).homogeneous(true).build();
+        let roll_btn = gtk::ToggleButton::builder().label("Whole Roll").tooltip_text("Edits become the roll's defaults").active(true).build();
+        let frame_btn = gtk::ToggleButton::builder().label("This Frame").tooltip_text("Edits apply to this frame only").group(&roll_btn).build();
+        scope_box.append(&roll_btn);
+        scope_box.append(&frame_btn);
+        let weak = self.downgrade();
+        roll_btn.connect_toggled(move |b| {
+            if let (true, Some(win)) = (b.is_active(), weak.upgrade()) { win.set_scope(imp::Scope::Roll); }
+        });
+        let weak = self.downgrade();
+        frame_btn.connect_toggled(move |b| {
+            if let (true, Some(win)) = (b.is_active(), weak.upgrade()) { win.set_scope(imp::Scope::Frame); }
+        });
+        inspector_box.append(&scope_box);
 
         let histogram_area = self.build_histogram();
         *self.imp().histogram_area.borrow_mut() = Some(histogram_area.clone());
@@ -864,26 +930,27 @@ impl Window {
 
     // ── Inspector <→ ProcessParams sync ──────────────────────────────────────
 
-    /// Called whenever any inspector widget changes; reads all values and
-    /// pushes a new undo state.
     fn on_params_changed(&self) {
         if self.imp().updating_ui.get() { return; }
         // Spin rows fire notify::value during widget realization; ignore those
         // until an actual scan is loaded.
         if self.imp().scan_buf.borrow().is_none() { return; }
 
-        let new_params = self.read_params_from_inspector();
-        let Some(new_params) = new_params else { return };
+        let Some(new_params) = self.read_params_from_inspector() else { return };
+        let old = self.imp().proc_params.borrow().clone();
+        if old.as_ref() == Some(&new_params) { return; }
 
         // Push onto undo stack (truncate redo branch).
-        let mut stack = self.imp().undo_stack.borrow_mut();
-        let idx = self.imp().undo_idx.get();
-        stack.truncate(idx + 1);
-        stack.push(new_params.clone());
-        self.imp().undo_idx.set(stack.len() - 1);
-        drop(stack);
+        {
+            let mut stack = self.imp().undo_stack.borrow_mut();
+            let idx = self.imp().undo_idx.get();
+            stack.truncate(idx + 1);
+            stack.push(new_params.clone());
+            self.imp().undo_idx.set(stack.len() - 1);
+        }
 
-        *self.imp().proc_params.borrow_mut() = Some(new_params);
+        *self.imp().proc_params.borrow_mut() = Some(new_params.clone());
+        if let Some(old) = old { self.record_edit(&old, &new_params); }
         self.refresh_canvas();
     }
 
@@ -922,18 +989,16 @@ impl Window {
             [rows[0].value() as f32, rows[1].value() as f32, rows[2].value() as f32]
         };
 
-        Some(ProcessParams {
-            image_type,
-            profile,
-            conversion: ConversionParams {
-                film_base: Some([fb_r, fb_g, fb_b]),
-                exposure,
-                tolerance: 0.0016,
-                auto_ccr: true,
-                cast_removal,
-            },
-            tone: ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast, balance },
-        })
+        // Start from what is current: roll-wide values, the region and the
+        // like are not in the inspector and must survive an edit.
+        let mut p = self.imp().proc_params.borrow().clone().unwrap_or_else(settings::base_params);
+        p.image_type = image_type;
+        p.profile = profile;
+        p.conversion.film_base = Some([fb_r, fb_g, fb_b]);
+        p.conversion.exposure = exposure;
+        p.conversion.cast_removal = cast_removal;
+        p.tone = ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast, balance, ..p.tone.clone() };
+        Some(p)
     }
 
     /// Show `params` in the inspector without treating it as a user edit.
@@ -975,9 +1040,8 @@ impl Window {
         self.imp().updating_ui.set(false);
     }
 
-    /// Make `params` current as one undoable step (a button that changes
-    /// several controls at once is still one edit).
     fn commit_params(&self, params: ProcessParams) {
+        let old = self.imp().proc_params.borrow().clone();
         self.sync_widgets(&params);
         {
             let mut stack = self.imp().undo_stack.borrow_mut();
@@ -986,7 +1050,8 @@ impl Window {
             stack.push(params.clone());
             self.imp().undo_idx.set(stack.len() - 1);
         }
-        *self.imp().proc_params.borrow_mut() = Some(params);
+        *self.imp().proc_params.borrow_mut() = Some(params.clone());
+        if let Some(old) = old { self.record_edit(&old, &params); }
         self.refresh_canvas();
     }
 
@@ -1052,12 +1117,13 @@ impl Window {
     }
 
     // ── Undo / redo ───────────────────────────────────────────────────────────
-
     fn step_history(&self, new_idx: usize) {
         self.imp().undo_idx.set(new_idx);
         let params = self.imp().undo_stack.borrow()[new_idx].clone();
+        let old = self.imp().proc_params.borrow().clone();
         self.sync_widgets(&params);
-        *self.imp().proc_params.borrow_mut() = Some(params);
+        *self.imp().proc_params.borrow_mut() = Some(params.clone());
+        if let Some(old) = old { self.record_edit(&old, &params); }
         self.refresh_canvas();
     }
 
@@ -1204,6 +1270,7 @@ impl Window {
         let Some(idx) = *self.imp().selected_frame.borrow() else { return };
         if self.imp().preview_ready.get() {
             self.store_frame_crop(idx);
+            self.refresh_region();
             self.rebuild_frame_list();
             self.spawn_thumbnails(vec![idx]);
             self.schedule_autosave();
@@ -1413,9 +1480,7 @@ impl Window {
             }
 
             ScanEvent::ScanDone => {
-                // Auto-estimate film base now that the full scan is in.
-                self.auto_estimate_film_base();
-                self.refresh_canvas();
+                self.rebuild_proxy();
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(false);
                 }
@@ -1529,30 +1594,6 @@ impl Window {
     }
 
     // ── Film base auto-estimation ─────────────────────────────────────────────
-    fn auto_estimate_film_base(&self) {
-        self.rebuild_proxy();
-        let Some(proxy) = self.imp().proxy.borrow().clone() else { return };
-        self.apply_estimated_film_base(&proxy);
-    }
-
-    /// Set the film base from the rebate on `proxy`, in the params and the
-    /// inspector, and let the pipeline run.
-    fn apply_estimated_film_base(&self, proxy: &nv_process::Proxy) {
-        let estimated = nv_process::estimate_film_base_proxy(proxy);
-
-        // Suppress re-entrant on_params_changed while the rows change.
-        self.imp().updating_ui.set(true);
-        if let Some(r) = self.imp().film_base_r_row.borrow().as_ref() { r.set_value(estimated[0] as f64); }
-        if let Some(r) = self.imp().film_base_g_row.borrow().as_ref() { r.set_value(estimated[1] as f64); }
-        if let Some(r) = self.imp().film_base_b_row.borrow().as_ref() { r.set_value(estimated[2] as f64); }
-        self.imp().updating_ui.set(false);
-
-        if let Some(params) = self.imp().proc_params.borrow_mut().as_mut() {
-            params.conversion.film_base = Some(estimated);
-        }
-        self.imp().film_base_ready.set(true);
-    }
-
     // ── Canvas ────────────────────────────────────────────────────────────────
     fn refresh_canvas(&self) {
         // A finished scan renders from the proxy, in the background.
@@ -1669,18 +1710,12 @@ impl Window {
         self.load_frame_buf_with_proxy(buf, proxy);
     }
 
-    /// Show a scan whose proxy was already built (on a worker thread).
     fn load_frame_buf_with_proxy(&self, buf: nv_image::FrameBuf, proxy: nv_process::Proxy) {
         *self.imp().scan_buf.borrow_mut() = Some(buf);
         *self.imp().proxy.borrow_mut() = Some(std::sync::Arc::new(proxy));
         self.set_page("canvas");
-
-        // Auto-estimate the film base before the first render.
-        let proxy = self.imp().proxy.borrow().clone();
-        if let Some(proxy) = proxy {
-            self.apply_estimated_film_base(&proxy);
-        }
-        self.refresh_canvas();
+        let frame = *self.imp().selected_frame.borrow();
+        self.load_params_for(frame);
     }
 
     // ── Open Roll ─────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ pub enum FilmKind {
 }
 
 /// Open film-profile format (§7.4 of DESIGN.md).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FilmProfile {
     pub schema: u32,
     pub id: String,

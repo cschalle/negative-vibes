@@ -26,7 +26,7 @@ mod tests {
 
     #[test]
     fn pnm_round_trip() {
-        let buf = nv_image::FrameBuf::new(4, Some(3), 8, 3);
+        let _buf = nv_image::FrameBuf::new(4, Some(3), 8, 3);
         let dir = tempdir();
         let path = dir.join("test.pnm");
         // Write via RawWriter isn't tested here — just test RawReader on a known PNM.

@@ -73,6 +73,7 @@ impl Roll {
         copy.label = src.label.clone();
         copy.geometry = src.geometry.clone();
         copy.preview = src.preview.clone();
+        copy.overrides = src.overrides.clone();
         copy.state = if copy.preview.is_some() { FrameState::Previewed } else { FrameState::Empty };
         self.frames.insert(pos + 1, copy);
         Some(new_index)
@@ -84,6 +85,10 @@ pub struct RollSettings {
     pub resolution_dpi: Option<u32>,
     pub with_ir: Option<bool>,
     pub image_type: Option<ImageType>,
+    /// Processing defaults for every frame of the roll (conversion, tone,
+    /// and what roll analysis fixed).
+    #[serde(default)]
+    pub process: nv_process::Settings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -107,6 +112,10 @@ pub struct Frame {
     #[serde(default)]
     pub preview: Option<String>,
     pub raw: Option<RawRef>,
+    /// Processing settings this frame has set for itself; everything else
+    /// follows the roll.
+    #[serde(default)]
+    pub overrides: nv_process::Settings,
 }
 
 impl Frame {
@@ -120,6 +129,7 @@ impl Frame {
             geometry: Geometry::default(),
             preview: None,
             raw: None,
+            overrides: nv_process::Settings::default(),
         }
     }
 }
@@ -222,6 +232,28 @@ mod tests {
         assert_eq!(copy.preview.as_deref(), Some("frame-01.prev.tif"));
         assert!(copy.raw.is_none());
         assert_eq!(copy.state, FrameState::Previewed);
+    }
+
+    #[test]
+    fn settings_survive_a_save_and_load() {
+        let mut roll = Roll::new("t");
+        roll.add_frame();
+        roll.settings.process.exposure = Some(0.5);
+        roll.settings.process.film_base = Some([0.6, 0.3, 0.2]);
+        roll.frame_mut(1).unwrap().overrides.black_point = Some(0.07);
+        let back: Roll = serde_json::from_str(&serde_json::to_string(&roll).unwrap()).unwrap();
+        assert_eq!(back.settings.process.exposure, Some(0.5));
+        assert_eq!(back.settings.process.film_base, Some([0.6, 0.3, 0.2]));
+        assert_eq!(back.frames[0].overrides.black_point, Some(0.07));
+    }
+
+    #[test]
+    fn rolls_from_before_settings_still_load() {
+        let json = r#"{"schema":1,"id":"x","name":"n","created":"0","settings":{},
+            "frames":[{"id":"f","index":1,"label":null,"rating":null,"state":"empty",
+            "geometry":{"crop":null,"rotation":0,"flip_h":false,"flip_v":false,"angle":0.0},"raw":null}]}"#;
+        let roll: Roll = serde_json::from_str(json).unwrap();
+        assert!(roll.settings.process.is_empty() && roll.frames[0].overrides.is_empty());
     }
 
     #[test]

@@ -40,16 +40,20 @@ impl Window {
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let done = gio::spawn_blocking(move || {
-                let rgb = nv_process::render(&proxy, &params);
-                let hist = Histogram::from_rgb8(&rgb);
-                (proxy.width, proxy.height, rgb, hist)
+                let out = nv_process::render_detailed(&proxy, &params);
+                let hist = Histogram::from_rgb8(&out.rgb);
+                (proxy.width, proxy.height, out.rgb, hist, out.levels)
             })
             .await;
             let Some(win) = weak.upgrade() else { return };
             win.imp().render_busy.set(false);
-            if let Ok((w, h, rgb, hist)) = done {
+            if let Ok((w, h, rgb, hist, levels)) = done {
                 win.show_rgb8(w, h, &rgb);
                 *win.imp().histogram.borrow_mut() = Some(hist);
+                *win.imp().levels.borrow_mut() = Some(levels);
+                for area in [win.imp().levels_area.borrow(), win.imp().curve_area.borrow()] {
+                    if let Some(a) = area.as_ref() { a.queue_draw(); }
+                }
                 if let Some(area) = win.imp().histogram_area.borrow().as_ref() {
                     area.queue_draw();
                 }

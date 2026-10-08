@@ -181,6 +181,9 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             tolerance: 0.0016,
             auto_ccr: true,
             cast_removal: 1.0,
+            d_max: None,
+            cast_fit: None,
+            region: None,
         },
         tone: ToneParams {
             black_point: args.black_point,
@@ -188,6 +191,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             midtone: args.midtone,
             contrast: 0.0,
             balance: [1.0; 3],
+            curves: Default::default(),
         },
     };
 

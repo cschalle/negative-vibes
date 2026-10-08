@@ -1,13 +1,17 @@
 use nv_film::FilmProfile;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
+pub use crate::curves::{Curve, Curves};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ImageType {
     ColourNegative,
     BwNegative,
     Positive,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConversionParams {
     /// Override film base [R,G,B] in [0,1]. `None` → auto-estimate from borders.
     pub film_base: Option<[f32; 3]>,
@@ -20,9 +24,20 @@ pub struct ConversionParams {
     /// Colour cast removal in [0, 1]: how far red and blue are lined up with
     /// green along the picture's own neutral axis (DESIGN.md §7.4 step 5).
     pub cast_removal: f32,
+    /// Per-channel `D_max` fixed by roll analysis. `None` measures it on the
+    /// picture, which makes every frame of a roll find its own range.
+    pub d_max: Option<[f32; 3]>,
+    /// `(offset, slope)` of red and blue against green, fixed by roll
+    /// analysis. `None` fits it on the picture.
+    pub cast_fit: Option<[[f32; 2]; 3]>,
+    /// The part of the image that is picture, as fractions `[x0, y0, x1, y1]`
+    /// (the frame's crop on a preview that holds several frames). Automatic
+    /// measurements look inside it. `None` means the whole image, less its
+    /// border.
+    pub region: Option<[f32; 4]>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ToneParams {
     /// Output black point in [0,1]. Pixels at or below map to 0.
     pub black_point: f32,
@@ -35,6 +50,8 @@ pub struct ToneParams {
     /// Per-channel gain applied to the converted image before the points
     /// (white balance). The grey pipette sets it.
     pub balance: [f32; 3],
+    /// Master and per-channel curves, applied last, in the perceptual encoding.
+    pub curves: Curves,
 }
 
 impl Default for ToneParams {
@@ -45,12 +62,13 @@ impl Default for ToneParams {
             midtone: 1.0,
             contrast: 0.0,
             balance: [1.0; 3],
+            curves: Curves::default(),
         }
     }
 }
 
 /// All adjustable processing parameters for one frame.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProcessParams {
     pub image_type: ImageType,
     pub profile: FilmProfile,

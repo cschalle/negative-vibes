@@ -18,10 +18,10 @@ const AUTOSAVE_SECS: u32 = 2;
 
 /// Where a frame's image comes from: the file, whether it is the preview
 /// (as opposed to a full scan), and the frame's crop within a preview.
-struct Source {
-    path: PathBuf,
-    is_preview: bool,
-    crop: Option<[u32; 4]>,
+pub(super) struct Source {
+    pub path: PathBuf,
+    pub is_preview: bool,
+    pub crop: Option<[u32; 4]>,
 }
 
 fn now_iso() -> String {
@@ -67,7 +67,7 @@ impl Window {
         Some(RollStore::from_parts(root, Roll::new("")).raw_path(name))
     }
 
-    fn frame_source(&self, idx: u32) -> Option<Source> {
+    pub(super) fn frame_source(&self, idx: u32) -> Option<Source> {
         let roll = self.imp().roll.borrow();
         let frame = roll.as_ref()?.frame(idx)?;
         if let Some(prev) = &frame.preview {
@@ -156,8 +156,10 @@ impl Window {
             }
             match result {
                 Ok(Ok((buf, proxy))) => {
-                    win.load_frame_buf_with_proxy(buf, proxy);
+                    // Set before loading: the frame's measuring region depends on them.
                     *win.imp().displayed_file.borrow_mut() = Some(src.path.clone());
+                    win.imp().preview_ready.set(src.is_preview);
+                    win.load_frame_buf_with_proxy(buf, proxy);
                     win.show_frame_rect(&src);
                 }
                 Ok(Err(e)) => win.show_toast(&format!("Could not load frame {idx}: {e}")),
@@ -190,6 +192,7 @@ impl Window {
         *imp.scan_buf.borrow_mut() = None;
         *imp.proxy.borrow_mut() = None;
         *imp.histogram.borrow_mut() = None;
+        *imp.levels.borrow_mut() = None;
         if let Some(a) = imp.histogram_area.borrow().as_ref() {
             a.queue_draw();
         }
@@ -352,7 +355,10 @@ impl Window {
     /// the roll so the roll can be reopened without the scanner.
     pub(super) fn adopt_preview(&self) {
         let new_frame = self.imp().advance_pending.replace(false);
-        let Some(idx) = self.ensure_roll_and_frame(new_frame) else { return };
+        let Some(idx) = self.ensure_roll_and_frame(new_frame) else {
+            self.load_params_for(None);
+            return;
+        };
         if new_frame {
             self.imp().frame_rect.set(None);
             if let Some(a) = self.imp().frame_overlay.borrow().as_ref() {
@@ -361,6 +367,7 @@ impl Window {
         }
         self.store_frame_crop(idx);
         self.rebuild_frame_list();
+        self.load_params_for(Some(idx));
 
         let Some(buf) = self.imp().scan_buf.borrow().clone() else { return };
         let Some(root) = self.imp().roll_root.borrow().clone() else { return };
