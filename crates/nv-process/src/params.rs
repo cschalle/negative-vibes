@@ -86,4 +86,7 @@ pub struct ProcessParams {
     /// Sharpening and noise reduction (stage 7).
     #[serde(default)]
     pub detail: DetailParams,
+    /// Saturation, colour wheel, faded-colour restoration, colour-to-grey (stage 6).
+    #[serde(default)]
+    pub colour: crate::colour::ColourParams,
 }

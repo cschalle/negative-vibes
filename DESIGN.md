@@ -1138,6 +1138,16 @@ the HQ view and the mask tools with a real pointer on screen, the comparison wit
 SilverFast's iSRD (§11.5), which needs SilverFast, and the IR/colour alignment on a scanner
 that does not deliver registered planes.
 
+**M6 status, first slice: colour stage.** Stage 6 (`nv-process::colour`) after tone and
+before detail: saturation (-100 to +100, brightness-preserving), a three-region colour
+wheel model (shadows, midtones, highlights; angle is hue, distance is amount; no wheel
+widget yet, so it is set only through settings), adaptive colour restoration (lifts dull
+colour, leaves vivid colour), and colour-to-grey with standard photographic filter
+weights (red, orange, yellow, green, blue, equal). The Detail page has Saturation,
+Restore Faded Colour and Convert to Grey rows. All round-trip through roll and frame
+settings. Not done in M6: IT8 calibration (ArgyllCMS is not installed here), film profile
+builder, the wheel widget, densitometer, navigator, fine straighten, Kodachrome.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

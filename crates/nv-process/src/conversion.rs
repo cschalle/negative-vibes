@@ -355,6 +355,7 @@ mod tests {
             tone: ToneParams::default(),
             dust: Default::default(),
             detail: Default::default(),
+            colour: Default::default(),
         }
     }
 

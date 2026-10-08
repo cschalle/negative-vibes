@@ -207,6 +207,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             ..Default::default()
         },
         detail: Default::default(),
+        colour: Default::default(),
     };
 
     println!(

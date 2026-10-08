@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod params;
 mod conversion;
+pub mod colour;
 pub mod curves;
 pub mod detail;
 pub mod dust;
@@ -17,6 +18,7 @@ pub use params::{ImageType, ProcessParams};
 pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
+pub use colour::{ColourParams, GreyMix, GREY_PRESETS};
 pub use detail::{AacoGrid, DetailParams, NoiseLevel, Placement, Quality, UsmParams};
 pub use dust::{DefectType, DustMethod, DustMode, DustParams, Stroke};
 pub use orient::{DisplayOp, Orientation};
@@ -112,11 +114,12 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
     }
 
     let mut toned = tone::apply_tone(&converted.pixels, &params.tone);
+    colour::apply(&mut toned, &params.colour);
     detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, Quality::Preview, Placement { origin: proxy.origin, full: proxy.full });
     // B&W is one grey channel; collapse it before painting, or the marks go grey too.
-    let grey = params.image_type == ImageType::BwNegative;
+    let grey = params.image_type == ImageType::BwNegative || params.colour.grey.enabled;
     if grey {
-        collapse_to_grey(&mut toned);
+        grey_stage(&mut toned, params);
     }
     if let Some(mask) = &converted.mask {
         paint_marks(&mut toned, mask, params.dust.mark);
@@ -227,6 +230,16 @@ fn percentile_98(vals: &mut Vec<f32>) -> f32 {
 /// B&W negatives are one density channel: collapse to green-weighted
 /// luminance, replicated to all three channels so every consumer can keep
 /// treating the picture as RGB.
+/// Grey by the chosen filter weights; a B&W negative with no filter chosen keeps
+/// its usual green-weighted collapse.
+fn grey_stage(pixels: &mut [f32], params: &ProcessParams) {
+    if params.colour.grey.enabled {
+        colour::to_grey(pixels, params.colour.grey.weights);
+    } else {
+        collapse_to_grey(pixels);
+    }
+}
+
 fn collapse_to_grey(pixels: &mut [f32]) {
     for px in pixels.chunks_exact_mut(3) {
         let lum = 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2];
@@ -249,9 +262,10 @@ pub fn render_toned_q(proxy: &Proxy, params: &ProcessParams, quality: Quality) -
     }
     let (converted, mask) = convert_stage(proxy, params);
     let mut toned = tone::apply_tone(&converted, &params.tone);
+    colour::apply(&mut toned, &params.colour);
     detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, quality, Placement { origin: proxy.origin, full: proxy.full });
-    if params.image_type == ImageType::BwNegative {
-        collapse_to_grey(&mut toned);
+    if params.image_type == ImageType::BwNegative || params.colour.grey.enabled {
+        grey_stage(&mut toned, params);
     }
     if let Some(mask) = &mask {
         paint_marks(&mut toned, mask, params.dust.mark);
@@ -308,6 +322,7 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
         tone: ToneParams::default(),
         // Silver black and white film blocks infrared: no dust removal by default.
         detail: DetailParams::default(),
+        colour: ColourParams::default(),
         dust: params::DustParams {
             mode: if image_type == ImageType::BwNegative { dust::DustMode::Off } else { dust::DustMode::Correct },
             ..Default::default()

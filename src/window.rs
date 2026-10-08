@@ -54,6 +54,7 @@ pub(crate) mod imp {
         pub usm_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow, adw::SpinRow, adw::SpinRow)>>,
         pub noise_row: RefCell<Option<adw::ComboRow>>,
         pub local_contrast_row: RefCell<Option<adw::SpinRow>>,
+        pub colour_rows: RefCell<Option<(adw::SpinRow, adw::SpinRow, adw::ComboRow)>>,
         /// Where inspector edits go: the roll's defaults or this frame.
         pub scope: Cell<Scope>,
         /// Undo history of the frames not on screen, by frame number
@@ -1080,6 +1081,24 @@ impl Window {
         let weak = self.downgrade();
         local_contrast_row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
         detail_page.add(&noise_group);
+
+        let colour_group = adw::PreferencesGroup::builder().title("Colour").build();
+        let saturation_row = adw::SpinRow::builder().title("Saturation").subtitle("-100 is grey, +100 twice the colour").adjustment(&gtk::Adjustment::new(0.0, -100.0, 100.0, 5.0, 20.0, 0.0)).build();
+        let acr_row = adw::SpinRow::builder().title("Restore Faded Colour").subtitle("Percent. Revives dull colour, leaves vivid colour alone").adjustment(&gtk::Adjustment::new(0.0, 0.0, 100.0, 5.0, 20.0, 0.0)).build();
+        let mut names: Vec<&str> = vec!["In Colour"];
+        names.extend(nv_process::GREY_PRESETS.iter().map(|(n, _)| *n));
+        let grey_row = adw::ComboRow::builder().title("Convert to Grey").subtitle("With the effect of a coloured filter on black and white film").model(&gtk::StringList::new(&names)).build();
+        for r in [saturation_row.upcast_ref::<gtk::Widget>(), acr_row.upcast_ref(), grey_row.upcast_ref()] {
+            colour_group.add(r);
+        }
+        for r in [&saturation_row, &acr_row] {
+            let weak = self.downgrade();
+            r.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        }
+        let weak = self.downgrade();
+        grey_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        *self.imp().colour_rows.borrow_mut() = Some((saturation_row, acr_row, grey_row));
+        detail_page.add(&colour_group);
         let detail_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&detail_page).build();
         insp_stack.add_titled(&detail_scroll, Some("detail"), "Detail");
         *self.imp().dust_mode_row.borrow_mut() = Some(dust_mode_row.clone());
@@ -1269,6 +1288,17 @@ impl Window {
         p.detail.usm = nv_process::UsmParams { enabled: usm_enabled, amount: usm_amount, radius: usm_radius, threshold: usm_threshold };
         p.detail.noise = noise;
         p.detail.local_contrast = self.imp().local_contrast_row.borrow().as_ref()?.value() as f32;
+        if let Some((sat, acr, grey)) = self.imp().colour_rows.borrow().as_ref() {
+            p.colour.saturation = sat.value() as f32 / 100.0;
+            p.colour.acr = acr.value() as f32;
+            match grey.selected() as usize {
+                0 => p.colour.grey.enabled = false,
+                i => {
+                    p.colour.grey.enabled = true;
+                    p.colour.grey.weights = nv_process::GREY_PRESETS[i - 1].1;
+                }
+            }
+        }
         p.tone = ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast, balance, ..p.tone.clone() };
         Some(p)
     }
@@ -1320,6 +1350,16 @@ impl Window {
             t.set_value(params.detail.usm.threshold as f64);
         }
         if let Some(r) = self.imp().local_contrast_row.borrow().as_ref() { r.set_value(params.detail.local_contrast as f64); }
+        if let Some((sat, acr, grey)) = self.imp().colour_rows.borrow().as_ref() {
+            sat.set_value(params.colour.saturation as f64 * 100.0);
+            acr.set_value(params.colour.acr as f64);
+            let pick = if params.colour.grey.enabled {
+                nv_process::GREY_PRESETS.iter().position(|(_, w)| *w == params.colour.grey.weights).map_or(0, |i| i + 1)
+            } else {
+                0
+            };
+            grey.set_selected(pick as u32);
+        }
         if let Some(r) = self.imp().noise_row.borrow().as_ref() {
             r.set_selected(match params.detail.noise { nv_process::NoiseLevel::Off => 0, nv_process::NoiseLevel::Light => 1, nv_process::NoiseLevel::Medium => 2, nv_process::NoiseLevel::Strong => 3 });
         }

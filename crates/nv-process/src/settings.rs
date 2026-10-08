@@ -38,11 +38,16 @@ pub struct Settings {
     pub usm_threshold: Option<u8>,
     pub noise: Option<crate::detail::NoiseLevel>,
     pub local_contrast: Option<f32>,
+    pub saturation: Option<f32>,
+    pub acr: Option<f32>,
+    pub wheel: Option<[[f32; 2]; 3]>,
+    pub grey_enabled: Option<bool>,
+    pub grey_weights: Option<[f32; 3]>,
 }
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast)
+        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast, saturation, acr, wheel, grey_enabled, grey_weights)
     };
 }
 
@@ -82,6 +87,11 @@ impl Settings {
         if let Some(v) = self.usm_threshold { p.detail.usm.threshold = v; }
         if let Some(v) = self.noise { p.detail.noise = v; }
         if let Some(v) = self.local_contrast { p.detail.local_contrast = v; }
+        if let Some(v) = self.saturation { p.colour.saturation = v; }
+        if let Some(v) = self.acr { p.colour.acr = v; }
+        if let Some(v) = self.wheel { p.colour.wheel = v; }
+        if let Some(v) = self.grey_enabled { p.colour.grey.enabled = v; }
+        if let Some(v) = self.grey_weights { p.colour.grey.weights = v; }
     }
 
     /// The fields that differ between `old` and `new`.
@@ -126,6 +136,11 @@ impl Settings {
             usm_threshold: ch(old.detail.usm.threshold, new.detail.usm.threshold),
             noise: ch(old.detail.noise, new.detail.noise),
             local_contrast: chf(old.detail.local_contrast, new.detail.local_contrast),
+            saturation: chf(old.colour.saturation, new.colour.saturation),
+            acr: chf(old.colour.acr, new.colour.acr),
+            wheel: ch(old.colour.wheel, new.colour.wheel),
+            grey_enabled: ch(old.colour.grey.enabled, new.colour.grey.enabled),
+            grey_weights: ch3(old.colour.grey.weights, new.colour.grey.weights),
         }
     }
 
@@ -213,5 +228,23 @@ mod tests {
         let back: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
         assert!(serde_json::from_str::<Settings>("{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn colour_settings_round_trip_through_a_diff() {
+        let base = base();
+        let mut edited = base.clone();
+        edited.colour.saturation = 0.3;
+        edited.colour.acr = 40.0;
+        edited.colour.wheel[2] = [0.2, -0.4];
+        edited.colour.grey.enabled = true;
+        edited.colour.grey.weights = crate::GREY_PRESETS[1].1;
+        let s = Settings::diff(&base, &edited);
+        let mut out = base.clone();
+        s.apply_to(&mut out);
+        assert_eq!(out.colour, edited.colour);
+        assert!(Settings::diff(&base, &base).is_empty());
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
     }
 }
