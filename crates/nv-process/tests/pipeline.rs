@@ -116,4 +116,22 @@ fn a_7200_dpi_frame_is_reduced_once_and_then_renders_interactively() {
     let tone_only = t.elapsed();
     eprintln!("{w}x{h} -> {}x{}: reduce {reduce:?}, first render {first:?}, tone-only render {tone_only:?}", proxy.width, proxy.height);
     assert!(tone_only.as_millis() < 250, "tone-only render took {tone_only:?}");
+
+    // Full resolution, the way 1:1 view and export do it.
+    let frozen = nv_process::tiles::freeze(&proxy, &params);
+    let mut tiles = nv_process::tiles::TileCache::new(512 << 20);
+    let t = std::time::Instant::now();
+    let view = tiles.region(&raw, &frozen, 4000, 3000, 1600, 1000);
+    let first_view = t.elapsed();
+    assert_eq!(view.len(), 1600 * 1000 * 3);
+    let t = std::time::Instant::now();
+    tiles.region(&raw, &frozen, 4100, 3100, 1600, 1000);
+    let panned = t.elapsed();
+    let threads = std::thread::available_parallelism().map_or(2, |n| n.get());
+    let t = std::time::Instant::now();
+    let full = nv_process::tiles::render_full(&raw, &frozen, threads);
+    let export = t.elapsed();
+    assert_eq!(full.len(), w as usize * h as usize * 3);
+    eprintln!("1:1 view {first_view:?}, panned {panned:?}, full export on {threads} threads {export:?}");
+    assert!(first_view.as_millis() < 1500, "a 1:1 view took {first_view:?}");
 }

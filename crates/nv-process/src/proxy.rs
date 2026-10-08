@@ -72,6 +72,33 @@ impl Proxy {
         Self::new(w, h, factor, pixels)
     }
 
+    /// Decode the `w × h` block of `raw` at `(x0, y0)` at full resolution.
+    /// The block is clipped to the scan.
+    pub fn from_raw_region(raw: &FrameBuf, x0: usize, y0: usize, w: usize, h: usize) -> Self {
+        let (rw, rh) = (raw.width as usize, raw.effective_height() as usize);
+        let (x1, y1) = ((x0 + w).min(rw), (y0 + h).min(rh));
+        if x0 >= x1 || y0 >= y1 {
+            return Self::new(0, 0, 1, Vec::new());
+        }
+        let (w, h) = (x1 - x0, y1 - y0);
+        let bps = raw.depth as usize / 8;
+        let ch = raw.channels as usize;
+        let src = raw.as_bytes();
+        let scale = 1.0 / if bps == 2 { 65535.0f32 } else { 255.0 };
+        let mut pixels = vec![0.0f32; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let off = (y0 + y) * raw.bytes_per_row + (x0 + x) * ch * bps;
+                let r = read_sample(src, off, bps) as f32 * scale;
+                let o = (y * w + x) * 3;
+                pixels[o] = r;
+                pixels[o + 1] = if ch >= 2 { read_sample(src, off + bps, bps) as f32 * scale } else { r };
+                pixels[o + 2] = if ch >= 3 { read_sample(src, off + 2 * bps, bps) as f32 * scale } else { r };
+            }
+        }
+        Self::new(w, h, 1, pixels)
+    }
+
     /// The part of the proxy inside `rect` (`[x0, y0, x1, y1]`, fractions).
     pub fn crop(&self, rect: [f32; 4]) -> Proxy {
         let px = |f: f32, n: usize| ((f.clamp(0.0, 1.0) * n as f32).round() as usize).min(n);

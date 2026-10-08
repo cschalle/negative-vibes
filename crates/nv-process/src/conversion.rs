@@ -67,8 +67,19 @@ pub fn measure_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessPara
     let mut own = params.clone();
     own.conversion.d_max = None;
     own.conversion.cast_fit = None;
-    let (density, cast_fit) = density_stage(pixels, w, h, &own);
-    let d_max = interior_percentile(&density, w, h, 1.0 - own.conversion.tolerance, own.conversion.region);
+    freeze_negative(pixels, w, h, &own)
+}
+
+/// The range and colour axis `params` convert with: the values it fixes, and
+/// for the rest, those measured on this picture.
+pub fn freeze_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessParams) -> Measured {
+    let mut p = params.clone();
+    p.conversion.d_max = None;
+    let (density, cast_fit) = density_stage(pixels, w, h, &p);
+    let d_max = params
+        .conversion
+        .d_max
+        .unwrap_or_else(|| interior_percentile(&density, w, h, 1.0 - params.conversion.tolerance, params.conversion.region));
     Measured { d_max, cast_fit }
 }
 
@@ -115,19 +126,28 @@ pub fn convert_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessPara
     out
 }
 
-/// Stage 4 — positive normalisation (slides / direct positives).
-/// Scales each channel to [0,1] using per-channel min/max.
-pub fn normalise_positive(pixels: &[f32], _params: &ProcessParams) -> Vec<f32> {
-    let n = pixels.len() / 3;
+/// The `(min, max)` per channel a positive is scaled by: the fixed range, or
+/// the one found in `pixels`.
+pub fn positive_range(pixels: &[f32], params: &ProcessParams) -> ([f32; 3], [f32; 3]) {
+    if let Some(r) = params.conversion.positive_range {
+        return ([r[0][0], r[1][0], r[2][0]], [r[0][1], r[1][1], r[2][1]]);
+    }
     let mut min = [f32::MAX; 3];
     let mut max = [f32::MIN; 3];
-    for i in 0..n {
+    for px in pixels.chunks_exact(3) {
         for c in 0..3 {
-            let v = pixels[i * 3 + c];
-            min[c] = min[c].min(v);
-            max[c] = max[c].max(v);
+            min[c] = min[c].min(px[c]);
+            max[c] = max[c].max(px[c]);
         }
     }
+    (min, max)
+}
+
+/// Stage 4 — positive normalisation (slides / direct positives).
+/// Scales each channel to [0,1] using per-channel min/max.
+pub fn normalise_positive(pixels: &[f32], params: &ProcessParams) -> Vec<f32> {
+    let n = pixels.len() / 3;
+    let (min, max) = positive_range(pixels, params);
     let mut out = vec![0.0f32; n * 3];
     for i in 0..n {
         for c in 0..3 {
@@ -331,7 +351,7 @@ mod tests {
         ProcessParams {
             image_type: ImageType::ColourNegative,
             profile: FilmProfile::identity(),
-            conversion: ConversionParams { film_base: Some(base), exposure: 0.0, tolerance: 0.0016, auto_ccr: false, cast_removal, d_max: None, cast_fit: None, region: None },
+            conversion: ConversionParams { film_base: Some(base), exposure: 0.0, tolerance: 0.0016, auto_ccr: false, cast_removal, d_max: None, cast_fit: None, region: None, positive_range: None },
             tone: ToneParams::default(),
         }
     }

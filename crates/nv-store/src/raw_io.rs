@@ -140,33 +140,67 @@ fn read_pnm(data: &[u8]) -> Result<FrameBuf> {
     Ok(buf)
 }
 
+/// Largest scan we agree to read: a 7200 dpi frame is 482 MB, and this leaves
+/// room for several times that, but not for a corrupt header that claims a
+/// terabyte.
+const MAX_SCAN_BYTES: u64 = 4 << 30;
+
 fn read_tiff(path: &Path) -> Result<FrameBuf> {
-    let file = std::fs::File::open(path)?;
-    let mut decoder = tiff::decoder::Decoder::new(file)?;
+    use tiff::decoder::{ChunkType, DecodingResult, Limits};
+
+    let file = std::io::BufReader::new(std::fs::File::open(path)?);
+    // The crate's default limits (256 MB per decoded buffer) refuse exactly
+    // the frames this program exists to scan. Our own size check replaces them.
+    let mut decoder = tiff::decoder::Decoder::new(file)?.with_limits(Limits::unlimited());
 
     let (w, h) = decoder.dimensions()?;
-    let depth: u8 = match decoder.colortype()? {
+    let colortype = decoder.colortype()?;
+    let depth: u8 = match colortype {
         tiff::ColorType::Gray(16) | tiff::ColorType::RGB(16) => 16,
         _ => 8,
     };
-    let channels: u8 = match decoder.colortype()? {
+    let channels: u8 = match colortype {
         tiff::ColorType::Gray(_) => 1,
         tiff::ColorType::RGB(_) => 3,
         tiff::ColorType::RGBA(_) => 4,
         _ => 3,
     };
-
-    let image = decoder.read_image()?;
-    let raw = match image {
-        tiff::decoder::DecodingResult::U8(v)  => v.iter().map(|&x| x as u8).collect::<Vec<_>>(),
-        tiff::decoder::DecodingResult::U16(v) => {
-            v.iter().flat_map(|&x| x.to_ne_bytes()).collect()
-        }
-        _ => return Err(StoreError::Other("unsupported TIFF sample format".into())),
-    };
+    let bytes = w as u64 * h as u64 * channels as u64 * (depth as u64 / 8);
+    if bytes > MAX_SCAN_BYTES {
+        return Err(StoreError::Other(format!("{w}×{h} scan is too large to open ({} MB)", bytes >> 20)));
+    }
 
     let mut buf = FrameBuf::new(w, Some(h), depth, channels);
-    buf.append(&raw);
+    let append = |buf: &mut FrameBuf, image: DecodingResult| -> Result<()> {
+        match image {
+            DecodingResult::U8(v) => buf.append(&v),
+            // Samples are kept in the host's order, as SANE delivers them.
+            // Converted a block at a time: a whole-image byte copy would
+            // double the memory of a big scan.
+            DecodingResult::U16(v) => {
+                let mut bytes = Vec::with_capacity(1 << 20);
+                for block in v.chunks(1 << 19) {
+                    bytes.clear();
+                    bytes.extend(block.iter().flat_map(|x| x.to_ne_bytes()));
+                    buf.append(&bytes);
+                }
+            }
+            _ => return Err(StoreError::Other("unsupported TIFF sample format".into())),
+        }
+        Ok(())
+    };
+
+    if decoder.get_chunk_type() == ChunkType::Strip {
+        // A strip at a time: the file's samples and the frame never both
+        // exist in full.
+        let strips = decoder.strip_count()?;
+        for i in 0..strips {
+            let chunk = decoder.read_chunk(i)?;
+            append(&mut buf, chunk)?;
+        }
+    } else {
+        append(&mut buf, decoder.read_image()?)?;
+    }
     Ok(buf)
 }
 

@@ -3,6 +3,7 @@ pub mod params;
 mod conversion;
 pub mod curves;
 pub mod settings;
+pub mod tiles;
 pub mod histogram;
 pub mod proxy;
 mod tone;
@@ -220,6 +221,7 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
             d_max: None,
             cast_fit: None,
             region: None,
+            positive_range: None,
         },
         tone: ToneParams::default(),
     }

@@ -35,6 +35,10 @@ pub struct ConversionParams {
     /// measurements look inside it. `None` means the whole image, less its
     /// border.
     pub region: Option<[f32; 4]>,
+    /// `(min, max)` per channel that a positive is normalised to, fixed from
+    /// the whole picture so tiles of it agree. `None` measures the pixels it is given.
+    #[serde(default)]
+    pub positive_range: Option<[[f32; 2]; 3]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -184,6 +184,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             d_max: None,
             cast_fit: None,
             region: None,
+            positive_range: None,
         },
         tone: ToneParams {
             black_point: args.black_point,

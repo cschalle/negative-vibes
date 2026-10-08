@@ -931,15 +931,25 @@ edit puts the roll back) and is saved next to `roll.json` (`history.json`, the l
 steps per frame); Roll Analysis (median film base, density range and colour axis over the
 roll, fixed as roll-wide values; frames are measured inside their own rectangle).
 Tests: golden images of the tulip fixture (`tests/goldens/`, including grey-picking the
-wall), synthetic B&W-negative and positive checks, the cache, curves, settings and
-history. Measured in release on a synthetic 7200 dpi frame (10368 × 7755): reducing it
-to the proxy takes about 145 ms, the first render about 130 ms, and a tone-only render
-about 60 ms (`cargo test -p nv-process --release --test pipeline -- --ignored
---nocapture`). Auto does not guess a colour cast: equalising channel medians turned the
-tulip wall blue-green because the scene is mostly red and green. Still open: real B&W
-and slide scans for fixtures (the checks for those types are synthetic), timing a real
-7200 dpi raw read from disk (the 482 MB read itself is not in the numbers above), and a
-tiled stage cache for 1:1 and export, which M4 needs.
+wall), synthetic B&W-negative and positive checks, the cache, curves, settings, history,
+and tiling. Full resolution: `tiles::freeze` fixes what the pipeline measures on the
+whole picture (film base, density range, colour axis, a positive's range) from the
+proxy, after which tiles render independently and join exactly (tested bit for bit
+against a whole-picture render); `TileCache` keeps finished tiles within a memory budget
+for the 1:1 view and `render_full` renders the whole frame on several threads for
+export. Measured in release on a synthetic 7200 dpi frame (10368 × 7755), warm file
+cache, 16 threads: writing the TIFF 0.8 s, reading it 0.6 s, reducing it to the proxy
+0.15 s, a first render 0.13 s, a tone-only render 0.06 s, a first 1600 × 1000 view at 1:1
+0.26 s (0.13 s when panned over cached tiles), and a full-frame render for export 0.85 s
+(`cargo test -p nv-store --release --test big_raw -- --ignored --nocapture`, and
+`cargo test -p nv-process --release --test pipeline -- --ignored --nocapture`).
+Reading a 7200 dpi TIFF used to fail with `LimitsExceeded` (the `tiff` crate caps a decode
+at 256 MB); the reader now lifts that, checks the size itself, and reads strip by strip.
+Auto does not guess a colour cast: equalising channel medians turned the tulip wall
+blue-green because the scene is mostly red and green. Still open: real B&W and slide
+scans. The checks for those types are synthetic; `tests/fixtures/README.md` says how to
+add real ones, and `tests/fixtures.rs` picks them up and does nothing, saying so, until
+they exist. The timings above are on a warm file cache, not a cold disk.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
