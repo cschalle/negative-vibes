@@ -909,6 +909,14 @@ features, not dates.
 | **M6 Colour and profiles** | IT8 calibration, film profiles (format, builder, first measured stocks), colour wheel, ACR, colour-to-grey, scene presets, densitometer, navigator, straighten, Kodachrome | Profile builder round-trips a step-wedge fixture; IT8 workflow produces a profile accepted by lcms2 |
 | **M7 Polish and advanced** | Multi-sample and multi-exposure, DNG, PNG, metadata and IPTC presets, guided flow, AACO, selective colour, help pages, translations, icon, sounds, preference completeness, Flathub submission | HIG review checklist passes (§11.7); translation template complete; Flathub build passes |
 
+**M2 status (2026-10-07).** Built: cached preview written into the roll, frame
+selection with thumbnails, drawn scan rectangle, frame detection (`nv-film`,
+unit-tested on synthetic strips), add/delete/duplicate/keep/reject, manual-advance
+banner, zoom and pan, 2 s auto-save with flush on close, Open Raw Scans into a roll
+folder, Open Roll. Not yet verified on hardware: the six-frame roll on the 8200i, and
+detection on real previews. Still open: crop handles (the rectangle is redrawn, not
+edited), aspect lock and holder templates (F§7), rotation and flip.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

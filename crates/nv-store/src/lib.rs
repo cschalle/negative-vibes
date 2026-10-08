@@ -4,7 +4,7 @@ pub mod raw_io;
 
 pub use model::{Frame, FrameState, Geometry, RawRef, Roll};
 pub use store::RollStore;
-pub use raw_io::RawReader;
+pub use raw_io::{RawReader, RawWriter};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

@@ -36,12 +36,31 @@ mod imp {
             let window = crate::window::Window::new(app.upcast_ref::<gtk::Application>());
             app.set_accels_for_action("win.undo", &["<Ctrl>z"]);
             app.set_accels_for_action("win.redo", &["<Ctrl>y", "<Ctrl><Shift>z"]);
+            app.set_accels_for_action("win.zoom-in", &["<Ctrl>plus", "<Ctrl>equal", "<Ctrl>KP_Add"]);
+            app.set_accels_for_action("win.zoom-out", &["<Ctrl>minus", "<Ctrl>KP_Subtract"]);
+            app.set_accels_for_action("win.zoom-fit", &["<Ctrl>0", "<Ctrl>KP_0"]);
+            app.set_accels_for_action("win.zoom-100", &["<Ctrl>1", "<Ctrl>KP_1"]);
+            app.set_accels_for_action("win.detect-frames", &["<Ctrl><Shift>f"]);
+            app.set_accels_for_action("win.next-frame", &["Page_Down"]);
+            app.set_accels_for_action("win.prev-frame", &["Page_Up"]);
+            app.set_accels_for_action("win.delete-frame", &["Delete"]);
+            app.set_accels_for_action("win.duplicate-frame", &["<Ctrl>d"]);
             window.present();
 
             self.pump_events();
 
             if let Some(worker) = self.worker.get() {
                 worker.probe();
+            }
+
+            // Headless import test: NV_IMPORT_FILES=a.pnm:b.pnm behaves like
+            // Open Raw Scans with those files.
+            if let Ok(list) = std::env::var("NV_IMPORT_FILES") {
+                let win_weak = window.downgrade();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+                    let Some(win) = win_weak.upgrade() else { return };
+                    win.import_raw_files_for_test(std::env::split_paths(&list).collect());
+                });
             }
 
             // Headless pipeline test: if NV_OPEN_FILE is set, load it directly
@@ -65,20 +84,9 @@ mod imp {
 
     impl Application {
         fn start_sane_worker(&self) {
-            // If SANE_CONFIG_DIR is not already set, default to ~/.sane which
-            // contains the plustek8200i backend config and dll.conf.
-            // SANE_CONFIG_DIR is read by libsane at runtime (not at dlopen time),
-            // so setting it here before sane_init is called is sufficient.
-            // LD_LIBRARY_PATH must be set before process start for dlopen to use it;
-            // the launch script (or desktop file) must set it for custom backends.
-            unsafe {
-                if std::env::var_os("SANE_CONFIG_DIR").is_none() {
-                    if let Some(home) = glib::home_dir().to_str().map(str::to_owned) {
-                        std::env::set_var("SANE_CONFIG_DIR", format!("{home}/.sane"));
-                    }
-                }
-            }
-
+            // Use the system SANE configuration (/etc/sane.d) unless the caller
+            // set SANE_CONFIG_DIR. The plustek8200i backend is installed there;
+            // forcing ~/.sane, which has no dll.conf, loads no backends at all.
             let quirks_path = super::quirks_file_path();
             let worker = AcquireWorker::spawn(quirks_path);
             self.worker.set(worker).ok();
@@ -112,11 +120,29 @@ mod imp {
                     if let crate::window::imp::ScanUiState::Ready { device_name } =
                         &*win.imp().scan_state.borrow()
                     {
-                        worker.start_scan(device_name.clone(), 300, false);
+                        worker.start_scan(device_name.clone(), 300, false, None);
                     }
                 }
             });
             app.add_action(&preview);
+
+            // scan: full-resolution scan of the current frame
+            let scan = gio::SimpleAction::new("scan", None);
+            let app_weak = app.downgrade();
+            scan.connect_activate(move |_, _| {
+                if let Some(app) = app_weak.upgrade() {
+                    let Some(worker) = app.imp().worker.get() else { return };
+                    let Some(win) = app.active_window()
+                        .and_downcast::<crate::window::Window>() else { return };
+
+                    if let crate::window::imp::ScanUiState::Ready { device_name } =
+                        &*win.imp().scan_state.borrow()
+                    {
+                        worker.start_scan(device_name.clone(), win.final_scan_dpi(), false, win.frame_rect());
+                    }
+                }
+            });
+            app.add_action(&scan);
         }
 
         pub fn pump_events(&self) {

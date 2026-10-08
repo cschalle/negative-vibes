@@ -41,7 +41,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
     let device_name = wait_for_device(&worker.evt_rx, args.device.as_deref())?;
     println!("Scanning on {device_name} @ {} dpi (ir={})…", args.dpi, args.ir);
 
-    worker.start_scan(device_name, args.dpi, args.ir);
+    worker.start_scan(device_name, args.dpi, args.ir, None);
 
     let buf = collect_scan(&worker.evt_rx, &args.output)?;
 

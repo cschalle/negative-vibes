@@ -22,6 +22,50 @@ impl RawWriter {
         std::fs::write(path, out)?;
         Ok(())
     }
+
+    /// Write a full-resolution scan as an uncompressed TIFF, keeping the
+    /// scanner's bit depth (16-bit samples are stored in the host's order,
+    /// which the TIFF header records, so nothing is lost or swapped).
+    pub fn write_scan(buf: &FrameBuf, path: &Path) -> Result<()> {
+        use tiff::encoder::{colortype, TiffEncoder};
+
+        let w = buf.width;
+        let h = buf.effective_height();
+        if w == 0 || h == 0 {
+            return Err(StoreError::Other("empty frame buffer".into()));
+        }
+
+        let bps = buf.depth as usize / 8;
+        let row_len = w as usize * buf.channels as usize * bps;
+        let bytes = buf.as_bytes();
+        if bytes.len() < buf.bytes_per_row * h as usize {
+            return Err(StoreError::Other("incomplete scan data".into()));
+        }
+        // Drop any per-line alignment padding the backend added.
+        let mut packed = Vec::with_capacity(row_len * h as usize);
+        for row in 0..h as usize {
+            let start = row * buf.bytes_per_row;
+            packed.extend_from_slice(&bytes[start..start + row_len]);
+        }
+
+        let file = std::io::BufWriter::new(std::fs::File::create(path)?);
+        let mut enc = TiffEncoder::new(file)?;
+        let samples16 = || -> Vec<u16> {
+            packed.chunks_exact(2).map(|p| u16::from_ne_bytes([p[0], p[1]])).collect()
+        };
+        match (buf.channels, buf.depth) {
+            (3, 16) => enc.write_image::<colortype::RGB16>(w, h, &samples16())?,
+            (3, 8) => enc.write_image::<colortype::RGB8>(w, h, &packed)?,
+            (1, 16) => enc.write_image::<colortype::Gray16>(w, h, &samples16())?,
+            (1, 8) => enc.write_image::<colortype::Gray8>(w, h, &packed)?,
+            (c, d) => {
+                return Err(StoreError::Other(format!(
+                    "cannot write {c}-channel {d}-bit scan"
+                )))
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Read a raw or preview file back into a FrameBuf.
@@ -41,36 +85,44 @@ impl RawReader {
     }
 }
 
-fn read_pnm(data: &[u8]) -> Result<FrameBuf> {
-    // Parse the ASCII header without trying to decode the binary pixel data.
-    // PNM header is: "<magic>\n<width> <height>\n<maxval>\n"
-    // We scan for the end of the header (3 newlines after the magic line).
-    let mut header_bytes = 0usize;
-    let mut newlines = 0usize;
-    for (i, &b) in data.iter().enumerate() {
-        if b == b'\n' {
-            newlines += 1;
-            if newlines == 3 {
-                header_bytes = i + 1;
-                break;
+/// Read the next whitespace-delimited header token, skipping `#` comments
+/// (which run to the end of the line and may sit anywhere in the header).
+fn pnm_token<'a>(data: &'a [u8], pos: &mut usize) -> Option<&'a str> {
+    loop {
+        match data.get(*pos)? {
+            b'#' => {
+                while *data.get(*pos)? != b'\n' {
+                    *pos += 1;
+                }
             }
+            c if c.is_ascii_whitespace() => *pos += 1,
+            _ => break,
         }
     }
-    if header_bytes == 0 {
-        return Err(StoreError::Other("invalid PNM header".into()));
+    let start = *pos;
+    while data.get(*pos).is_some_and(|c| !c.is_ascii_whitespace() && *c != b'#') {
+        *pos += 1;
     }
+    std::str::from_utf8(&data[start..*pos]).ok()
+}
 
-    let header = std::str::from_utf8(&data[..header_bytes])
-        .map_err(|e| StoreError::Other(e.to_string()))?;
-
-    let mut iter = header.split_ascii_whitespace();
-    let magic = iter.next().unwrap_or("");
-    let channels: u8 = if magic == "P6" { 3 } else { 1 };
-
-    let w: u32 = iter.next().unwrap_or("0").parse().unwrap_or(0);
-    let h: u32 = iter.next().unwrap_or("0").parse().unwrap_or(0);
-    let maxval: u32 = iter.next().unwrap_or("255").parse().unwrap_or(255);
+fn read_pnm(data: &[u8]) -> Result<FrameBuf> {
+    let bad = || StoreError::Other("invalid PNM header".into());
+    let mut pos = 0;
+    let magic = pnm_token(data, &mut pos).ok_or_else(bad)?;
+    let channels: u8 = match magic {
+        "P6" => 3,
+        "P5" => 1,
+        _ => return Err(bad()),
+    };
+    let mut number = || -> Result<u32> { pnm_token(data, &mut pos).and_then(|t| t.parse().ok()).ok_or_else(bad) };
+    let (w, h, maxval) = (number()?, number()?, number()?);
     let depth: u8 = if maxval > 255 { 16 } else { 8 };
+    // Exactly one whitespace byte separates the header from the pixels.
+    let header_bytes = pos + 1;
+    if header_bytes > data.len() {
+        return Err(bad());
+    }
 
     let pixel_data = &data[header_bytes..];
     let mut buf = FrameBuf::new(w, Some(h), depth, channels);
@@ -120,7 +172,58 @@ fn read_tiff(path: &Path) -> Result<FrameBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::read_pnm;
+    use super::{read_pnm, RawReader, RawWriter};
+
+    /// `pnmtopnm`, GIMP and the SANE tools write comments into the header.
+    #[test]
+    fn pnm_header_comments_are_skipped() {
+        let mut data = b"P6\n# SANE data follows\n2 1 # size\n255\n".to_vec();
+        data.extend_from_slice(&[1, 2, 3, 4, 5, 6]);
+        let buf = read_pnm(&data).expect("header with comments");
+        assert_eq!((buf.width, buf.effective_height(), buf.depth, buf.channels), (2, 1, 8, 3));
+        assert_eq!(buf.as_bytes(), &[1, 2, 3, 4, 5, 6]);
+    }
+
+    /// Pixel data that happens to start with a `#` byte or a newline is not a
+    /// comment or whitespace to skip: it comes after the single separator.
+    #[test]
+    fn pnm_pixels_starting_with_hash_or_newline_survive() {
+        let mut data = b"P5\n2 1\n255\n".to_vec();
+        data.extend_from_slice(&[b'#', b'\n']);
+        let buf = read_pnm(&data).unwrap();
+        assert_eq!(buf.as_bytes(), &[b'#', b'\n']);
+    }
+    use nv_image::{read_sample, FrameBuf};
+
+    /// A 16-bit scan written to disk must read back sample for sample,
+    /// including when the backend pads each line.
+    #[test]
+    fn sixteen_bit_scan_round_trips_through_tiff() {
+        let (w, h, stride) = (2u32, 2u32, 16usize); // 12 data bytes + 4 padding
+        let mut buf = FrameBuf::with_stride(w, Some(h), 16, 3, stride);
+        let mut next = 0x1001u16;
+        for _ in 0..h {
+            let mut row = Vec::new();
+            for _ in 0..w * 3 {
+                row.extend_from_slice(&next.to_ne_bytes());
+                next += 0x0111;
+            }
+            row.extend_from_slice(&[0xee; 4]);
+            buf.append(&row);
+        }
+
+        let path = std::env::temp_dir().join("nv-store-scan-roundtrip.tif");
+        RawWriter::write_scan(&buf, &path).expect("write");
+        let back = RawReader::read(&path).expect("read");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!((back.width, back.effective_height(), back.depth, back.channels), (2, 2, 16, 3));
+        let mut expect = 0x1001u32;
+        for i in 0..(w * h * 3) as usize {
+            assert_eq!(read_sample(back.as_bytes(), i * 2, 2), expect, "sample {i}");
+            expect += 0x0111;
+        }
+    }
 
     /// PNM stores 16-bit samples most significant byte first. FrameBuf holds
     /// them in the host's order, the same as SANE delivers them, so the

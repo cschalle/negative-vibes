@@ -34,6 +34,11 @@ impl RollStore {
         Ok(Self { root: root.to_owned(), roll })
     }
 
+    /// Wrap a roll that is already in memory with the folder it lives in.
+    pub fn from_parts(root: PathBuf, roll: Roll) -> Self {
+        Self { root, roll }
+    }
+
     /// Atomically write `roll.json`.
     pub fn save(&self) -> Result<()> {
         let json = serde_json::to_string_pretty(&self.roll)?;

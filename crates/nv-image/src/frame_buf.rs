@@ -3,6 +3,7 @@
 /// Raw data is stored exactly as received (8 or 16 bit; see `read_sample`
 /// for the byte order of 16-bit samples).
 /// Call `to_rgb8()` to get a display-ready sRGB u8 copy.
+#[derive(Clone)]
 pub struct FrameBuf {
     pub width: u32,
     /// Known height, or `None` for sheet-fed / hand scanners (`lines = -1`).
@@ -61,6 +62,57 @@ impl FrameBuf {
     /// Effective height: known height or rows received so far.
     pub fn effective_height(&self) -> u32 {
         self.height.unwrap_or_else(|| self.rows_available())
+    }
+
+    /// A small RGBA8 copy for list thumbnails, longest side `max_side`.
+    ///
+    /// `region` is `[x0, y0, x1, y1]` as fractions of the image (a frame's
+    /// crop); `None` takes everything. Samples are box-averaged per output
+    /// pixel and given the same display curve as [`to_rgb8`](Self::to_rgb8).
+    /// Returns `(width, height, pixels)`.
+    pub fn thumbnail_rgba(&self, max_side: u32, region: Option<[f64; 4]>) -> (u32, u32, Vec<u8>) {
+        let (iw, ih) = (self.width as usize, self.rows_available().min(self.effective_height()) as usize);
+        if iw == 0 || ih == 0 || max_side == 0 {
+            return (0, 0, Vec::new());
+        }
+        let [fx0, fy0, fx1, fy1] = region.unwrap_or([0.0, 0.0, 1.0, 1.0]);
+        let x0 = ((fx0.clamp(0.0, 1.0) * iw as f64) as usize).min(iw - 1);
+        let y0 = ((fy0.clamp(0.0, 1.0) * ih as f64) as usize).min(ih - 1);
+        let x1 = ((fx1.clamp(0.0, 1.0) * iw as f64).ceil() as usize).clamp(x0 + 1, iw);
+        let y1 = ((fy1.clamp(0.0, 1.0) * ih as f64).ceil() as usize).clamp(y0 + 1, ih);
+        let (rw, rh) = (x1 - x0, y1 - y0);
+        let scale = (max_side as f64 / rw.max(rh) as f64).min(1.0);
+        let (ow, oh) = (((rw as f64 * scale).round() as usize).max(1), ((rh as f64 * scale).round() as usize).max(1));
+
+        let bps = self.depth as usize / 8;
+        let ch = self.channels as usize;
+        let full = if bps == 2 { 65535.0f32 } else { 255.0 };
+        let mut out = Vec::with_capacity(ow * oh * 4);
+        for oy in 0..oh {
+            let (sy0, sy1) = (y0 + oy * rh / oh, (y0 + (oy + 1) * rh / oh).max(y0 + oy * rh / oh + 1));
+            for ox in 0..ow {
+                let (sx0, sx1) = (x0 + ox * rw / ow, (x0 + (ox + 1) * rw / ow).max(x0 + ox * rw / ow + 1));
+                let mut acc = [0f32; 3];
+                let mut n = 0f32;
+                for y in sy0..sy1 {
+                    for x in sx0..sx1 {
+                        let off = y * self.bytes_per_row + x * ch * bps;
+                        let r = read_sample(&self.data, off, bps) as f32;
+                        let g = if ch >= 2 { read_sample(&self.data, off + bps, bps) as f32 } else { r };
+                        let b = if ch >= 3 { read_sample(&self.data, off + 2 * bps, bps) as f32 } else { r };
+                        acc[0] += r;
+                        acc[1] += g;
+                        acc[2] += b;
+                        n += 1.0;
+                    }
+                }
+                for c in acc {
+                    out.push(((c / n / full).sqrt() * 255.0) as u8);
+                }
+                out.push(255);
+            }
+        }
+        (ow as u32, oh as u32, out)
     }
 
     /// Convert to 8-bit RGB (3 channels) suitable for `GdkMemoryTexture`.
@@ -125,7 +177,7 @@ pub fn read_sample(data: &[u8], offset: usize, bps: usize) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::read_sample;
+    use super::{read_sample, FrameBuf};
 
     #[test]
     fn sixteen_bit_samples_are_host_order() {
@@ -147,5 +199,37 @@ mod tests {
     fn reads_past_the_end_are_zero() {
         assert_eq!(read_sample(&[0x01], 0, 2), 0);
         assert_eq!(read_sample(&[], 0, 1), 0);
+    }
+
+    // ── thumbnails ──
+
+    fn gradient(w: u32, h: u32) -> FrameBuf {
+        let mut b = FrameBuf::new(w, Some(h), 8, 3);
+        for _y in 0..h {
+            for x in 0..w {
+                b.append(&[(x * 255 / (w - 1)) as u8; 3]);
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn thumbnail_keeps_aspect_and_caps_the_long_side() {
+        let (w, h, px) = gradient(400, 100).thumbnail_rgba(40, None);
+        assert_eq!((w, h), (40, 10));
+        assert_eq!(px.len(), 40 * 10 * 4);
+    }
+
+    #[test]
+    fn thumbnail_of_a_region_shows_only_that_region() {
+        let b = gradient(200, 100);
+        // Right half only: even its darkest pixel is mid-grey or brighter.
+        let (_, _, px) = b.thumbnail_rgba(20, Some([0.5, 0.0, 1.0, 1.0]));
+        assert!(px.chunks(4).all(|p| p[0] >= 150), "{:?}", &px[..8]);
+    }
+
+    #[test]
+    fn small_images_are_not_upscaled() {
+        assert_eq!(gradient(8, 4).thumbnail_rgba(64, None).0, 8);
     }
 }

@@ -40,10 +40,42 @@ impl Roll {
         }
     }
 
+    /// Append an empty frame numbered after the highest one in the roll, so
+    /// numbers stay unique (and file names with them) after deletions.
     pub fn add_frame(&mut self) -> &Frame {
-        let idx = self.frames.len() as u32 + 1;
+        let idx = self.frames.iter().map(|f| f.index).max().unwrap_or(0) + 1;
         self.frames.push(Frame::new(idx));
         self.frames.last().unwrap()
+    }
+
+    pub fn frame(&self, index: u32) -> Option<&Frame> {
+        self.frames.iter().find(|f| f.index == index)
+    }
+
+    pub fn frame_mut(&mut self, index: u32) -> Option<&mut Frame> {
+        self.frames.iter_mut().find(|f| f.index == index)
+    }
+
+    /// Remove a frame. Returns it so the caller can delete its files.
+    pub fn delete_frame(&mut self, index: u32) -> Option<Frame> {
+        let pos = self.frames.iter().position(|f| f.index == index)?;
+        Some(self.frames.remove(pos))
+    }
+
+    /// Insert a copy of a frame right after it: same crop, orientation and
+    /// preview, but no raw scan (that is what the copy is for: scanning it
+    /// again with other settings). Returns the new frame's index.
+    pub fn duplicate_frame(&mut self, index: u32) -> Option<u32> {
+        let pos = self.frames.iter().position(|f| f.index == index)?;
+        let new_index = self.frames.iter().map(|f| f.index).max().unwrap_or(0) + 1;
+        let src = &self.frames[pos];
+        let mut copy = Frame::new(new_index);
+        copy.label = src.label.clone();
+        copy.geometry = src.geometry.clone();
+        copy.preview = src.preview.clone();
+        copy.state = if copy.preview.is_some() { FrameState::Previewed } else { FrameState::Empty };
+        self.frames.insert(pos + 1, copy);
+        Some(new_index)
     }
 }
 
@@ -70,6 +102,10 @@ pub struct Frame {
     pub rating: Option<i8>,        // -1 reject, 0 unrated, 1–5 stars
     pub state: FrameState,
     pub geometry: Geometry,
+    /// Preview image in the roll's `raw/` folder. Several frames found in one
+    /// preview share it, each with its own crop.
+    #[serde(default)]
+    pub preview: Option<String>,
     pub raw: Option<RawRef>,
 }
 
@@ -82,6 +118,7 @@ impl Frame {
             rating: None,
             state: FrameState::Empty,
             geometry: Geometry::default(),
+            preview: None,
             raw: None,
         }
     }
@@ -147,4 +184,53 @@ fn now_iso() -> String {
         .unwrap_or_default()
         .as_secs();
     format!("{secs}")   // will improve to full ISO string in M4
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_numbers_stay_unique_after_a_delete() {
+        let mut roll = Roll::new("t");
+        for _ in 0..3 {
+            roll.add_frame();
+        }
+        roll.delete_frame(2).unwrap();
+        assert_eq!(roll.add_frame().index, 4);
+        let idx: Vec<_> = roll.frames.iter().map(|f| f.index).collect();
+        assert_eq!(idx, [1, 3, 4]);
+    }
+
+    #[test]
+    fn duplicate_copies_geometry_not_the_scan() {
+        let mut roll = Roll::new("t");
+        roll.add_frame();
+        roll.add_frame();
+        {
+            let f = roll.frame_mut(1).unwrap();
+            f.geometry.crop = Some([1, 2, 3, 4]);
+            f.preview = Some("frame-01.prev.tif".into());
+            f.state = FrameState::Scanned;
+        }
+        let n = roll.duplicate_frame(1).unwrap();
+        assert_eq!(n, 3);
+        // Inserted right after the original.
+        assert_eq!(roll.frames.iter().map(|f| f.index).collect::<Vec<_>>(), [1, 3, 2]);
+        let copy = roll.frame(3).unwrap();
+        assert_eq!(copy.geometry.crop, Some([1, 2, 3, 4]));
+        assert_eq!(copy.preview.as_deref(), Some("frame-01.prev.tif"));
+        assert!(copy.raw.is_none());
+        assert_eq!(copy.state, FrameState::Previewed);
+    }
+
+    #[test]
+    fn old_roll_json_without_preview_still_loads() {
+        let mut roll = Roll::new("t");
+        roll.add_frame();
+        let mut v = serde_json::to_value(&roll).unwrap();
+        v["frames"][0].as_object_mut().unwrap().remove("preview");
+        let back: Roll = serde_json::from_value(v).unwrap();
+        assert!(back.frames[0].preview.is_none());
+    }
 }

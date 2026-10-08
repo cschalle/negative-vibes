@@ -10,6 +10,9 @@ pub enum WorkerCmd {
         device_name: String,
         resolution_dpi: u32,
         with_ir: bool,
+        /// Sub-area to scan as fractions `[x0, y0, x1, y1]` of the device's
+        /// full scan window, or `None` for the whole window.
+        area: Option<[f64; 4]>,
     },
     /// Ask the current scan to stop cleanly.
     Cancel,

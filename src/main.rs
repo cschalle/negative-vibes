@@ -1,4 +1,5 @@
 mod application;
+mod canvas_geom;
 mod config;
 mod window;
 

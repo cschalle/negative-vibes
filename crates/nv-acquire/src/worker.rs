@@ -37,11 +37,18 @@ impl AcquireWorker {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::Probe);
     }
 
-    pub fn start_scan(&self, device_name: String, resolution_dpi: u32, with_ir: bool) {
+    pub fn start_scan(
+        &self,
+        device_name: String,
+        resolution_dpi: u32,
+        with_ir: bool,
+        area: Option<[f64; 4]>,
+    ) {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::StartScan {
             device_name,
             resolution_dpi,
             with_ir,
+            area,
         });
     }
 
@@ -86,7 +93,7 @@ fn run_worker(
                 do_probe(&session, &quirks, &evt_tx);
             }
 
-            WorkerCmd::StartScan { device_name, resolution_dpi, with_ir } => {
+            WorkerCmd::StartScan { device_name, resolution_dpi, with_ir, area } => {
                 cancelled.store(false, Ordering::SeqCst);
                 do_scan(
                     &session,
@@ -97,6 +104,7 @@ fn run_worker(
                     &device_name,
                     resolution_dpi,
                     with_ir,
+                    area,
                 );
             }
 
@@ -161,6 +169,7 @@ fn do_scan(
     device_name: &str,
     resolution_dpi: u32,
     with_ir: bool,
+    area: Option<[f64; 4]>,
 ) {
     // Drain any stray Cancel commands before we start.
     while cmd_rx.try_recv().is_ok() {}
@@ -199,6 +208,13 @@ fn do_scan(
     if let Err(e) = apply_plan_options(&handle, &plan) {
         let _ = evt_tx.send_blocking(ScanEvent::Error(format!("apply options: {e}")));
         return;
+    }
+
+    if let Some(area) = area {
+        if let Err(e) = apply_area(&handle, area) {
+            let _ = evt_tx.send_blocking(ScanEvent::Error(format!("set scan area: {e}")));
+            return;
+        }
     }
 
     // Emit device ready.
@@ -348,6 +364,78 @@ fn read_frame(
     }
 
     Ok(())
+}
+
+/// Map a fractional sub-area onto a device's `[min, max]` ranges.
+///
+/// `ranges` is `[x_min, x_max, y_min, y_max]` in the device's unit (mm).
+/// Returns `[tl-x, tl-y, br-x, br-y]`, or `None` if the area is empty or
+/// reaches outside the window.
+pub fn area_to_device(area: [f64; 4], ranges: [f64; 4]) -> Option<[f64; 4]> {
+    let [x0, y0, x1, y1] = area;
+    if !(0.0..=1.0).contains(&x0) || !(0.0..=1.0).contains(&y0)
+        || !(0.0..=1.0).contains(&x1) || !(0.0..=1.0).contains(&y1)
+        || x1 <= x0 || y1 <= y0
+    {
+        return None;
+    }
+    let [xmin, xmax, ymin, ymax] = ranges;
+    let (w, h) = (xmax - xmin, ymax - ymin);
+    Some([xmin + x0 * w, ymin + y0 * h, xmin + x1 * w, ymin + y1 * h])
+}
+
+fn apply_area(handle: &nv_sane::Handle, area: [f64; 4]) -> Result<(), String> {
+    use nv_sane::{OptionConstraint, OptionValue};
+
+    let range_of = |name: &str| -> Result<(f64, f64), String> {
+        let count = handle.option_count().map_err(|e| e.to_string())?;
+        for i in 1..count {
+            if let Some(d) = handle.option_descriptor(i) {
+                if d.name == name {
+                    return match d.constraint {
+                        OptionConstraint::Range { min, max, .. } => Ok((min, max)),
+                        _ => Err(format!("option {name} has no range")),
+                    };
+                }
+            }
+        }
+        Err(format!("device has no {name} option"))
+    };
+
+    let (xmin, xmax) = range_of("tl-x")?;
+    let (ymin, ymax) = range_of("tl-y")?;
+    let [tlx, tly, brx, bry] = area_to_device(area, [xmin, xmax, ymin, ymax])
+        .ok_or_else(|| format!("invalid scan area {area:?}"))?;
+
+    // Top-left first: the bottom-right values are always beyond it.
+    for (name, v) in [("tl-x", tlx), ("tl-y", tly), ("br-x", brx), ("br-y", bry)] {
+        handle
+            .set_option_by_name(name, &OptionValue::Fixed(v))
+            .map_err(|e| format!("{name}: {e}"))?;
+    }
+    eprintln!("nv-acquire: scan area {tlx:.2},{tly:.2} – {brx:.2},{bry:.2} mm");
+    Ok(())
+}
+
+#[cfg(test)]
+mod area_tests {
+    use super::area_to_device;
+
+    #[test]
+    fn maps_fractions_onto_the_window() {
+        let a = area_to_device([0.25, 0.5, 0.75, 1.0], [0.0, 36.5, 0.0, 27.2]).unwrap();
+        assert!((a[0] - 9.125).abs() < 1e-9 && (a[1] - 13.6).abs() < 1e-9);
+        assert!((a[2] - 27.375).abs() < 1e-9 && (a[3] - 27.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rejects_empty_or_outside_areas() {
+        let r = [0.0, 36.5, 0.0, 27.2];
+        assert!(area_to_device([0.5, 0.0, 0.5, 1.0], r).is_none());
+        assert!(area_to_device([0.6, 0.0, 0.4, 1.0], r).is_none());
+        assert!(area_to_device([-0.1, 0.0, 1.0, 1.0], r).is_none());
+        assert!(area_to_device([0.0, 0.0, 1.1, 1.0], r).is_none());
+    }
 }
 
 fn apply_plan_options(
