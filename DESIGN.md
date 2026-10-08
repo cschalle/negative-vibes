@@ -917,6 +917,17 @@ folder, Open Roll. Not yet verified on hardware: the six-frame roll on the 8200i
 detection on real previews. Still open: crop handles (the rectangle is redrawn, not
 edited), aspect lock and holder templates (F§7), rotation and flip.
 
+**M3 status (2026-10-08), first slice.** Built: the editing proxy (decode once,
+box-reduce to about 2 Mpx; `nv-process::Proxy`), rendering from the proxy on a worker
+thread with latest-wins coalescing, auto levels (F§5.1 thresholds, median to middle
+grey), a live histogram, one undoable step per button press (and a fix for undo losing
+its history after the first step), a histogram-based D_max percentile instead of a
+per-render sort, and golden tests on the tulip fixture (`tests/goldens/`). Still open:
+draggable levels on the histogram, curves, pipettes (white, neutral, black, film base),
+colour-cast removal (the tulip still has a purple cast on the wall), roll analysis,
+roll/frame scopes and per-frame settings in `roll.json`, per-frame undo, the stage
+cache, and a check on a real 7200 dpi raw.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

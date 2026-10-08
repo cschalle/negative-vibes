@@ -121,7 +121,8 @@ impl FrameBuf {
     /// 16-bit input is downscaled to 8-bit with a simple 8-bit gamma approximation
     /// (linear/2^8 shift, no colour management — good enough for preview thumbnails).
     pub fn to_rgb8(&self) -> Vec<u8> {
-        let h = self.effective_height() as usize;
+        // Only complete rows: a scan in progress has fewer than it announced.
+        let h = self.effective_height().min(self.rows_available()) as usize;
         let w = self.width as usize;
         let mut out = vec![0u8; w * h * 3];
 

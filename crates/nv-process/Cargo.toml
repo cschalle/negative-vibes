@@ -9,3 +9,7 @@ description = "Image pipeline stages: geometry, dust, colour, tone, detail, outp
 nv-image = { path = "../nv-image" }
 nv-film  = { path = "../nv-film" }
 thiserror = "1"
+
+[dev-dependencies]
+nv-store = { path = "../nv-store" }
+png = "0.17"

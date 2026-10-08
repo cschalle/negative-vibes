@@ -141,14 +141,22 @@ impl Window {
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let path = src.path.clone();
-            let result = gio::spawn_blocking(move || RawReader::read(&path).map_err(|e| e.to_string())).await;
+            let result = gio::spawn_blocking(move || {
+                RawReader::read(&path)
+                    .map(|buf| {
+                        let proxy = nv_process::Proxy::from_raw(&buf, nv_process::DEFAULT_PROXY_PIXELS);
+                        (buf, proxy)
+                    })
+                    .map_err(|e| e.to_string())
+            })
+            .await;
             let Some(win) = weak.upgrade() else { return };
             if win.imp().load_gen.get() != generation {
                 return; // another frame was picked meanwhile
             }
             match result {
-                Ok(Ok(buf)) => {
-                    win.load_frame_buf(buf);
+                Ok(Ok((buf, proxy))) => {
+                    win.load_frame_buf_with_proxy(buf, proxy);
                     *win.imp().displayed_file.borrow_mut() = Some(src.path.clone());
                     win.show_frame_rect(&src);
                 }
@@ -180,6 +188,11 @@ impl Window {
         let imp = self.imp();
         imp.load_gen.set(imp.load_gen.get() + 1);
         *imp.scan_buf.borrow_mut() = None;
+        *imp.proxy.borrow_mut() = None;
+        *imp.histogram.borrow_mut() = None;
+        if let Some(a) = imp.histogram_area.borrow().as_ref() {
+            a.queue_draw();
+        }
         *imp.displayed_file.borrow_mut() = None;
         imp.frame_rect.set(None);
         imp.preview_ready.set(false);

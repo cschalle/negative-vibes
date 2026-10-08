@@ -875,6 +875,8 @@ version = "0.1.0"
 dependencies = [
  "nv-film",
  "nv-image",
+ "nv-store",
+ "png",
  "thiserror",
 ]
 

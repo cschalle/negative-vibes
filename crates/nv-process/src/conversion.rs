@@ -124,35 +124,46 @@ fn scurve(t: f32, toe: f32, shoulder: f32) -> f32 {
     }
 }
 
+/// Largest density the histogram resolves; transmission is clamped at 1e-4,
+/// which is density 4.
+const DENSITY_RANGE: f32 = 4.5;
+const DENSITY_BINS: usize = 4096;
+
 /// Per-channel `p`-th percentile (p in [0,1]) over the interior of the frame,
 /// excluding the outer twelfth on each side -- the film rebate and the black
 /// surround beyond it, which are not picture.
+///
+/// Uses a histogram rather than a sort: this runs on every parameter change,
+/// and the answer is only needed to a thousandth of a density unit.
 fn interior_percentile(pixels: &[f32], w: usize, h: usize, p: f32) -> [f32; 3] {
     let bw = (w / 12).max(4);
     let bh = (h / 12).max(4);
-    let mut ch: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    if w > 2 * bw && h > 2 * bh {
-        for y in bh..h - bh {
-            for x in bw..w - bw {
-                let i = y * w + x;
-                for c in 0..3 {
-                    ch[c].push(pixels[i * 3 + c]);
-                }
-            }
-        }
-    } else {
-        // Frame too small to crop: fall back to every pixel.
-        for i in 0..pixels.len() / 3 {
+    let (x0, x1, y0, y1) = if w > 2 * bw && h > 2 * bh { (bw, w - bw, bh, h - bh) } else { (0, w, 0, h) };
+
+    let mut hist = vec![[0u32; 3]; DENSITY_BINS];
+    let scale = DENSITY_BINS as f32 / DENSITY_RANGE;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = (y * w + x) * 3;
             for c in 0..3 {
-                ch[c].push(pixels[i * 3 + c]);
+                let bin = ((pixels[i + c] * scale) as usize).min(DENSITY_BINS - 1);
+                hist[bin][c] += 1;
             }
         }
     }
+
+    let total = ((x1 - x0) * (y1 - y0)) as f32;
+    let target = (total * p).ceil() as u32;
     let mut result = [0.0f32; 3];
     for c in 0..3 {
-        ch[c].sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-        let idx = ((ch[c].len() as f32 * p) as usize).min(ch[c].len().saturating_sub(1));
-        result[c] = ch[c][idx];
+        let mut seen = 0u32;
+        for (bin, counts) in hist.iter().enumerate() {
+            seen += counts[c];
+            if seen >= target.max(1) {
+                result[c] = (bin as f32 + 1.0) / scale;
+                break;
+            }
+        }
     }
     result
 }

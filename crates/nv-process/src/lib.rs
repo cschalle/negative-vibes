@@ -1,53 +1,69 @@
 pub mod params;
 mod conversion;
+pub mod histogram;
+pub mod proxy;
 mod tone;
 
+pub use histogram::Histogram;
 pub use params::{ImageType, ProcessParams};
+pub use params::ToneParams;
+pub use proxy::{Proxy, DEFAULT_PROXY_PIXELS};
 
 use nv_image::FrameBuf;
 use nv_film::FilmProfile;
 
-/// Run the M3 pipeline on a raw scan buffer and return display-ready u8 sRGB pixels.
-///
-/// Stages run: (3 identity) → 4 Conversion → 5 Tone → (8 gamma-2.2 output).
-/// Returns a flat `w × h × 3` Vec<u8> in R8G8B8 order.
+/// Run the pipeline on a raw scan at full resolution and return display-ready
+/// u8 sRGB pixels (`w × h × 3`, R8G8B8).
 pub fn process(raw: &FrameBuf, params: &ProcessParams) -> Vec<u8> {
-    let w = raw.width as usize;
-    let h = raw.effective_height() as usize;
-    if w == 0 || h == 0 {
+    render(&Proxy::from_raw(raw, usize::MAX), params)
+}
+
+/// Run the pipeline on a proxy: 4 Conversion → 5 Tone → 8 gamma-2.2 output.
+pub fn render(proxy: &Proxy, params: &ProcessParams) -> Vec<u8> {
+    if proxy.is_empty() {
         return Vec::new();
     }
-
-    // 1. Decode raw → linear f32 [0,1] pixels.
-    let linear = decode_raw(raw, w, h);
-
-    // 2. Stage 4: conversion (negative inversion, or positive pass-through).
-    let converted = match params.image_type {
-        ImageType::ColourNegative | ImageType::BwNegative => {
-            conversion::convert_negative(&linear, w, h, params)
-        }
-        ImageType::Positive => {
-            conversion::normalise_positive(&linear, params)
-        }
-    };
-
-    // 3. Stage 5: tone adjustments.
-    let toned = tone::apply_tone(&converted, &params.tone);
-
-    // 4. Stage 8: gamma 2.2 → u8 sRGB.
+    let toned = tone::apply_tone(&convert(proxy, params), &params.tone);
     encode_output(&toned, params.image_type == ImageType::BwNegative)
 }
 
+/// Stage 4 only: the converted positive in linear light, before tone.
+/// Auto levels measure this.
+pub fn convert(proxy: &Proxy, params: &ProcessParams) -> Vec<f32> {
+    match params.image_type {
+        ImageType::ColourNegative | ImageType::BwNegative => {
+            conversion::convert_negative(&proxy.pixels, proxy.width, proxy.height, params)
+        }
+        ImageType::Positive => conversion::normalise_positive(&proxy.pixels, params),
+    }
+}
+
+/// Auto levels for the frame (F§5.1: thresholds 0.02 / 0.98, 10% border
+/// ignored): black and white points and the midtone that sets the median to
+/// middle grey. Contrast is left as it was.
+pub fn auto_tone(proxy: &Proxy, params: &ProcessParams) -> ToneParams {
+    if proxy.is_empty() {
+        return params.tone.clone();
+    }
+    let neutral = ProcessParams { tone: ToneParams::default(), ..params.clone() };
+    let converted = convert(proxy, &neutral);
+    let t = tone::auto_tone(&converted, proxy.width, proxy.height, 0.10, 0.02, 0.98);
+    ToneParams { contrast: params.tone.contrast, ..t }
+}
+
 /// Estimate film base (the unexposed rebate) from a scan buffer.
-/// Samples the image borders (outer 8% on each side) and returns the
-/// per-channel 98th-percentile transmission value.
 pub fn estimate_film_base(raw: &FrameBuf) -> [f32; 3] {
-    let w = raw.width as usize;
-    let h = raw.effective_height() as usize;
+    estimate_film_base_proxy(&Proxy::from_raw(raw, DEFAULT_PROXY_PIXELS))
+}
+
+/// Estimate film base from a proxy: samples the outer twelfth on each side
+/// and returns the per-channel 98th-percentile transmission value.
+pub fn estimate_film_base_proxy(proxy: &Proxy) -> [f32; 3] {
+    let (w, h) = (proxy.width, proxy.height);
     if w == 0 || h == 0 {
         return [0.6, 0.3, 0.18];
     }
-    let pixels = decode_raw(raw, w, h);
+    let pixels = &proxy.pixels;
     let border_w = (w / 12).max(4);
     let border_h = (h / 12).max(4);
 
@@ -57,7 +73,7 @@ pub fn estimate_film_base(raw: &FrameBuf) -> [f32; 3] {
 
     for y in 0..h {
         for x in 0..w {
-            if x < border_w || x >= w - border_w || y < border_h || y >= h - border_h {
+            if x < border_w || x >= w.saturating_sub(border_w) || y < border_h || y >= h.saturating_sub(border_h) {
                 let off = (y * w + x) * 3;
                 r_vals.push(pixels[off]);
                 g_vals.push(pixels[off + 1]);
@@ -74,32 +90,6 @@ fn percentile_98(vals: &mut Vec<f32>) -> f32 {
     vals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     let idx = ((vals.len() as f32 * 0.98) as usize).min(vals.len() - 1);
     vals[idx].max(0.01)
-}
-
-/// Decode a raw SANE buffer to linear f32 [0,1].
-fn decode_raw(raw: &FrameBuf, w: usize, h: usize) -> Vec<f32> {
-    let bps = raw.depth as usize / 8;
-    let ch = raw.channels as usize;
-    let bpr = raw.bytes_per_row;
-    let src = raw.as_bytes();
-    let scale = if bps == 2 { 65535.0f32 } else { 255.0f32 };
-
-    let mut out = vec![0.0f32; w * h * 3];
-    for y in 0..h {
-        for x in 0..w {
-            let src_off = y * bpr + x * ch * bps;
-            let dst_off = (y * w + x) * 3;
-
-            let r = nv_image::read_sample(src, src_off, bps) as f32 / scale;
-            let g = if ch >= 2 { nv_image::read_sample(src, src_off + bps, bps) as f32 / scale } else { r };
-            let b = if ch >= 3 { nv_image::read_sample(src, src_off + 2 * bps, bps) as f32 / scale } else { r };
-
-            out[dst_off] = r;
-            out[dst_off + 1] = g;
-            out[dst_off + 2] = b;
-        }
-    }
-    out
 }
 
 fn encode_output(pixels: &[f32], greyscale: bool) -> Vec<u8> {

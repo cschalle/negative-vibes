@@ -91,6 +91,13 @@ pub(crate) mod imp {
         /// True once film base has been estimated (ScanDone) or a raw file loaded.
         /// Gates the pipeline in refresh_canvas so widget-init signals don't arm it.
         pub film_base_ready: Cell<bool>,
+        /// The scan on the canvas, decoded and reduced for fast rendering.
+        pub proxy: RefCell<Option<std::sync::Arc<nv_process::Proxy>>>,
+        pub render_busy: Cell<bool>,
+        pub render_dirty: Cell<bool>,
+        /// Histogram of the last render, drawn in the inspector.
+        pub histogram: RefCell<Option<nv_process::Histogram>>,
+        pub histogram_area: RefCell<Option<gtk::DrawingArea>>,
     }
 
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +139,7 @@ pub(crate) mod imp {
 }
 
 mod frames;
+mod render;
 mod zoom;
 
 use adw::prelude::*;
@@ -691,10 +699,31 @@ impl Window {
             .build();
         tone_group.add(&contrast_row);
 
+        let auto_row = adw::ActionRow::builder()
+            .title("Auto Levels")
+            .subtitle("Set black, white and midtone from the picture")
+            .build();
+        let auto_btn = gtk::Button::builder().label("Auto").valign(gtk::Align::Center).css_classes(["suggested-action"]).build();
+        let reset_btn = gtk::Button::builder().label("Reset").valign(gtk::Align::Center).build();
+        auto_row.add_suffix(&reset_btn);
+        auto_row.add_suffix(&auto_btn);
+        tone_group.add(&auto_row);
+        let win_weak = self.downgrade();
+        auto_btn.connect_clicked(move |_| {
+            if let Some(win) = win_weak.upgrade() { win.auto_levels(); }
+        });
+        let win_weak = self.downgrade();
+        reset_btn.connect_clicked(move |_| {
+            if let Some(win) = win_weak.upgrade() { win.reset_tone(); }
+        });
+
         tone_page.add(&tone_group);
         tone_scroll.set_child(Some(&tone_page));
         insp_stack.add_titled(&tone_scroll, Some("tone"), "Tone");
 
+        let histogram_area = self.build_histogram();
+        *self.imp().histogram_area.borrow_mut() = Some(histogram_area.clone());
+        inspector_box.append(&histogram_area);
         inspector_box.append(&switcher);
         inspector_box.append(&insp_stack);
 
@@ -822,12 +851,10 @@ impl Window {
         })
     }
 
-    /// Push new params (without incrementing undo from UI signals — used when
-    /// loading a new frame, e.g. auto film-base estimation).
-    fn set_params_and_sync_ui(&self, params: ProcessParams) {
+    /// Show `params` in the inspector without treating it as a user edit.
+    fn sync_widgets(&self, params: &ProcessParams) {
         self.imp().updating_ui.set(true);
 
-        // Set inspector widget values.
         let image_type_idx = match params.image_type {
             nv_process::params::ImageType::ColourNegative => 0u32,
             nv_process::params::ImageType::BwNegative => 1,
@@ -837,7 +864,6 @@ impl Window {
             r.set_selected(image_type_idx);
         }
 
-        // Find matching profile by id.
         let profiles = builtin_profiles();
         if let Some(idx) = profiles.iter().position(|p| p.id == params.profile.id) {
             if let Some(r) = self.imp().profile_row.borrow().as_ref() {
@@ -858,45 +884,61 @@ impl Window {
         if let Some(r) = self.imp().contrast_row.borrow().as_ref() { r.set_value(params.tone.contrast as f64); }
 
         self.imp().updating_ui.set(false);
+    }
 
-        // Reset undo stack to just this state.
-        let mut stack = self.imp().undo_stack.borrow_mut();
-        *stack = vec![params.clone()];
-        drop(stack);
-        self.imp().undo_idx.set(0);
+    /// Make `params` current as one undoable step (a button that changes
+    /// several controls at once is still one edit).
+    fn commit_params(&self, params: ProcessParams) {
+        self.sync_widgets(&params);
+        {
+            let mut stack = self.imp().undo_stack.borrow_mut();
+            let idx = self.imp().undo_idx.get();
+            stack.truncate(idx + 1);
+            stack.push(params.clone());
+            self.imp().undo_idx.set(stack.len() - 1);
+        }
         *self.imp().proc_params.borrow_mut() = Some(params);
+        self.refresh_canvas();
+    }
+
+    /// Auto levels (F§5.1) from the picture on the canvas.
+    fn auto_levels(&self) {
+        let (Some(proxy), Some(mut params)) = (self.imp().proxy.borrow().clone(), self.imp().proc_params.borrow().clone()) else {
+            self.show_toast("Open or preview a frame first");
+            return;
+        };
+        params.tone = nv_process::auto_tone(&proxy, &params);
+        self.commit_params(params);
+    }
+
+    fn reset_tone(&self) {
+        let Some(mut params) = self.imp().proc_params.borrow().clone() else { return };
+        params.tone = ToneParams::default();
+        self.commit_params(params);
     }
 
     // ── Undo / redo ───────────────────────────────────────────────────────────
 
-    fn do_undo(&self) {
-        let idx = self.imp().undo_idx.get();
-        if idx == 0 { return; }
-        let new_idx = idx - 1;
+    fn step_history(&self, new_idx: usize) {
         self.imp().undo_idx.set(new_idx);
         let params = self.imp().undo_stack.borrow()[new_idx].clone();
-        self.imp().updating_ui.set(true);
-        self.set_params_and_sync_ui(params.clone());
-        self.imp().updating_ui.set(false);
+        self.sync_widgets(&params);
         *self.imp().proc_params.borrow_mut() = Some(params);
-        // Restore undo stack (set_params_and_sync_ui resets it — fix that up).
-        self.imp().undo_idx.set(new_idx);
         self.refresh_canvas();
     }
 
-    fn do_redo(&self) {
-        let stack_len = self.imp().undo_stack.borrow().len();
+    fn do_undo(&self) {
         let idx = self.imp().undo_idx.get();
-        if idx + 1 >= stack_len { return; }
-        let new_idx = idx + 1;
-        self.imp().undo_idx.set(new_idx);
-        let params = self.imp().undo_stack.borrow()[new_idx].clone();
-        self.imp().updating_ui.set(true);
-        self.set_params_and_sync_ui(params.clone());
-        self.imp().updating_ui.set(false);
-        *self.imp().proc_params.borrow_mut() = Some(params);
-        self.imp().undo_idx.set(new_idx);
-        self.refresh_canvas();
+        if idx > 0 {
+            self.step_history(idx - 1);
+        }
+    }
+
+    fn do_redo(&self) {
+        let idx = self.imp().undo_idx.get();
+        if idx + 1 < self.imp().undo_stack.borrow().len() {
+            self.step_history(idx + 1);
+        }
     }
 
     // ── Frame rectangle ───────────────────────────────────────────────────────
@@ -1174,6 +1216,7 @@ impl Window {
                     *self.imp().scan_buf.borrow_mut() = Some(buf);
                     self.imp().film_base_ready.set(false);
                     *self.imp().displayed_file.borrow_mut() = None;
+                    *self.imp().proxy.borrow_mut() = None;
                     self.set_page("canvas");
                 }
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
@@ -1329,77 +1372,48 @@ impl Window {
     }
 
     // ── Film base auto-estimation ─────────────────────────────────────────────
-
     fn auto_estimate_film_base(&self) {
-        let buf_ref = self.imp().scan_buf.borrow();
-        let Some(buf) = buf_ref.as_ref() else { return };
+        self.rebuild_proxy();
+        let Some(proxy) = self.imp().proxy.borrow().clone() else { return };
+        self.apply_estimated_film_base(&proxy);
+    }
 
-        let estimated = nv_process::estimate_film_base(buf);
-        drop(buf_ref);
+    /// Set the film base from the rebate on `proxy`, in the params and the
+    /// inspector, and let the pipeline run.
+    fn apply_estimated_film_base(&self, proxy: &nv_process::Proxy) {
+        let estimated = nv_process::estimate_film_base_proxy(proxy);
 
-        // Update the film-base spin rows (suppressing re-entrant on_params_changed).
+        // Suppress re-entrant on_params_changed while the rows change.
         self.imp().updating_ui.set(true);
         if let Some(r) = self.imp().film_base_r_row.borrow().as_ref() { r.set_value(estimated[0] as f64); }
         if let Some(r) = self.imp().film_base_g_row.borrow().as_ref() { r.set_value(estimated[1] as f64); }
         if let Some(r) = self.imp().film_base_b_row.borrow().as_ref() { r.set_value(estimated[2] as f64); }
         self.imp().updating_ui.set(false);
 
-        // Update the params struct directly and arm the pipeline.
-        let mut params_ref = self.imp().proc_params.borrow_mut();
-        if let Some(params) = params_ref.as_mut() {
+        if let Some(params) = self.imp().proc_params.borrow_mut().as_mut() {
             params.conversion.film_base = Some(estimated);
         }
-        drop(params_ref);
         self.imp().film_base_ready.set(true);
     }
 
     // ── Canvas ────────────────────────────────────────────────────────────────
-
     fn refresh_canvas(&self) {
-        let buf_ref = self.imp().scan_buf.borrow();
-        let Some(buf) = buf_ref.as_ref() else { return };
-        let h = buf.rows_available();
-        let w = buf.width;
-        if w == 0 || h == 0 { return; }
-
-        let params_ref = self.imp().proc_params.borrow();
-        let film_base_ready = self.imp().film_base_ready.get();
-        // Only run the full pipeline once film base has been properly estimated
-        // (after ScanDone or file load). Before that use the fast sqrt-gamma
-        // preview so mid-scan display and startup don't amplify noise.
-        let rgb8 = if film_base_ready {
-            match params_ref.as_ref() {
-                Some(params) => nv_process::process(buf, params),
-                None => buf.to_rgb8(),
-            }
-        } else {
-            buf.to_rgb8()
-        };
-        drop(params_ref);
-        drop(buf_ref);
-
-        if rgb8.is_empty() { return; }
-
-        // Expand RGB8 → RGBA8 (alpha=255).  GDK_MEMORY_R8G8B8 (3-byte packed) is
-        // not natively supported by most GPU drivers and GTK's internal format
-        // conversion can produce corrupted results on Wayland/Vulkan backends.
-        // R8G8B8A8 is universally supported.
-        let rgba8: Vec<u8> = rgb8
-            .chunks_exact(3)
-            .flat_map(|px| [px[0], px[1], px[2], 255u8])
-            .collect();
-        let bytes = glib::Bytes::from_owned(rgba8);
-        let texture = gdk::MemoryTexture::new(
-            w as i32,
-            h as i32,
-            gdk::MemoryFormat::R8g8b8a8,
-            &bytes,
-            (w * 4) as usize,
-        );
-
-        if let Some(pic) = self.imp().canvas_picture.borrow().as_ref() {
-            pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));
+        // A finished scan renders from the proxy, in the background.
+        if self.imp().film_base_ready.get() && self.imp().proxy.borrow().is_some() {
+            self.request_render();
+            self.apply_zoom();
+            return;
         }
+
+        // Data is still arriving: the fast display curve over the rows so far.
+        let (w, h, rgb8) = {
+            let buf = self.imp().scan_buf.borrow();
+            let Some(buf) = buf.as_ref() else { return };
+            let h = buf.rows_available().min(buf.effective_height());
+            if buf.width == 0 || h == 0 { return; }
+            (buf.width as usize, h as usize, buf.to_rgb8())
+        };
+        self.show_rgb8(w, h, &rgb8);
         self.apply_zoom();
     }
 
@@ -1493,27 +1507,22 @@ impl Window {
     pub fn load_frame_buf_for_test(&self, buf: nv_image::FrameBuf) {
         self.load_frame_buf(buf);
     }
-
     fn load_frame_buf(&self, buf: nv_image::FrameBuf) {
-        // Auto-estimate film base before displaying.
-        let estimated = nv_process::estimate_film_base(&buf);
+        let proxy = nv_process::Proxy::from_raw(&buf, nv_process::DEFAULT_PROXY_PIXELS);
+        self.load_frame_buf_with_proxy(buf, proxy);
+    }
+
+    /// Show a scan whose proxy was already built (on a worker thread).
+    fn load_frame_buf_with_proxy(&self, buf: nv_image::FrameBuf, proxy: nv_process::Proxy) {
         *self.imp().scan_buf.borrow_mut() = Some(buf);
+        *self.imp().proxy.borrow_mut() = Some(std::sync::Arc::new(proxy));
         self.set_page("canvas");
 
-        // Update film-base in params to the estimated value.
-        let mut params_ref = self.imp().proc_params.borrow_mut();
-        if let Some(params) = params_ref.as_mut() {
-            params.conversion.film_base = Some(estimated);
+        // Auto-estimate the film base before the first render.
+        let proxy = self.imp().proxy.borrow().clone();
+        if let Some(proxy) = proxy {
+            self.apply_estimated_film_base(&proxy);
         }
-        drop(params_ref);
-
-        self.imp().updating_ui.set(true);
-        if let Some(r) = self.imp().film_base_r_row.borrow().as_ref() { r.set_value(estimated[0] as f64); }
-        if let Some(r) = self.imp().film_base_g_row.borrow().as_ref() { r.set_value(estimated[1] as f64); }
-        if let Some(r) = self.imp().film_base_b_row.borrow().as_ref() { r.set_value(estimated[2] as f64); }
-        self.imp().updating_ui.set(false);
-        self.imp().film_base_ready.set(true);
-
         self.refresh_canvas();
     }
 
