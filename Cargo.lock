@@ -811,6 +811,7 @@ dependencies = [
  "gtk4",
  "libadwaita",
  "nv-acquire",
+ "nv-calibrate",
  "nv-device",
  "nv-export",
  "nv-film",
@@ -842,6 +843,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nv-calibrate"
+version = "0.1.0"
+dependencies = [
+ "nv-image",
+ "nv-process",
+ "nv-store",
+ "thiserror",
+ "tiff",
+]
+
+[[package]]
 name = "nv-cli"
 version = "0.1.0"
 dependencies = [
@@ -849,6 +861,7 @@ dependencies = [
  "async-channel",
  "clap",
  "nv-acquire",
+ "nv-calibrate",
  "nv-device",
  "nv-export",
  "nv-film",

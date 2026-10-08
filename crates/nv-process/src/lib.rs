@@ -3,6 +3,7 @@ pub mod params;
 mod conversion;
 pub mod colour;
 pub mod densitometer;
+pub mod input;
 pub mod curves;
 pub mod detail;
 pub mod dust;
@@ -19,6 +20,7 @@ pub use params::{ImageType, ProcessParams};
 pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
+pub use input::InputProfile;
 pub use colour::{ColourParams, GreyMix, GREY_PRESETS};
 pub use detail::{AacoGrid, DetailParams, NoiseLevel, Placement, Quality, UsmParams};
 pub use dust::{DefectType, DustMethod, DustMode, DustParams, Stroke};
@@ -153,7 +155,15 @@ fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec
     let src = repaired.as_deref().unwrap_or(&proxy.pixels);
     let out = match params.image_type {
         ImageType::ColourNegative | ImageType::BwNegative => conversion::convert_negative(src, proxy.width, proxy.height, params),
-        ImageType::Positive => conversion::normalise_positive(src, params),
+        ImageType::Positive => match &params.input {
+            // The scanner's own colour, from its IT8 profile, before the picture is normalised.
+            Some(profile) => {
+                let mut matched = src.to_vec();
+                profile.apply(&mut matched);
+                conversion::normalise_positive(&matched, params)
+            }
+            None => conversion::normalise_positive(src, params),
+        },
     };
     (out, mask)
 }
@@ -324,6 +334,7 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
         // Silver black and white film blocks infrared: no dust removal by default.
         detail: DetailParams::default(),
         colour: ColourParams::default(),
+        input: None,
         dust: params::DustParams {
             mode: if image_type == ImageType::BwNegative { dust::DustMode::Off } else { dust::DustMode::Correct },
             ..Default::default()

@@ -1158,6 +1158,21 @@ The sampling is unit-tested (`nv-process::densitometer`); the three widgets have
 built, not tried with a pointer on screen. Per-point fixed measurement and mini-histograms
 (F§5.8 options) are not done.
 
+**M6 status, third slice: IT8 calibration.** New crate `nv-calibrate` runs ArgyllCMS as
+subprocesses: the raw scan is written as a plain 3-channel 16-bit TIFF, `scanin` finds the
+patches against a chart layout (Argyll's `it8.cht` by default; optional manual corners for
+`-F` when recognition fails) and the target's data file, and `colprof -qm -as` builds a
+matrix/curve input profile, which is read back (`nv-process::input`) into a matrix and
+256-point curves. The Colour group's **Scanner Profile** row picks one of the profiles in
+`$XDG_DATA_HOME/negative-vibes/profiles`; slides apply it to the raw values before
+normalising (negatives ignore it for now: their colour comes from the film profile, which
+M6's profile builder will cover). **Calibrate with IT8 Target…** is in the main menu, and
+`nv-cli calibrate` does the same headless. Tested end to end against ArgyllCMS 3.4.1 with
+a synthetic IT8 scan from a known scanner model: colprof reports average ΔE 1.6, and applying
+our reader's result to the 264 patches reproduces the target to a mean of 0.012 in linear
+sRGB (worst 0.076, a dark patch); lcms2 (ImageMagick) accepts the profile. Not tested: a
+real IT8 target scan (none available), automatic chart recognition on a real scan.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

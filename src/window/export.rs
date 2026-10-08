@@ -76,6 +76,15 @@ impl Window {
         });
         self.add_action(&open);
 
+        let calibrate = gio::SimpleAction::new("calibrate", None);
+        let weak = self.downgrade();
+        calibrate.connect_activate(move |_, _| {
+            if let Some(win) = weak.upgrade() {
+                win.open_calibrate_dialog();
+            }
+        });
+        self.add_action(&calibrate);
+
         let show = gio::SimpleAction::new("show-in-files", Some(&String::static_variant_type()));
         let weak = self.downgrade();
         show.connect_activate(move |_, target| {

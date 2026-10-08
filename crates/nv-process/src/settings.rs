@@ -43,11 +43,12 @@ pub struct Settings {
     pub wheel: Option<[[f32; 2]; 3]>,
     pub grey_enabled: Option<bool>,
     pub grey_weights: Option<[f32; 3]>,
+    pub input: Option<crate::input::InputProfile>,
 }
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast, saturation, acr, wheel, grey_enabled, grey_weights)
+        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast, saturation, acr, wheel, grey_enabled, grey_weights, input)
     };
 }
 
@@ -92,6 +93,7 @@ impl Settings {
         if let Some(v) = self.wheel { p.colour.wheel = v; }
         if let Some(v) = self.grey_enabled { p.colour.grey.enabled = v; }
         if let Some(v) = self.grey_weights { p.colour.grey.weights = v; }
+        if let Some(v) = &self.input { p.input = Some(v.clone()); }
     }
 
     /// The fields that differ between `old` and `new`.
@@ -141,6 +143,7 @@ impl Settings {
             wheel: ch(old.colour.wheel, new.colour.wheel),
             grey_enabled: ch(old.colour.grey.enabled, new.colour.grey.enabled),
             grey_weights: ch3(old.colour.grey.weights, new.colour.grey.weights),
+            input: (old.input != new.input).then(|| new.input.clone()).flatten(),
         }
     }
 

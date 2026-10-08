@@ -356,6 +356,7 @@ mod tests {
             dust: Default::default(),
             detail: Default::default(),
             colour: Default::default(),
+            input: None,
         }
     }
 

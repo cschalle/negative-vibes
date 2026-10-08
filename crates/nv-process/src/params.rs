@@ -89,4 +89,7 @@ pub struct ProcessParams {
     /// Saturation, colour wheel, faded-colour restoration, colour-to-grey (stage 6).
     #[serde(default)]
     pub colour: crate::colour::ColourParams,
+    /// The scanner's IT8 profile, for slides (F§11).
+    #[serde(default)]
+    pub input: Option<crate::input::InputProfile>,
 }

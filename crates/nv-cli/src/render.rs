@@ -208,6 +208,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         },
         detail: Default::default(),
         colour: Default::default(),
+        input: None,
     };
 
     println!(

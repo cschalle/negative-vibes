@@ -20,6 +20,7 @@ nv-store   = { path = "../crates/nv-store" }
 nv-film    = { path = "../crates/nv-film" }
 nv-process = { path = "../crates/nv-process" }
 nv-export  = { path = "../crates/nv-export" }
+nv-calibrate = { path = "../crates/nv-calibrate" }
 async-channel = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

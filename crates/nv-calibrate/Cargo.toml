@@ -1,0 +1,13 @@
+[package]
+name = "nv-calibrate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Scanner calibration: IT8 target scan to input ICC profile with ArgyllCMS"
+
+[dependencies]
+nv-image = { path = "../nv-image" }
+nv-process = { path = "../nv-process" }
+nv-store = { path = "../nv-store" }
+tiff = "0.9"
+thiserror = "1"

@@ -110,6 +110,7 @@ pub(crate) mod imp {
         pub curve_channel: Cell<u8>,
         pub wheel_area: RefCell<Option<gtk::DrawingArea>>,
         pub wheel_region: Cell<usize>,
+        pub scanner_profile_row: RefCell<Option<adw::ComboRow>>,
         pub navigator_area: RefCell<Option<gtk::DrawingArea>>,
         pub densi_on: Cell<bool>,
         pub densi_label: RefCell<Option<gtk::Label>>,
@@ -265,6 +266,7 @@ pub(crate) mod imp {
 }
 
 mod batch;
+mod calibrate_ui;
 mod colour_ui;
 mod export;
 mod export_dialog;
@@ -347,6 +349,7 @@ impl Window {
         let queue_btn = self.build_queue_button();
 
         let main_menu = gio::Menu::new();
+        main_menu.append(Some("Calibrate with IT8 Target…"), Some("win.calibrate"));
         main_menu.append(Some("Preferences"), Some("win.preferences"));
         let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&main_menu).tooltip_text("Main Menu").build();
 
@@ -1110,9 +1113,13 @@ impl Window {
         let mut names: Vec<&str> = vec!["In Colour"];
         names.extend(nv_process::GREY_PRESETS.iter().map(|(n, _)| *n));
         let grey_row = adw::ComboRow::builder().title("Convert to Grey").subtitle("With the effect of a coloured filter on black and white film").model(&gtk::StringList::new(&names)).build();
-        for r in [saturation_row.upcast_ref::<gtk::Widget>(), acr_row.upcast_ref(), grey_row.upcast_ref()] {
+        let scanner_row = adw::ComboRow::builder().title("Scanner Profile").subtitle("From an IT8 target, applied to slides").model(&gtk::StringList::new(&["None"])).build();
+        for r in [saturation_row.upcast_ref::<gtk::Widget>(), acr_row.upcast_ref(), grey_row.upcast_ref(), scanner_row.upcast_ref()] {
             colour_group.add(r);
         }
+        let weak = self.downgrade();
+        scanner_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        *self.imp().scanner_profile_row.borrow_mut() = Some(scanner_row);
         for r in [&saturation_row, &acr_row] {
             let weak = self.downgrade();
             r.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
@@ -1120,6 +1127,7 @@ impl Window {
         let weak = self.downgrade();
         grey_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
         *self.imp().colour_rows.borrow_mut() = Some((saturation_row, acr_row, grey_row));
+        self.refresh_profile_list();
         detail_page.add(&colour_group);
         let wheel_group = adw::PreferencesGroup::builder().title("Colour Balance").description("For shadows, midtones and highlights separately").build();
         wheel_group.add(&self.build_colour_wheel());
@@ -1313,6 +1321,15 @@ impl Window {
         p.detail.usm = nv_process::UsmParams { enabled: usm_enabled, amount: usm_amount, radius: usm_radius, threshold: usm_threshold };
         p.detail.noise = noise;
         p.detail.local_contrast = self.imp().local_contrast_row.borrow().as_ref()?.value() as f32;
+        if let Some(row) = self.imp().scanner_profile_row.borrow().as_ref() {
+            let chosen = row.selected_item().and_downcast::<gtk::StringObject>().map(|s| s.string().to_string()).filter(|n| n != "None");
+            p.input = match chosen {
+                None => None,
+                // Keep the one already loaded when it is the one chosen.
+                Some(n) if p.input.as_ref().is_some_and(|i| i.name == n) => p.input.clone(),
+                Some(n) => nv_calibrate::load_profile(&n).ok(),
+            };
+        }
         if let Some((sat, acr, grey)) = self.imp().colour_rows.borrow().as_ref() {
             p.colour.saturation = sat.value() as f32 / 100.0;
             p.colour.acr = acr.value() as f32;
@@ -1375,6 +1392,10 @@ impl Window {
             t.set_value(params.detail.usm.threshold as f64);
         }
         if let Some(r) = self.imp().local_contrast_row.borrow().as_ref() { r.set_value(params.detail.local_contrast as f64); }
+        if let Some(row) = self.imp().scanner_profile_row.borrow().as_ref() {
+            let names: Vec<String> = (0..row.model().map_or(0, |m| m.n_items())).filter_map(|i| row.model()?.item(i).and_downcast::<gtk::StringObject>().map(|s| s.string().to_string())).collect();
+            row.set_selected(params.input.as_ref().and_then(|i| names.iter().position(|n| *n == i.name)).unwrap_or(0) as u32);
+        }
         if let Some((sat, acr, grey)) = self.imp().colour_rows.borrow().as_ref() {
             sat.set_value(params.colour.saturation as f64 * 100.0);
             acr.set_value(params.colour.acr as f64);

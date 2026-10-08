@@ -1,3 +1,4 @@
+mod calibrate;
 mod probe;
 mod render;
 mod scan;
@@ -19,6 +20,8 @@ enum Cmd {
     Scan(scan::ScanArgs),
     /// Run a raw PNM file through the nv-process pipeline and save a rendered PPM.
     Render(render::RenderArgs),
+    /// Build a scanner input profile from a scan of an IT8 target (needs ArgyllCMS).
+    Calibrate(calibrate::CalibrateArgs),
 }
 
 fn main() {
@@ -27,6 +30,7 @@ fn main() {
         Cmd::Probe(args)  => probe::run(args),
         Cmd::Scan(args)   => scan::run(args),
         Cmd::Render(args) => render::run(args),
+        Cmd::Calibrate(args) => calibrate::run(args),
     };
     if let Err(e) = result {
         eprintln!("nv-cli: {e}");

@@ -15,6 +15,7 @@ nv-device = { path = "../nv-device" }
 nv-acquire = { path = "../nv-acquire" }
 nv-film    = { path = "../nv-film" }
 nv-image   = { path = "../nv-image" }
+nv-calibrate = { path = "../nv-calibrate" }
 nv-process = { path = "../nv-process" }
 nv-store = { path = "../nv-store" }
 nv-export = { path = "../nv-export" }
