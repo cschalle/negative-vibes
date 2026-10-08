@@ -341,45 +341,66 @@ pub fn copy_raw(src: &Path, dest: &Path) -> Result<u64, ExportError> {
 
 // ── Raw scans ─────────────────────────────────────────────────────────────────
 
-/// Write a scan as it came from the scanner (1 or 3 channels, 8 or 16 bit,
+/// Write a scan as it came from the scanner (1, 3 or 4 channels, 8 or 16 bit,
 /// samples in the host's byte order, rows possibly padded) as a TIFF for the
-/// roll's raw folder. Rows are gathered a band at a time, so saving a 7200 dpi
+/// roll's raw folder. With `ir`, a one-channel plane of the same size and
+/// depth is stored as a fourth sample after the colour (the HDRi RAW layout,
+/// DESIGN.md §6.3). Rows are gathered a band at a time, so saving a 7200 dpi
 /// frame needs a band of memory beyond the frame itself, not copies of it.
-pub fn write_scan_tiff(buf: &FrameBuf, dest: &Path, compression: crate::settings::Compression) -> Result<(), ExportError> {
+pub fn write_scan_tiff(buf: &FrameBuf, ir: Option<&FrameBuf>, dest: &Path, compression: crate::settings::Compression) -> Result<(), ExportError> {
     let (w, h) = (buf.width as usize, buf.effective_height() as usize);
     if w == 0 || h == 0 {
         return Err(ExportError::Empty);
     }
+    let bad = |m: String| ExportError::Io(io::Error::other(m));
     let (channels, depth) = (buf.channels as usize, buf.depth as usize);
-    if !matches!(channels, 1 | 3) || !matches!(depth, 8 | 16) {
-        return Err(ExportError::Io(io::Error::other(format!("cannot write a {channels}-channel {depth}-bit scan"))));
+    if !matches!(channels, 1 | 3 | 4) || !matches!(depth, 8 | 16) {
+        return Err(bad(format!("cannot write a {channels}-channel {depth}-bit scan")));
     }
+    if let Some(ir) = ir {
+        if channels != 3 || ir.channels != 1 || ir.depth != buf.depth || ir.width != buf.width || ir.effective_height() as usize != h {
+            return Err(bad("the infrared plane does not match the colour scan".into()));
+        }
+    }
+    let out_channels = channels + usize::from(ir.is_some());
     let row_bytes = w * channels * depth / 8;
     let bytes = buf.as_bytes();
     if bytes.len() < buf.bytes_per_row * (h - 1) + row_bytes {
-        return Err(ExportError::Io(io::Error::other("incomplete scan data")));
+        return Err(bad("incomplete scan data".into()));
+    }
+    let ir_row_bytes = w * depth / 8;
+    if let Some(ir) = ir {
+        if ir.as_bytes().len() < ir.bytes_per_row * (h - 1) + ir_row_bytes {
+            return Err(bad("incomplete infrared data".into()));
+        }
     }
 
     let part = temp_name(dest);
     let write = || -> Result<(), ExportError> {
         let file = BufWriter::new(File::create(&part)?);
-        let mut tiff = TiffWriter::new(file, w as u32, h as u32, channels as u16, depth as u16, compression, TIFF_STRIP_ROWS, None)?;
+        let mut tiff = TiffWriter::new(file, w as u32, h as u32, out_channels as u16, depth as u16, compression, TIFF_STRIP_ROWS, None)?;
+        let sample = |b: &[u8], i: usize| -> u16 { if depth == 16 { u16::from_ne_bytes([b[i * 2], b[i * 2 + 1]]) } else { b[i] as u16 } };
         let mut y = 0;
         while y < h {
             let rows = TILE.min(h - y);
-            let src = |r: usize| &bytes[(y + r) * buf.bytes_per_row..][..row_bytes];
-            if depth == 16 {
-                let mut band = Vec::with_capacity(rows * w * channels);
-                for r in 0..rows {
-                    band.extend(src(r).chunks_exact(2).map(|p| u16::from_ne_bytes([p[0], p[1]])));
+            let mut band: Vec<u16> = Vec::with_capacity(rows * w * out_channels);
+            for r in 0..rows {
+                let row = &bytes[(y + r) * buf.bytes_per_row..][..row_bytes];
+                match ir {
+                    None => band.extend((0..w * channels).map(|i| sample(row, i))),
+                    Some(ir) => {
+                        let irow = &ir.as_bytes()[(y + r) * ir.bytes_per_row..][..ir_row_bytes];
+                        for x in 0..w {
+                            band.extend((0..3).map(|c| sample(row, x * 3 + c)));
+                            band.push(sample(irow, x));
+                        }
+                    }
                 }
+            }
+            if depth == 16 {
                 tiff.write_rows_u16(rows as u32, &band)?;
             } else {
-                let mut band = Vec::with_capacity(rows * row_bytes);
-                for r in 0..rows {
-                    band.extend_from_slice(src(r));
-                }
-                tiff.write_rows_u8(rows as u32, &band)?;
+                tiff.write_rows_u8(rows as u32, &band.iter().map(|v| *v as u8).collect::<Vec<u8>>())?;
             }
             y += rows;
         }

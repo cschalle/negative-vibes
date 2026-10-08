@@ -14,7 +14,8 @@ use std::sync::{mpsc, Arc};
 use nv_image::FrameBuf;
 
 use crate::params::{ImageType, ProcessParams};
-use crate::{conversion, estimate_film_base_proxy, render, render_toned, Orientation, Proxy};
+use crate::dust::{DustMode, TILE_MARGIN};
+use crate::{conversion, encode_output, estimate_film_base_proxy, render_toned, Orientation, Proxy};
 
 /// Tile edge in pixels.
 pub const TILE: usize = 512;
@@ -26,6 +27,9 @@ pub fn freeze(proxy: &Proxy, params: &ProcessParams) -> ProcessParams {
     if proxy.is_empty() {
         return p;
     }
+    // A mark bigger than this is not dust, however it is cut into tiles.
+    let full_pixels = proxy.width * proxy.height * proxy.factor * proxy.factor;
+    p.dust.max_area.get_or_insert(((0.004 * full_pixels as f64) as usize).max(50));
     match p.image_type {
         ImageType::Positive => {
             if p.conversion.positive_range.is_none() {
@@ -48,7 +52,27 @@ pub fn freeze(proxy: &Proxy, params: &ProcessParams) -> ProcessParams {
 /// Render the `w × h` block at `(x0, y0)` of `raw` with frozen parameters:
 /// 8-bit RGB, `w × h × 3`, clipped to the scan.
 pub fn render_block(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize, w: usize, h: usize) -> Vec<u8> {
-    render(&Proxy::from_raw_region(raw, x0, y0, w, h), frozen)
+    encode_output(&tile_toned(raw, frozen, x0, y0, w, h), false)
+}
+
+/// The toned picture of one block of the scan. With dust removal on and an
+/// infrared plane in the scan, the block is rendered with a margin around it
+/// and trimmed, so marks and repairs at its edge see what lies beyond.
+fn tile_toned(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize, w: usize, h: usize) -> Vec<f32> {
+    if frozen.dust.mode == DustMode::Off || raw.channels != 4 {
+        return render_toned(&Proxy::from_raw_region(raw, x0, y0, w, h), frozen);
+    }
+    let (sw, sh) = (raw.width as usize, raw.effective_height() as usize);
+    let (mx0, my0) = (x0.saturating_sub(TILE_MARGIN), y0.saturating_sub(TILE_MARGIN));
+    let (mx1, my1) = ((x0 + w + TILE_MARGIN).min(sw), (y0 + h + TILE_MARGIN).min(sh));
+    let big = render_toned(&Proxy::from_raw_region(raw, mx0, my0, mx1 - mx0, my1 - my0), frozen);
+    let (bw, cw, ch) = (mx1 - mx0, (x0 + w).min(sw) - x0, (y0 + h).min(sh) - y0);
+    let mut out = Vec::with_capacity(cw * ch * 3);
+    for y in 0..ch {
+        let row = ((y0 - my0 + y) * bw + (x0 - mx0)) * 3;
+        out.extend_from_slice(&big[row..row + cw * 3]);
+    }
+    out
 }
 
 /// The toned picture (linear light, `w × h × 3` floats) of the `w × h` block
@@ -81,7 +105,7 @@ pub fn render_toned_region(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0
                     break;
                 }
                 let (tx, ty) = (tx0 + i % (tx1 - tx0), ty0 + i / (tx1 - tx0));
-                let tile = render_toned(&Proxy::from_raw_region(raw, tx * TILE, ty * TILE, TILE, TILE), frozen);
+                let tile = tile_toned(raw, frozen, tx * TILE, ty * TILE, TILE, TILE);
                 if send.send((i, tile)).is_err() {
                     break;
                 }
@@ -267,7 +291,7 @@ impl TileCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::default_params_for;
+    use crate::{default_params_for, render};
     use nv_film::builtin_profiles;
 
     /// A synthetic negative, wider and taller than a tile so several tiles

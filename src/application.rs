@@ -144,7 +144,7 @@ mod imp {
                     if let crate::window::imp::ScanUiState::Ready { device_name } =
                         &*win.imp().scan_state.borrow()
                     {
-                        worker.start_scan(device_name.clone(), win.final_scan_dpi(), false, win.scan_area());
+                        worker.start_scan(device_name.clone(), win.final_scan_dpi(), win.scan_with_ir(), win.scan_area());
                     }
                 }
             });

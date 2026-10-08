@@ -82,9 +82,22 @@ impl Window {
         }
 
         self.sync_widgets(&params);
+        self.update_dust_availability();
         *imp.proc_params.borrow_mut() = Some(params);
         imp.film_base_ready.set(true);
         self.refresh_canvas();
+    }
+
+    /// Dust removal needs an infrared plane: say so when the scan on the
+    /// canvas has none, and do not offer controls that would do nothing.
+    pub(super) fn update_dust_availability(&self) {
+        let has_ir = self.imp().proxy.borrow().as_ref().is_some_and(|p| p.ir.is_some());
+        for r in [self.imp().dust_mode_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone()), self.imp().dust_detection_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone())].into_iter().flatten() {
+            r.set_sensitive(has_ir);
+        }
+        if let Some(n) = self.imp().dust_note_row.borrow().as_ref() {
+            n.set_visible(!has_ir);
+        }
     }
 
     /// The frame's rectangle moved: measurements follow it.

@@ -256,6 +256,15 @@ fn do_scan(
             is_last: params.last_frame,
         };
 
+        if frame_index > 0 && ir_follows && matches!(meta.format, FrameFormat::Gray) {
+            let _ = evt_tx.send_blocking(ScanEvent::IrFrameStarted {
+                width_px: meta.width_px,
+                height_px: meta.height_px,
+                bytes_per_line: meta.bytes_per_line,
+                depth: meta.depth,
+            });
+        }
+
         if frame_index == 0 {
             eprintln!(
                 "nv-acquire: scan parameters: {}×{:?} depth={} ch={} bytes_per_line={}",

@@ -29,6 +29,9 @@ pub(crate) mod imp {
         pub midtone_row: RefCell<Option<adw::SpinRow>>,
         pub contrast_row: RefCell<Option<adw::SpinRow>>,
         pub cast_row: RefCell<Option<adw::SpinRow>>,
+        pub dust_mode_row: RefCell<Option<adw::ComboRow>>,
+        pub dust_detection_row: RefCell<Option<adw::SpinRow>>,
+        pub dust_note_row: RefCell<Option<adw::ActionRow>>,
         /// Where inspector edits go: the roll's defaults or this frame.
         pub scope: Cell<Scope>,
         /// Undo history of the frames not on screen, by frame number
@@ -105,6 +108,15 @@ pub(crate) mod imp {
         /// Full-resolution data of a final scan in progress. Kept apart from
         /// `scan_buf` so the preview stays on the canvas as the editing proxy.
         pub final_buf: RefCell<Option<nv_image::FrameBuf>>,
+        /// The infrared plane of a final scan in progress (a second frame).
+        pub final_ir: RefCell<Option<nv_image::FrameBuf>>,
+        /// The data now arriving is the infrared frame.
+        pub receiving_ir: Cell<bool>,
+        /// The scanner can capture infrared, and the switch for it.
+        pub device_ir: Cell<bool>,
+        /// Session default for capturing infrared when a roll has no setting.
+        pub with_ir: Cell<bool>,
+        pub ir_row: RefCell<Option<adw::SwitchRow>>,
         /// Resolution of the final scan in flight, for the roll metadata.
         pub final_dpi: Cell<u32>,
         /// True once a preview has completed, which is what enables Scan.
@@ -934,6 +946,38 @@ impl Window {
         let histogram_area = self.build_histogram();
         *self.imp().histogram_area.borrow_mut() = Some(histogram_area.clone());
         inspector_box.append(&histogram_area);
+        // ── Detail page: dust and scratches ───────────────────────────────
+        let detail_page = adw::PreferencesPage::new();
+        let dust_group = adw::PreferencesGroup::builder()
+            .title("Dust and Scratches")
+            .description("Found in the infrared plane, which dust blocks and the picture does not")
+            .build();
+        let dust_mode_row = adw::ComboRow::builder()
+            .title("Mode")
+            .model(&gtk::StringList::new(&["Off", "Correct", "Mark"]))
+            .selected(1)
+            .build();
+        let dust_detection_row = adw::SpinRow::builder()
+            .title("Detection")
+            .subtitle("Higher finds smaller and fainter marks")
+            .adjustment(&gtk::Adjustment::new(12.0, 1.0, 20.0, 1.0, 4.0, 0.0))
+            .build();
+        let dust_note_row = adw::ActionRow::builder().title("Infrared").subtitle("This scan has no infrared plane").build();
+        dust_note_row.add_css_class("property");
+        dust_group.add(&dust_mode_row);
+        dust_group.add(&dust_detection_row);
+        dust_group.add(&dust_note_row);
+        detail_page.add(&dust_group);
+        let detail_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&detail_page).build();
+        insp_stack.add_titled(&detail_scroll, Some("detail"), "Detail");
+        *self.imp().dust_mode_row.borrow_mut() = Some(dust_mode_row.clone());
+        *self.imp().dust_detection_row.borrow_mut() = Some(dust_detection_row.clone());
+        *self.imp().dust_note_row.borrow_mut() = Some(dust_note_row.clone());
+        let weak = self.downgrade();
+        dust_mode_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        let weak = self.downgrade();
+        dust_detection_row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+
         insp_stack.add_titled(&self.build_scan_page(), Some("scan"), "Scan");
         inspector_box.append(&switcher);
         inspector_box.append(&insp_stack);
@@ -1055,6 +1099,12 @@ impl Window {
         let midtone = self.imp().midtone_row.borrow().as_ref()?.value() as f32;
         let contrast = self.imp().contrast_row.borrow().as_ref()?.value() as f32;
         let cast_removal = self.imp().cast_row.borrow().as_ref()?.value() as f32;
+        let dust_mode = match self.imp().dust_mode_row.borrow().as_ref()?.selected() {
+            0 => nv_process::DustMode::Off,
+            2 => nv_process::DustMode::Mark,
+            _ => nv_process::DustMode::Correct,
+        };
+        let dust_detection = self.imp().dust_detection_row.borrow().as_ref()?.value() as u8;
         let balance = {
             let rows = self.imp().balance_rows.borrow();
             if rows.len() != 3 { return None; }
@@ -1069,6 +1119,8 @@ impl Window {
         p.conversion.film_base = Some([fb_r, fb_g, fb_b]);
         p.conversion.exposure = exposure;
         p.conversion.cast_removal = cast_removal;
+        p.dust.mode = dust_mode;
+        p.dust.detection = dust_detection;
         p.tone = ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast, balance, ..p.tone.clone() };
         Some(p)
     }
@@ -1105,6 +1157,10 @@ impl Window {
         if let Some(r) = self.imp().midtone_row.borrow().as_ref() { r.set_value(params.tone.midtone as f64); }
         if let Some(r) = self.imp().contrast_row.borrow().as_ref() { r.set_value(params.tone.contrast as f64); }
         if let Some(r) = self.imp().cast_row.borrow().as_ref() { r.set_value(params.conversion.cast_removal as f64); }
+        if let Some(r) = self.imp().dust_mode_row.borrow().as_ref() {
+            r.set_selected(match params.dust.mode { nv_process::DustMode::Off => 0, nv_process::DustMode::Correct => 1, nv_process::DustMode::Mark => 2 });
+        }
+        if let Some(r) = self.imp().dust_detection_row.borrow().as_ref() { r.set_value(params.dust.detection as f64); }
         for (row, v) in self.imp().balance_rows.borrow().iter().zip(params.tone.balance) {
             row.set_value(v as f64);
         }
@@ -1505,6 +1561,8 @@ impl Window {
                     let first = caps.into_iter().next().unwrap();
                     *self.imp().device_resolutions.borrow_mut() = first.resolutions.clone();
                     self.imp().film_window_mm.set(first.film_window_mm);
+                    self.imp().device_ir.set(matches!(first.ir, nv_device::IrStyle::MultiFrame | nv_device::IrStyle::Rgbi));
+                    if let Some(r) = self.imp().ir_row.borrow().as_ref() { r.set_visible(self.imp().device_ir.get()); }
                     self.fill_resolutions();
                     let manual = first.holder == nv_device::HolderKind::ManualAdvance;
                     self.imp().manual_advance.set(manual);
@@ -1549,7 +1607,8 @@ impl Window {
 
             ScanEvent::DataChunk { data, .. } => {
                 if self.imp().scan_kind.get() == imp::ScanKind::Final {
-                    if let Some(buf) = self.imp().final_buf.borrow_mut().as_mut() {
+                    let target = if self.imp().receiving_ir.get() { &self.imp().final_ir } else { &self.imp().final_buf };
+                    if let Some(buf) = target.borrow_mut().as_mut() {
                         buf.append(&data);
                     }
                     return;
@@ -1618,14 +1677,25 @@ impl Window {
                 self.abort_acquisition();
             }
 
-            ScanEvent::DeviceReady { .. }
-            | ScanEvent::ColorFrameDone
-            | ScanEvent::IrFrameDone => {}
+            ScanEvent::IrFrameStarted { width_px, height_px, bytes_per_line, depth } => {
+                if self.imp().scan_kind.get() == imp::ScanKind::Final {
+                    *self.imp().final_ir.borrow_mut() = Some(FrameBuf::with_stride(width_px, height_px, depth, 1, bytes_per_line));
+                    self.imp().receiving_ir.set(true);
+                }
+            }
+
+            ScanEvent::ColorFrameDone | ScanEvent::IrFrameDone => {
+                self.imp().receiving_ir.set(false);
+            }
+
+            ScanEvent::DeviceReady { .. } => {}
         }
     }
 
     fn abort_acquisition(&self) {
         *self.imp().final_buf.borrow_mut() = None;
+        *self.imp().final_ir.borrow_mut() = None;
+        self.imp().receiving_ir.set(false);
         // A failed or cancelled final scan leaves the preview on screen, so
         // Scan can be tried again; a failed preview leaves nothing to scan.
         let preview_ok = self.imp().scan_kind.get() == imp::ScanKind::Final
@@ -1643,6 +1713,12 @@ impl Window {
             self.abort_acquisition();
             return;
         };
+        let mut ir = self.imp().final_ir.borrow_mut().take();
+        if ir.as_ref().is_some_and(|i| i.width != buf.width || i.effective_height() != buf.effective_height() || i.depth != buf.depth) {
+            self.show_toast("The infrared plane does not match the colour scan: saving colour only");
+            ir = None;
+        }
+        let has_ir = ir.is_some() || buf.channels == 4;
         let dpi = self.imp().final_dpi.get();
         let frame_idx = self.imp().scan_target.get();
         let root = self.imp().roll_root.borrow().clone();
@@ -1654,19 +1730,19 @@ impl Window {
 
         let store = RollStore::from_parts(root, nv_store::Roll::new(""));
         let path = store.scan_path(frame_idx);
-        let (w, h, depth, channels) = (buf.width, buf.effective_height(), buf.depth, buf.channels);
+        let (w, h, depth, channels) = (buf.width, buf.effective_height(), buf.depth, buf.channels + u8::from(ir.is_some()));
         let filename = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
         self.show_toast("Saving scan…");
         let win_weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let write_path = path.clone();
-            let result = gio::spawn_blocking(move || nv_store::RawWriter::write_scan(&buf, &write_path)).await;
+            let result = gio::spawn_blocking(move || nv_store::RawWriter::write_scan_with_ir(&buf, ir.as_ref(), &write_path)).await;
             let Some(win) = win_weak.upgrade() else { return };
             let mut saved = false;
             match result {
                 Ok(Ok(())) => {
-                    win.record_scan(frame_idx, filename, dpi, depth, channels, w, h);
+                    win.record_scan(frame_idx, filename, dpi, depth, channels, w, h, has_ir);
                     win.show_toast(&format!("Saved frame {frame_idx} ({w}×{h}, {dpi} dpi)"));
                     if win.imp().manual_advance.get() {
                         win.show_advance_banner();
@@ -1696,7 +1772,7 @@ impl Window {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn record_scan(&self, idx: u32, filename: String, dpi: u32, depth: u8, channels: u8, w: u32, h: u32) {
+    fn record_scan(&self, idx: u32, filename: String, dpi: u32, depth: u8, channels: u8, w: u32, h: u32, has_ir: bool) {
         {
             let mut roll_ref = self.imp().roll.borrow_mut();
             if let Some(frame) = roll_ref.as_mut().and_then(|r| r.frames.iter_mut().find(|f| f.index == idx)) {
@@ -1713,7 +1789,7 @@ impl Window {
                             .map(|s| s.to_string())
                             .unwrap_or_default(),
                     },
-                    has_ir: false,
+                    has_ir,
                     width_px: w,
                     height_px: h,
                 });

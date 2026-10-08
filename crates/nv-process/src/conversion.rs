@@ -353,6 +353,7 @@ mod tests {
             profile: FilmProfile::identity(),
             conversion: ConversionParams { film_base: Some(base), exposure: 0.0, tolerance: 0.0016, auto_ccr: false, cast_removal, d_max: None, cast_fit: None, region: None, positive_range: None },
             tone: ToneParams::default(),
+            dust: Default::default(),
         }
     }
 

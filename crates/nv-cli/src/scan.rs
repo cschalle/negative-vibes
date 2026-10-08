@@ -68,6 +68,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
             output: Some(rendered_path),
             image_type: "colour-negative".into(),
             profile: "generic-colour-negative".into(),
+            dust: "off".into(), // a scan from this command has no infrared plane
             film_base: None,
             exposure: 0.0,
             black_point: 0.0,

@@ -41,6 +41,12 @@ impl Window {
         self.imp().roll.borrow().as_ref().and_then(|r| r.settings.resolution_dpi).unwrap_or_else(|| self.imp().scan_dpi.get())
     }
 
+    /// Whether the next final scan also captures infrared: the scanner can,
+    /// and the roll (else the session) wants it.
+    pub fn scan_with_ir(&self) -> bool {
+        self.imp().device_ir.get() && self.imp().roll.borrow().as_ref().and_then(|r| r.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get())
+    }
+
     fn resolutions(&self) -> Vec<u32> {
         let r = self.imp().device_resolutions.borrow().clone();
         if r.is_empty() { FALLBACK_DPI.to_vec() } else { r }
@@ -54,8 +60,30 @@ impl Window {
         let size = adw::ActionRow::builder().title("File Size").subtitle("").build();
         size.add_css_class("property");
         group.add(&row);
+        let ir = adw::SwitchRow::builder()
+            .title("Capture Infrared")
+            .subtitle("For dust and scratch removal. Adds a second pass; silver black and white film blocks infrared.")
+            .active(true)
+            .visible(false)
+            .build();
+        group.add(&ir);
         group.add(&size);
         page.add(&group);
+        *self.imp().ir_row.borrow_mut() = Some(ir.clone());
+        let weak = self.downgrade();
+        ir.connect_active_notify(move |r| {
+            let Some(win) = weak.upgrade() else { return };
+            if win.imp().updating_ui.get() {
+                return;
+            }
+            let on = r.is_active();
+            if let Some(roll) = win.imp().roll.borrow_mut().as_mut() {
+                roll.settings.with_ir = Some(on);
+            }
+            win.imp().with_ir.set(on);
+            win.schedule_autosave();
+            win.update_scan_size();
+        });
         *self.imp().scan_res_row.borrow_mut() = Some(row.clone());
         *self.imp().scan_size_row.borrow_mut() = Some(size);
 
@@ -101,13 +129,23 @@ impl Window {
 
     /// "1714 × 1150 px, 11.3 MB at 16 bit" for the rectangle on the preview.
     pub(super) fn update_scan_size(&self) {
+        if let Some(r) = self.imp().ir_row.borrow().as_ref() {
+            self.imp().updating_ui.set(true);
+            r.set_active(self.imp().roll.borrow().as_ref().and_then(|x| x.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get()));
+            self.imp().updating_ui.set(false);
+        }
         let Some(row) = self.imp().scan_size_row.borrow().clone() else { return };
         let Some(window) = self.imp().film_window_mm.get() else {
             row.set_subtitle("Connect a scanner to see the size");
             return;
         };
         let (w, h, bytes) = scan_size(window, self.frame_rect(), self.scan_dpi());
-        row.set_subtitle(&format!("{w} × {h} px, {} as 16-bit colour", human_bytes(bytes)));
+        if self.scan_with_ir() {
+            // The infrared plane is one more sample per pixel.
+            row.set_subtitle(&format!("{w} × {h} px, {} as 16-bit colour and infrared", human_bytes(bytes / 3 * 4)));
+        } else {
+            row.set_subtitle(&format!("{w} × {h} px, {} as 16-bit colour", human_bytes(bytes)));
+        }
     }
 
     // ── Preferences ───────────────────────────────────────────────────────────
@@ -115,6 +153,7 @@ impl Window {
     pub(super) fn setup_preferences(&self) {
         *self.imp().prefs.borrow_mut() = Prefs::load();
         self.imp().scan_dpi.set(self.imp().prefs.borrow().scan_dpi);
+        self.imp().with_ir.set(true);
 
         let action = gio::SimpleAction::new("preferences", None);
         let weak = self.downgrade();

@@ -33,6 +33,10 @@ pub struct RenderArgs {
     #[arg(long)]
     pub film_base: Option<String>,
 
+    /// Infrared dust removal: off | correct | mark (needs an RGB+IR scan).
+    #[arg(long, default_value = "correct")]
+    pub dust: String,
+
     /// Exposure offset in stops.
     #[arg(long, default_value = "0.0")]
     pub exposure: f32,
@@ -193,6 +197,14 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             contrast: 0.0,
             balance: [1.0; 3],
             curves: Default::default(),
+        },
+        dust: nv_process::DustParams {
+            mode: match args.dust.as_str() {
+                "off" => nv_process::DustMode::Off,
+                "mark" => nv_process::DustMode::Mark,
+                _ => nv_process::DustMode::Correct,
+            },
+            ..Default::default()
         },
     };
 

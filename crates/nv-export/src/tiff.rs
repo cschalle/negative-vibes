@@ -8,7 +8,7 @@
 //!
 //! Little-endian, classic TIFF (offsets are 32-bit, so a file over 4 GB is
 //! refused; an 80-megapixel 16-bit RGB frame is 480 MB). Chunky RGB or grey,
-//! 8 or 16 bit, optional LZW or Deflate with the horizontal predictor.
+//! (an optional fourth sample is the infrared plane), 8 or 16 bit, optional LZW or Deflate with the horizontal predictor.
 
 use std::io::{self, Seek, SeekFrom, Write};
 
@@ -129,6 +129,10 @@ impl<W: Write + Seek> TiffWriter<W> {
         entries.push((305, ASCII, software.len() as u32, software.as_bytes().to_vec()));
         if self.compression != Compression::None {
             entries.push((317, SHORT, 1, short(2))); // horizontal differencing
+        }
+        if self.channels == 4 {
+            // The fourth sample is infrared, which has no TIFF name: "unspecified".
+            entries.push((338, SHORT, 1, short(0)));
         }
         if let Some(p) = &self.profile {
             entries.push((34675, UNDEFINED, p.len() as u32, p.clone()));

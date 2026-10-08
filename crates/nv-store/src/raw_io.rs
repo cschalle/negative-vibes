@@ -29,7 +29,13 @@ impl RawWriter {
     /// from the host's order, which the TIFF header records, so nothing is
     /// lost or swapped. Rows are written a band at a time.
     pub fn write_scan(buf: &FrameBuf, path: &Path) -> Result<()> {
-        nv_export::write_scan_tiff(buf, path, nv_export::Compression::Deflate).map_err(|e| StoreError::Other(e.to_string()))
+        Self::write_scan_with_ir(buf, None, path)
+    }
+
+    /// [`write_scan`](Self::write_scan) with the infrared plane stored as a
+    /// fourth sample (the HDRi RAW layout).
+    pub fn write_scan_with_ir(buf: &FrameBuf, ir: Option<&FrameBuf>, path: &Path) -> Result<()> {
+        nv_export::write_scan_tiff(buf, ir, path, nv_export::Compression::Deflate).map_err(|e| StoreError::Other(e.to_string()))
     }
 }
 
@@ -58,7 +64,19 @@ impl RawReader {
         let mut head = [0u8; 2];
         let n = std::fs::File::open(path)?.read(&mut head)?;
         if n == 2 && (&head == b"P6" || &head == b"P5") {
-            return read_pnm_from(std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(path)?));
+            let rgb = read_pnm_from(std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(path)?))?;
+            // `scan.pnm` with `scan-ir.pgm` beside it is an RGB+IR pair, as the
+            // reference client writes them: merge them into one four-channel scan.
+            if rgb.channels == 3 {
+                if let Some(ir_path) = ir_partner(path) {
+                    if let Ok(ir) = read_pnm_from(std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(ir_path)?)) {
+                        if let Some(merged) = merge_ir(&rgb, &ir) {
+                            return Ok(merged);
+                        }
+                    }
+                }
+            }
+            return Ok(rgb);
         }
         let data = std::fs::read(path)?;
         if crate::dng::is_dng(&data) {
@@ -168,6 +186,34 @@ fn read_full<R: std::io::Read>(r: &mut R, out: &mut [u8]) -> io::Result<usize> {
     Ok(n)
 }
 
+/// `dir/name-ir.pgm` for `dir/name.pnm`, if it exists.
+fn ir_partner(path: &Path) -> Option<std::path::PathBuf> {
+    let stem = path.file_stem()?.to_str()?;
+    let candidate = path.with_file_name(format!("{stem}-ir.pgm"));
+    candidate.is_file().then_some(candidate)
+}
+
+/// RGB and a same-sized grey plane as one four-channel frame.
+pub fn merge_ir(rgb: &FrameBuf, ir: &FrameBuf) -> Option<FrameBuf> {
+    let (w, h) = (rgb.width, rgb.effective_height());
+    if rgb.channels != 3 || ir.channels != 1 || ir.depth != rgb.depth || ir.width != w || ir.effective_height() != h {
+        return None;
+    }
+    let bps = rgb.depth as usize / 8;
+    let mut out = FrameBuf::new(w, Some(h), rgb.depth, 4);
+    let mut row = Vec::with_capacity(w as usize * 4 * bps);
+    for y in 0..h as usize {
+        row.clear();
+        let (rrow, irow) = (&rgb.as_bytes()[y * rgb.bytes_per_row..], &ir.as_bytes()[y * ir.bytes_per_row..]);
+        for x in 0..w as usize {
+            row.extend_from_slice(&rrow[x * 3 * bps..(x * 3 + 3) * bps]);
+            row.extend_from_slice(&irow[x * bps..(x + 1) * bps]);
+        }
+        out.append(&row);
+    }
+    Some(out)
+}
+
 /// [`RawReader::proxy`] for a TIFF stored in strips, or `None` when the file
 /// is something else and must be read whole.
 fn proxy_from_strips(path: &Path, max_pixels: usize) -> Result<Option<(nv_process::Proxy, (u32, u32))>> {
@@ -189,10 +235,16 @@ fn proxy_from_strips(path: &Path, max_pixels: usize) -> Result<Option<(nv_proces
         tiff::ColorType::Gray(16) => (1, 16),
         tiff::ColorType::RGB(8) => (3, 8),
         tiff::ColorType::RGB(16) => (3, 16),
+        tiff::ColorType::RGBA(8) => (4, 8),
+        tiff::ColorType::RGBA(16) => (4, 16),
         _ => return Ok(None),
     };
     let scale = if depth == 16 { 65535.0f32 } else { 255.0 };
     let mut builder = nv_process::ProxyBuilder::new(w as usize, h as usize, max_pixels);
+    if channels == 4 {
+        builder = builder.with_ir();
+    }
+    let mut ir_row = vec![0f32; w as usize];
     let mut y0 = 0usize;
     let mut row = vec![0f32; w as usize * 3];
     for i in 0..d.strip_count()? {
@@ -210,10 +262,16 @@ fn proxy_from_strips(path: &Path, max_pixels: usize) -> Result<Option<(nv_proces
             for x in 0..w as usize {
                 let g = src[x * channels];
                 row[x * 3] = g;
-                row[x * 3 + 1] = if channels == 3 { src[x * channels + 1] } else { g };
-                row[x * 3 + 2] = if channels == 3 { src[x * channels + 2] } else { g };
+                row[x * 3 + 1] = if channels >= 3 { src[x * channels + 1] } else { g };
+                row[x * 3 + 2] = if channels >= 3 { src[x * channels + 2] } else { g };
+                if channels == 4 {
+                    ir_row[x] = src[x * channels + 3];
+                }
             }
             builder.add_row(y0 + r, &row);
+            if channels == 4 {
+                builder.add_ir_row(y0 + r, &ir_row);
+            }
         }
         y0 += rows as usize;
     }
@@ -236,7 +294,7 @@ fn read_tiff(path: &Path) -> Result<FrameBuf> {
     let (w, h) = decoder.dimensions()?;
     let colortype = decoder.colortype()?;
     let depth: u8 = match colortype {
-        tiff::ColorType::Gray(16) | tiff::ColorType::RGB(16) => 16,
+        tiff::ColorType::Gray(16) | tiff::ColorType::RGB(16) | tiff::ColorType::RGBA(16) => 16,
         _ => 8,
     };
     let channels: u8 = match colortype {
@@ -321,6 +379,66 @@ mod tests {
 
     /// Formats that cannot be streamed are read whole, and give the right picture
     /// (a DNG's first directory is a thumbnail, not the scan).
+    /// RGB + infrared goes to disk as a four-sample TIFF and comes back, and
+    /// the streamed proxy carries the same infrared plane.
+    #[test]
+    fn rgb_plus_ir_round_trips_as_a_four_sample_tiff() {
+        let dir = scratch("ir");
+        for depth in [16u8, 8] {
+            let (w, h) = (90u32, 70u32);
+            let (mut rgb, mut ir) = (FrameBuf::new(w, Some(h), depth, 3), FrameBuf::new(w, Some(h), depth, 1));
+            for i in 0..w * h {
+                let v = i.wrapping_mul(2654435761) >> 8;
+                for c in 0..3u32 {
+                    let s = v.wrapping_add(c * 977);
+                    if depth == 16 { rgb.append(&(s as u16).to_ne_bytes()) } else { rgb.append(&[s as u8]) }
+                }
+                if depth == 16 { ir.append(&((v >> 3) as u16).to_ne_bytes()) } else { ir.append(&[(v >> 3) as u8]) }
+            }
+            let path = dir.join(format!("ir{depth}.tif"));
+            RawWriter::write_scan_with_ir(&rgb, Some(&ir), &path).unwrap();
+
+            let back = RawReader::read(&path).unwrap();
+            assert_eq!((back.width, back.effective_height(), back.channels, back.depth), (w, h, 4, depth), "depth {depth}");
+            let bps = depth as usize / 8;
+            for i in 0..(w * h) as usize {
+                for c in 0..3 {
+                    assert_eq!(read_sample(back.as_bytes(), (i * 4 + c) * bps, bps), read_sample(rgb.as_bytes(), (i * 3 + c) * bps, bps), "px {i} ch {c}");
+                }
+                assert_eq!(read_sample(back.as_bytes(), (i * 4 + 3) * bps, bps), read_sample(ir.as_bytes(), i * bps, bps), "ir px {i}");
+            }
+
+            let whole = nv_process::Proxy::from_raw(&back, 1500);
+            let (streamed, _) = RawReader::proxy(&path, 1500).unwrap();
+            let (a, b) = (whole.ir.as_ref().expect("whole ir"), streamed.ir.as_ref().expect("streamed ir"));
+            assert_eq!(a.len(), b.len());
+            assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5));
+            assert!(whole.pixels.iter().zip(&streamed.pixels).all(|(x, y)| (x - y).abs() < 1e-5));
+        }
+        // Mismatched planes are refused, not written crooked.
+        let rgb = FrameBuf::new(4, Some(2), 16, 3);
+        let ir = FrameBuf::new(5, Some(2), 16, 1);
+        assert!(RawWriter::write_scan_with_ir(&rgb, Some(&ir), &dir.join("bad.tif")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The reference client writes `scan.pnm` and `scan-ir.pgm`: reading the
+    /// first finds the second.
+    #[test]
+    fn a_pnm_with_an_ir_partner_reads_as_four_channels() {
+        let dir = scratch("pair");
+        std::fs::write(dir.join("s.pnm"), b"P6\n2 1\n255\n\x01\x02\x03\x04\x05\x06").unwrap();
+        std::fs::write(dir.join("s-ir.pgm"), b"P5\n2 1\n255\n\x0a\x0b").unwrap();
+        let b = RawReader::read(&dir.join("s.pnm")).unwrap();
+        assert_eq!((b.channels, b.as_bytes()), (4, &[1u8, 2, 3, 10, 4, 5, 6, 11][..]));
+        // Without a partner, or with one of another size, it stays RGB.
+        std::fs::write(dir.join("t.pnm"), b"P6\n2 1\n255\n\x01\x02\x03\x04\x05\x06").unwrap();
+        assert_eq!(RawReader::read(&dir.join("t.pnm")).unwrap().channels, 3);
+        std::fs::write(dir.join("t-ir.pgm"), b"P5\n3 1\n255\n\x0a\x0b\x0c").unwrap();
+        assert_eq!(RawReader::read(&dir.join("t.pnm")).unwrap().channels, 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn other_formats_fall_back_to_a_whole_read() {
         let dir = scratch("fallback");

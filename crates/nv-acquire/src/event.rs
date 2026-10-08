@@ -52,6 +52,15 @@ pub enum ScanEvent {
     /// Progress update (0.0 – 1.0, only when the backend supports it).
     Progress(f32),
 
+    /// The infrared frame of a multi-frame acquisition begins. Its
+    /// `DataChunk`s follow (offsets restart at 0), one grey channel.
+    IrFrameStarted {
+        width_px: u32,
+        height_px: Option<u32>,
+        bytes_per_line: usize,
+        depth: u8,
+    },
+
     /// The colour frame finished; IR data follows (multi-frame acquisition).
     ColorFrameDone,
 

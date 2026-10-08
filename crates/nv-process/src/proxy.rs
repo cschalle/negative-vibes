@@ -22,6 +22,7 @@ pub struct ProxyBuilder {
     out_w: usize,
     out_h: usize,
     acc: Vec<f32>,
+    ir_acc: Option<Vec<f32>>,
 }
 
 impl ProxyBuilder {
@@ -33,7 +34,27 @@ impl ProxyBuilder {
             factor += 1;
         }
         let (out_w, out_h) = (width / factor, height / factor);
-        Self { width, factor, out_w, out_h, acc: vec![0.0; out_w * out_h * 3] }
+        Self { width, factor, out_w, out_h, acc: vec![0.0; out_w * out_h * 3], ir_acc: None }
+    }
+
+    /// Also collect an infrared plane: feed it with [`add_ir_row`](Self::add_ir_row).
+    pub fn with_ir(mut self) -> Self {
+        self.ir_acc = Some(vec![0.0; self.out_w * self.out_h]);
+        self
+    }
+
+    /// One row of the infrared plane, `width` values.
+    pub fn add_ir_row(&mut self, y: usize, row: &[f32]) {
+        let oy = y / self.factor;
+        let Some(acc) = self.ir_acc.as_mut() else { return };
+        if oy >= self.out_h || row.len() < self.width {
+            return;
+        }
+        for ox in 0..self.out_w {
+            for x in ox * self.factor..(ox + 1) * self.factor {
+                acc[oy * self.out_w + ox] += row[x];
+            }
+        }
     }
 
     pub fn add_row(&mut self, y: usize, row: &[f32]) {
@@ -54,7 +75,11 @@ impl ProxyBuilder {
     pub fn finish(self) -> Proxy {
         let norm = 1.0 / (self.factor * self.factor) as f32;
         let pixels = self.acc.into_iter().map(|v| v * norm).collect();
-        Proxy::new(self.out_w, self.out_h, self.factor, pixels)
+        let p = Proxy::new(self.out_w, self.out_h, self.factor, pixels);
+        match self.ir_acc {
+            Some(ir) => p.with_ir(ir.into_iter().map(|v| v * norm).collect()),
+            None => p,
+        }
     }
 }
 
@@ -68,11 +93,21 @@ pub struct Proxy {
     /// How many raw pixels wide and high one proxy pixel covers.
     pub factor: usize,
     pub pixels: Vec<f32>,
+    /// The infrared plane, linear in `[0, 1]`, one value per pixel, when the
+    /// scan has one (the fourth sample of an RGB+IR raw).
+    pub ir: Option<Vec<f32>>,
 }
 
 impl Proxy {
     pub fn new(width: usize, height: usize, factor: usize, pixels: Vec<f32>) -> Self {
-        Self { id: NEXT_ID.fetch_add(1, Ordering::Relaxed), width, height, factor, pixels }
+        Self { id: NEXT_ID.fetch_add(1, Ordering::Relaxed), width, height, factor, pixels, ir: None }
+    }
+
+    /// The same proxy with an infrared plane (`width × height` values).
+    pub fn with_ir(mut self, ir: Vec<f32>) -> Self {
+        debug_assert_eq!(ir.len(), self.width * self.height);
+        self.ir = Some(ir);
+        self
     }
 
     /// Decode `raw`, box-averaging by the smallest whole factor that brings
@@ -96,9 +131,10 @@ impl Proxy {
         let norm = 1.0 / (scale * (factor * factor) as f32);
 
         let mut pixels = vec![0.0f32; w * h * 3];
+        let mut ir = (ch == 4).then(|| vec![0.0f32; w * h]);
         for y in 0..h {
             for x in 0..w {
-                let mut acc = [0f32; 3];
+                let mut acc = [0f32; 4];
                 for dy in 0..factor {
                     let row = (y * factor + dy) * bpr;
                     for dx in 0..factor {
@@ -107,15 +143,22 @@ impl Proxy {
                         acc[0] += r;
                         acc[1] += if ch >= 2 { read_sample(src, off + bps, bps) as f32 } else { r };
                         acc[2] += if ch >= 3 { read_sample(src, off + 2 * bps, bps) as f32 } else { r };
+                        if ch == 4 {
+                            acc[3] += read_sample(src, off + 3 * bps, bps) as f32;
+                        }
                     }
                 }
                 let o = (y * w + x) * 3;
                 pixels[o] = acc[0] * norm;
                 pixels[o + 1] = acc[1] * norm;
                 pixels[o + 2] = acc[2] * norm;
+                if let Some(ir) = ir.as_mut() {
+                    ir[y * w + x] = acc[3] * norm;
+                }
             }
         }
-        Self::new(w, h, factor, pixels)
+        let p = Self::new(w, h, factor, pixels);
+        match ir { Some(ir) => p.with_ir(ir), None => p }
     }
 
     /// Decode the `w × h` block of `raw` at `(x0, y0)` at full resolution.
@@ -132,6 +175,7 @@ impl Proxy {
         let src = raw.as_bytes();
         let scale = 1.0 / if bps == 2 { 65535.0f32 } else { 255.0 };
         let mut pixels = vec![0.0f32; w * h * 3];
+        let mut ir = (ch == 4).then(|| vec![0.0f32; w * h]);
         for y in 0..h {
             for x in 0..w {
                 let off = (y0 + y) * raw.bytes_per_row + (x0 + x) * ch * bps;
@@ -140,9 +184,13 @@ impl Proxy {
                 pixels[o] = r;
                 pixels[o + 1] = if ch >= 2 { read_sample(src, off + bps, bps) as f32 * scale } else { r };
                 pixels[o + 2] = if ch >= 3 { read_sample(src, off + 2 * bps, bps) as f32 * scale } else { r };
+                if let Some(ir) = ir.as_mut() {
+                    ir[y * w + x] = read_sample(src, off + 3 * bps, bps) as f32 * scale;
+                }
             }
         }
-        Self::new(w, h, 1, pixels)
+        let p = Self::new(w, h, 1, pixels);
+        match ir { Some(ir) => p.with_ir(ir), None => p }
     }
 
     /// A small RGBA8 picture of the proxy, longest side `max_side`, averaged
@@ -188,7 +236,15 @@ impl Proxy {
         for y in y0..y1 {
             pixels.extend_from_slice(&self.pixels[(y * self.width + x0) * 3..(y * self.width + x1) * 3]);
         }
-        Proxy::new(x1 - x0, y1 - y0, self.factor, pixels)
+        let mut out = Proxy::new(x1 - x0, y1 - y0, self.factor, pixels);
+        if let Some(ir) = &self.ir {
+            let mut v = Vec::with_capacity((x1 - x0) * (y1 - y0));
+            for y in y0..y1 {
+                v.extend_from_slice(&ir[y * self.width + x0..y * self.width + x1]);
+            }
+            out = out.with_ir(v);
+        }
+        out
     }
 
     pub fn is_empty(&self) -> bool {

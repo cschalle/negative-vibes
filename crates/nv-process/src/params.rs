@@ -2,6 +2,7 @@ use nv_film::FilmProfile;
 use serde::{Deserialize, Serialize};
 
 pub use crate::curves::{Curve, Curves};
+pub use crate::dust::DustParams;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -78,4 +79,7 @@ pub struct ProcessParams {
     pub profile: FilmProfile,
     pub conversion: ConversionParams,
     pub tone: ToneParams,
+    /// Infrared dust removal (stage 2).
+    #[serde(default)]
+    pub dust: DustParams,
 }

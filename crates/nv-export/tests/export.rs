@@ -22,7 +22,12 @@ fn scratch(name: &str) -> PathBuf {
 fn tulip() -> (FrameBuf, ProcessParams, Vec<u8>) {
     let raw = nv_store::RawReader::read(&root().join("tests/fixtures/plustek8200i/tulip-600.pnm")).unwrap();
     let proxy = Proxy::from_raw(&raw, usize::MAX);
-    let frozen = freeze(&proxy, &default_params_for(&builtin_profiles()[0]));
+    // These tests are about encoders and colour, and compare an export with a
+    // whole-picture render sample for sample; dust removal measures each tile
+    // for itself, so it is tested on its own below.
+    let mut params = default_params_for(&builtin_profiles()[0]);
+    params.dust.mode = nv_process::DustMode::Off;
+    let frozen = freeze(&proxy, &params);
     let reference = render(&proxy, &frozen);
     (raw, frozen, reference)
 }
@@ -386,4 +391,26 @@ fn every_format_handles_a_resized_picture() {
     let png_path = export(&raw, &frozen, &ExportSettings { format: ExportFormat::Png, bit_depth: 16, size, ..Default::default() }, &dir, "a.png");
     let r = png::Decoder::new(std::fs::File::open(&png_path).unwrap()).read_info().unwrap();
     assert_eq!((r.info().width, r.info().height), (346, 258));
+}
+
+/// The tulip scan has an infrared plane, and exporting it removes the dust
+/// found there: the export differs from the dust-free one, and agrees with
+/// the whole-picture render with dust removal on, to within what tiling does.
+#[test]
+fn an_export_of_a_scan_with_infrared_removes_dust() {
+    let raw = nv_store::RawReader::read(&root().join("tests/fixtures/plustek8200i/tulip-600.pnm")).unwrap();
+    assert_eq!(raw.channels, 4);
+    let proxy = Proxy::from_raw(&raw, usize::MAX);
+    let frozen = freeze(&proxy, &default_params_for(&builtin_profiles()[0]));
+    assert_eq!(frozen.dust.mode, nv_process::DustMode::Correct);
+    let dir = scratch("dust");
+    let s = ExportSettings { bit_depth: 8, compression: Compression::None, ..Default::default() };
+    let (_, _, _, px, _) = tiff_pixels(&export(&raw, &frozen, &s, &dir, "d.tif"));
+    let whole = render(&proxy, &frozen);
+    let far = px.iter().zip(&whole).filter(|(a, b)| (**a as i32 - **b as i32).abs() > 8).count();
+    assert!((far as f64) < 0.01 * whole.len() as f64, "{:.2}% of samples differ by more than 8 levels", 100.0 * far as f64 / whole.len() as f64);
+    let mut off = frozen.clone();
+    off.dust.mode = nv_process::DustMode::Off;
+    let (_, _, _, undusted, _) = tiff_pixels(&export(&raw, &off, &s, &dir, "n.tif"));
+    assert!(px != undusted, "the export did not remove any dust");
 }

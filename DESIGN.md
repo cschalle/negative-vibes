@@ -1025,7 +1025,7 @@ through the app itself with headless hooks (`NV_AUTOSCAN=raw|scan|all`,
 | H2 repeatability | Pass on alignment: dy 0.00, dx 0, ncc 0.9997. The bands' lowest ncc is 0.9978, just under the 0.998 bar |
 | H3 progress is real | Pass: the driver climbs 31% at 10.4 s, 63% at 13.2 s, 94% at 16.0 s after about 7.6 s of positioning; the app showed steps of about 8% |
 | H4 cancel | Pass: Stop at 30% of a 1200 dpi scan returned in 0.07 s; the next scan succeeded and aligned (dy +0.05) |
-| H5 RGB + IR | Not run: the app does not capture IR yet (M5) |
+| H5 RGB + IR | Pass (run in M5): the app's RGB+IR scan has dy 0, dx 0 between IR and colour; IR median 46505 against the reference's 45855 |
 | H6 raw settings | Pass: `ir-clean` 0 (logged), `auto-wb` off by default and neutralised by the quirks file, depth 16, mode Color |
 | H7 resolutions and size | 3600 dpi in 35 s: dy +0.22 rows against the 600 dpi reference, 0.02 over the ±0.2 bar. 7200 dpi in 73 s (482 MB): dy +0.17, within it |
 | H8 memory | Found and fixed (below). `nv-cli` holds a 7200 dpi frame once (509 MB peak) |
@@ -1042,6 +1042,36 @@ is read whole only to export it. The same run now peaks at 1.3 GB, which is the 
 the export's read, its band and the GTK baseline. Not exercised: the Stop button itself (the
 action it calls was), the banner click that continues a manual-advance loop (it needs the
 holder moved), and exports overlapping a scan of the next frame.
+
+**M5 status (2026-10-08), first slice: infrared and dust.** The app now captures the
+infrared plane (a second frame from the 8200i, delivered as `IrFrameStarted` plus chunks;
+a Capture Infrared switch on the Scan page, on by default when the scanner can) and stores
+it as the fourth sample of the raw TIFF (ExtraSamples unspecified; the HDRi RAW layout, so
+HDRi RAW export is `copy_raw`). Raws are written and read with the plane (8 and 16 bit),
+a `.pnm` with a `-ir.pgm` beside it reads as one four-channel scan (what `irscan`
+writes), the working-size copy carries the plane (`Proxy::ir`, also built a strip at a
+time), and the CLI's `render` has `--dust off|correct|mark`. **Hardware:** H5 passes: the
+plane is aligned with the colour (dy 0, dx 0) and its levels match the reference (median
+46505 against 45855). **Dust removal** (`nv-process::dust`, pipeline stage 2, before
+conversion): the infrared is fitted, robustly and jointly, to a degree-4 surface (the
+lamp's falloff, which a box blur could not follow near the film edge: it flagged a stripe
+down the left side) plus the ghost of the picture's red density (cyan dye absorbs
+infrared); what lies well below the fit, by a margin set from the plane's own noise, is a
+candidate; candidates are joined (eight-way, since a hair is a thin diagonal), kept if
+plausibly small, grown to a disc, and repaired from their surroundings in log
+transmission, working in from each mark's edge. Modes Off / Correct / Mark (marks painted
+magenta on the finished picture); Detection 1 to 20 sets the margin from 120 to 6 noise
+units. Silver B&W defaults to Off. The Detail page has the controls and says so when the
+scan has no infrared. Full-resolution tiles render with a 24-pixel margin so repairs at a
+tile's edge see their surroundings; tiling plus dust agrees with the whole-picture render
+within 1% of samples by more than 8 levels (it cannot be exact: each tile measures its own
+lamp surface and noise). On the tulip at default sensitivity it finds 114 marks over 0.8%
+of the picture (24 at 6, 271 at 20); the large specks, hairs and scratches go, but the fine
+white sparkle of this film, which is not in the infrared plane, stays. The cleaned golden
+images were regenerated. Not yet: bright defects (scratches are bright in the infrared),
+the mark colour preference, include/exclude brush masks, patch-based repair for large
+marks, IR/colour alignment when a scanner does not deliver them registered, SRDx (software
+dust for silver B&W), unsharp mask, GANE, AACO, and the 1:1 and HQ previews.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

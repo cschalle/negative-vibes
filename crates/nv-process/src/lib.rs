@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod params;
 mod conversion;
 pub mod curves;
+pub mod dust;
 pub mod orient;
 pub mod settings;
 pub mod tiles;
@@ -15,6 +16,7 @@ pub use params::{ImageType, ProcessParams};
 pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
+pub use dust::{DustMode, DustParams};
 pub use orient::{DisplayOp, Orientation};
 pub use proxy::{Proxy, ProxyBuilder, DEFAULT_PROXY_PIXELS};
 
@@ -54,6 +56,7 @@ struct ConvKey {
     image_type: ImageType,
     profile: FilmProfile,
     conversion: params::ConversionParams,
+    dust: dust::DustParams,
 }
 
 /// Remembers the last converted picture, so a change that only touches tone
@@ -62,7 +65,7 @@ struct ConvKey {
 /// anything else stage 4 reads converts again.
 #[derive(Default)]
 pub struct RenderCache {
-    last: std::sync::Mutex<Option<(ConvKey, std::sync::Arc<Vec<f32>>)>>,
+    last: std::sync::Mutex<Option<(ConvKey, std::sync::Arc<Converted>)>>,
     conversions: std::sync::atomic::AtomicUsize,
 }
 
@@ -83,6 +86,7 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
         image_type: params.image_type,
         profile: params.profile.clone(),
         conversion: params.conversion.clone(),
+        dust: params.dust.clone(),
     };
     let converted = {
         let mut last = cache.last.lock().unwrap_or_else(|e| e.into_inner());
@@ -90,7 +94,8 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
             Some((k, c)) if *k == key => c.clone(),
             _ => {
                 cache.conversions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let c = std::sync::Arc::new(convert(proxy, params));
+                let (pixels, mask) = convert_stage(proxy, params);
+                let c = std::sync::Arc::new(Converted { pixels, mask });
                 *last = Some((key, c.clone()));
                 c
             }
@@ -99,23 +104,59 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
 
     let mut levels = [0u32; 256];
     let b = params.tone.balance;
-    for px in converted.chunks_exact(3) {
+    for px in converted.pixels.chunks_exact(3) {
         let l = (0.2126 * px[0] * b[0] + 0.7152 * px[1] * b[1] + 0.0722 * px[2] * b[2]).clamp(0.0, 1.0);
         levels[((l.powf(1.0 / 2.2) * 255.0 + 0.5) as usize).min(255)] += 1;
     }
 
-    let toned = tone::apply_tone(&converted, &params.tone);
+    let mut toned = tone::apply_tone(&converted.pixels, &params.tone);
+    if let Some(mask) = &converted.mask {
+        paint_marks(&mut toned, mask);
+    }
     Rendered { rgb: encode_output(&toned, params.image_type == ImageType::BwNegative), levels }
+}
+
+/// The stage 4 result and, in Mark mode, what dust detection found.
+struct Converted {
+    pixels: Vec<f32>,
+    mask: Option<Vec<u8>>,
+}
+
+/// Stage 2, then stage 4: dust removed from the transmission, then the
+/// negative converted. In Mark mode the pixels are untouched and the mask
+/// comes back, to be painted on the finished picture.
+fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec<u8>>) {
+    let (repaired, mask) = match (&proxy.ir, params.dust.mode) {
+        (Some(ir), mode) if mode != dust::DustMode::Off => {
+            let (px, report) = dust::apply(&proxy.pixels, ir, proxy.width, proxy.height, &params.dust, proxy.factor);
+            match mode {
+                dust::DustMode::Correct => (Some(px), None),
+                _ => (None, report.map(|r| r.mask)),
+            }
+        }
+        _ => (None, None),
+    };
+    let src = repaired.as_deref().unwrap_or(&proxy.pixels);
+    let out = match params.image_type {
+        ImageType::ColourNegative | ImageType::BwNegative => conversion::convert_negative(src, proxy.width, proxy.height, params),
+        ImageType::Positive => conversion::normalise_positive(src, params),
+    };
+    (out, mask)
 }
 
 /// Stage 4 only: the converted positive in linear light, before tone.
 /// Auto levels measure this.
 pub fn convert(proxy: &Proxy, params: &ProcessParams) -> Vec<f32> {
-    match params.image_type {
-        ImageType::ColourNegative | ImageType::BwNegative => {
-            conversion::convert_negative(&proxy.pixels, proxy.width, proxy.height, params)
+    convert_stage(proxy, params).0
+}
+
+/// Paint what dust detection found, for Mark mode: bright magenta, which is
+/// in no picture of a tulip field or anything else.
+fn paint_marks(toned: &mut [f32], mask: &[u8]) {
+    for (px, m) in toned.chunks_exact_mut(3).zip(mask) {
+        if *m != 0 {
+            px.copy_from_slice(&[1.0, 0.0, 1.0]);
         }
-        ImageType::Positive => conversion::normalise_positive(&proxy.pixels, params),
     }
 }
 
@@ -190,9 +231,13 @@ pub fn render_toned(proxy: &Proxy, params: &ProcessParams) -> Vec<f32> {
     if proxy.is_empty() {
         return Vec::new();
     }
-    let mut toned = tone::apply_tone(&convert(proxy, params), &params.tone);
+    let (converted, mask) = convert_stage(proxy, params);
+    let mut toned = tone::apply_tone(&converted, &params.tone);
     if params.image_type == ImageType::BwNegative {
         collapse_to_grey(&mut toned);
+    }
+    if let Some(mask) = &mask {
+        paint_marks(&mut toned, mask);
     }
     toned
 }
@@ -204,7 +249,7 @@ pub fn srgb_oetf(v: f32) -> f32 {
     if v <= 0.003_130_8 { 12.92 * v } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
 }
 
-fn encode_output(pixels: &[f32], greyscale: bool) -> Vec<u8> {
+pub(crate) fn encode_output(pixels: &[f32], greyscale: bool) -> Vec<u8> {
     let mut linear;
     let pixels = if greyscale {
         linear = pixels.to_vec();
@@ -239,6 +284,11 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
             positive_range: None,
         },
         tone: ToneParams::default(),
+        // Silver black and white film blocks infrared: no dust removal by default.
+        dust: params::DustParams {
+            mode: if image_type == ImageType::BwNegative { dust::DustMode::Off } else { dust::DustMode::Correct },
+            ..Default::default()
+        },
     }
 }
 

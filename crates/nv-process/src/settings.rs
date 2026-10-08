@@ -24,11 +24,13 @@ pub struct Settings {
     pub contrast: Option<f32>,
     pub balance: Option<[f32; 3]>,
     pub curves: Option<crate::curves::Curves>,
+    pub dust_mode: Option<crate::dust::DustMode>,
+    pub dust_detection: Option<u8>,
 }
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves)
+        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection)
     };
 }
 
@@ -56,6 +58,8 @@ impl Settings {
         if let Some(v) = self.contrast { p.tone.contrast = v; }
         if let Some(v) = self.balance { p.tone.balance = v; }
         if let Some(v) = &self.curves { p.tone.curves = v.clone(); }
+        if let Some(v) = self.dust_mode { p.dust.mode = v; }
+        if let Some(v) = self.dust_detection { p.dust.detection = v; }
     }
 
     /// The fields that differ between `old` and `new`.
@@ -88,6 +92,8 @@ impl Settings {
             contrast: chf(old.tone.contrast, new.tone.contrast),
             balance: ch3(old.tone.balance, new.tone.balance),
             curves: (old.tone.curves != new.tone.curves).then(|| new.tone.curves.clone()),
+            dust_mode: ch(old.dust.mode, new.dust.mode),
+            dust_detection: ch(old.dust.detection, new.dust.detection),
         }
     }
 
