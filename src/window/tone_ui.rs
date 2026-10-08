@@ -52,13 +52,7 @@ impl Window {
         if old == new {
             return;
         }
-        {
-            let mut stack = self.imp().undo_stack.borrow_mut();
-            let at = self.imp().undo_idx.get();
-            stack.truncate(at + 1);
-            stack.push(new.clone());
-            self.imp().undo_idx.set(stack.len() - 1);
-        }
+        self.imp().history.borrow_mut().push(new.clone(), self.imp().scope.get());
         self.record_edit(&old, &new);
     }
 
@@ -94,12 +88,13 @@ impl Window {
             cr.rectangle(wx, 0.0, w - wx, h);
             let _ = cr.fill();
 
-            for (x, dark) in [(bx, true), (wx, false)] {
+            let mx = enc(mid_input(&tone)) * w;
+            for (x, shade) in [(bx, 0.1), (mx, 0.5), (wx, 0.95)] {
                 cr.move_to(x, h);
                 cr.line_to(x - 6.0, h + 12.0);
                 cr.line_to(x + 6.0, h + 12.0);
                 cr.close_path();
-                if dark { cr.set_source_rgb(0.1, 0.1, 0.1) } else { cr.set_source_rgb(0.95, 0.95, 0.95) }
+                cr.set_source_rgb(shade, shade, shade);
                 let _ = cr.fill_preserve();
                 cr.set_source_rgba(fg.red() as f64, fg.green() as f64, fg.blue() as f64, 0.8);
                 cr.set_line_width(1.0);
@@ -107,18 +102,27 @@ impl Window {
             }
         });
 
-        // Drag a point: which one is decided where the press lands.
-        let grab: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None)); // Some(true) = black
+        // Drag a handle: which one is decided where the press lands.
+        let grab: Rc<Cell<Option<Handle>>> = Rc::new(Cell::new(None));
         let drag = gtk::GestureDrag::builder().button(gdk_primary()).build();
         let (weak, g) = (self.downgrade(), grab.clone());
         drag.connect_drag_begin(move |gesture, x, _| {
             let (Some(win), Some(widget)) = (weak.upgrade(), gesture.widget()) else { return };
             let tone = win.imp().proc_params.borrow().as_ref().map(|p| p.tone.clone()).unwrap_or_default();
             let w = widget.width() as f64;
-            let (db, dw) = ((x - enc(tone.black_point) * w).abs(), (x - enc(tone.white_point) * w).abs());
-            // Overlapping points: take the one the press is on the outer side of.
-            g.set(if db.min(dw) > GRAB { None } else { Some(db < dw || (db == dw && x < w / 2.0)) });
-            if g.get().is_some() {
+            let handles = [
+                (Handle::Black, enc(tone.black_point) * w),
+                (Handle::Mid, enc(mid_input(&tone)) * w),
+                (Handle::White, enc(tone.white_point) * w),
+            ];
+            // The nearest one; on a tie the press goes to the outer one on its side.
+            let best = handles
+                .iter()
+                .map(|(h, hx)| (*h, (x - hx).abs()))
+                .filter(|(_, d)| *d <= GRAB)
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            g.set(best.map(|(h, _)| h));
+            if best.is_some() {
                 win.begin_live_edit();
             }
         });
@@ -126,12 +130,10 @@ impl Window {
         drag.connect_drag_update(move |gesture, dx, _| {
             let (Some(win), Some(widget), Some(which), Some((sx, _))) = (weak.upgrade(), gesture.widget(), g.get(), gesture.start_point()) else { return };
             let v = dec(((sx + dx) / widget.width() as f64).clamp(0.0, 1.0));
-            win.update_live(|p| {
-                if which {
-                    p.tone.black_point = v.clamp(0.0, p.tone.white_point as f64 - 0.01) as f32;
-                } else {
-                    p.tone.white_point = v.clamp(p.tone.black_point as f64 + 0.01, 1.0) as f32;
-                }
+            win.update_live(|p| match which {
+                Handle::Black => p.tone.black_point = v.clamp(0.0, p.tone.white_point as f64 - 0.01) as f32,
+                Handle::White => p.tone.white_point = v.clamp(p.tone.black_point as f64 + 0.01, 1.0) as f32,
+                Handle::Mid => p.tone.midtone = midtone_for(&p.tone, v),
             });
         });
         let (weak, g) = (self.downgrade(), grab);
@@ -303,6 +305,28 @@ impl Window {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Handle {
+    Black,
+    Mid,
+    White,
+}
+
+/// Middle grey, as the tone stage's output, expressed as an input level:
+/// the input value that the black and white points and the midtone map to
+/// 18% linear. The grey handle sits there.
+fn mid_input(t: &ToneParams) -> f32 {
+    t.black_point + (t.white_point - t.black_point) * 0.18f32.powf(t.midtone.max(0.01))
+}
+
+/// The midtone that puts input level `v` at middle grey: the inverse of
+/// [`mid_input`], kept inside the range the spin row allows.
+fn midtone_for(t: &ToneParams, v: f64) -> f32 {
+    let span = (t.white_point - t.black_point).max(0.01) as f64;
+    let rel = ((v - t.black_point as f64) / span).clamp(0.01, 0.99);
+    (rel.ln() / 0.18f64.ln()).clamp(0.25, 4.0) as f32
+}
+
 fn gdk_primary() -> u32 {
     gtk::gdk::BUTTON_PRIMARY
 }
@@ -320,6 +344,18 @@ fn dec(x: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_grey_handle_and_the_midtone_are_inverse() {
+        let t = ToneParams { black_point: 0.1, white_point: 0.8, midtone: 1.4, ..ToneParams::default() };
+        let v = mid_input(&t) as f64;
+        assert!((midtone_for(&t, v) - 1.4).abs() < 1e-3);
+        // Untouched levels put middle grey at 18% of the way.
+        assert!((mid_input(&ToneParams::default()) - 0.18).abs() < 1e-6);
+        // At the ends of the axis the handle stops short of the spin row's limits.
+        assert!((2.5..=4.0).contains(&midtone_for(&t, 0.0)));
+        assert!((0.25..=1.0).contains(&midtone_for(&t, 10.0)));
+    }
 
     #[test]
     fn the_levels_axis_round_trips() {

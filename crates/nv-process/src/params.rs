@@ -11,7 +11,7 @@ pub enum ImageType {
     Positive,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversionParams {
     /// Override film base [R,G,B] in [0,1]. `None` → auto-estimate from borders.
     pub film_base: Option<[f32; 3]>,
@@ -37,7 +37,7 @@ pub struct ConversionParams {
     pub region: Option<[f32; 4]>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToneParams {
     /// Output black point in [0,1]. Pixels at or below map to 0.
     pub black_point: f32,
@@ -68,7 +68,7 @@ impl Default for ToneParams {
 }
 
 /// All adjustable processing parameters for one frame.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessParams {
     pub image_type: ImageType,
     pub profile: FilmProfile,

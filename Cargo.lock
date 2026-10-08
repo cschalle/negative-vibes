@@ -793,6 +793,8 @@ dependencies = [
  "nv-image",
  "nv-process",
  "nv-store",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

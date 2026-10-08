@@ -3,7 +3,11 @@
 //! resolution (DESIGN.md §7.2). Full-resolution work (1:1, export) goes
 //! through [`Proxy::from_raw`] with a larger budget.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use nv_image::{read_sample, FrameBuf};
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Default proxy size: about what a canvas shows, and fast to re-render.
 pub const DEFAULT_PROXY_PIXELS: usize = 2_000_000;
@@ -11,6 +15,8 @@ pub const DEFAULT_PROXY_PIXELS: usize = 2_000_000;
 /// Linear RGB in `[0, 1]`, three `f32` per pixel, row-major.
 #[derive(Debug, Clone)]
 pub struct Proxy {
+    /// Distinct for every proxy built, so caches can tell pictures apart.
+    pub id: u64,
     pub width: usize,
     pub height: usize,
     /// How many raw pixels wide and high one proxy pixel covers.
@@ -19,12 +25,16 @@ pub struct Proxy {
 }
 
 impl Proxy {
+    pub fn new(width: usize, height: usize, factor: usize, pixels: Vec<f32>) -> Self {
+        Self { id: NEXT_ID.fetch_add(1, Ordering::Relaxed), width, height, factor, pixels }
+    }
+
     /// Decode `raw`, box-averaging by the smallest whole factor that brings
     /// the pixel count to `max_pixels` or fewer. Grey input becomes RGB.
     pub fn from_raw(raw: &FrameBuf, max_pixels: usize) -> Self {
         let (rw, rh) = (raw.width as usize, raw.effective_height() as usize);
         if rw == 0 || rh == 0 {
-            return Self { width: 0, height: 0, factor: 1, pixels: Vec::new() };
+            return Self::new(0, 0, 1, Vec::new());
         }
         let mut factor = 1;
         while (rw / factor) * (rh / factor) > max_pixels.max(1) && factor < rw.min(rh) {
@@ -59,7 +69,7 @@ impl Proxy {
                 pixels[o + 2] = acc[2] * norm;
             }
         }
-        Self { width: w, height: h, factor, pixels }
+        Self::new(w, h, factor, pixels)
     }
 
     /// The part of the proxy inside `rect` (`[x0, y0, x1, y1]`, fractions).
@@ -68,13 +78,13 @@ impl Proxy {
         let (x0, x1) = (px(rect[0], self.width), px(rect[2], self.width));
         let (y0, y1) = (px(rect[1], self.height), px(rect[3], self.height));
         if x1 <= x0 || y1 <= y0 {
-            return Proxy { width: 0, height: 0, factor: self.factor, pixels: Vec::new() };
+            return Proxy::new(0, 0, self.factor, Vec::new());
         }
         let mut pixels = Vec::with_capacity((x1 - x0) * (y1 - y0) * 3);
         for y in y0..y1 {
             pixels.extend_from_slice(&self.pixels[(y * self.width + x0) * 3..(y * self.width + x1) * 3]);
         }
-        Proxy { width: x1 - x0, height: y1 - y0, factor: self.factor, pixels }
+        Proxy::new(x1 - x0, y1 - y0, self.factor, pixels)
     }
 
     pub fn is_empty(&self) -> bool {

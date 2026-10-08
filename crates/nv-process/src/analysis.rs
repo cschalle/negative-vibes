@@ -95,7 +95,7 @@ mod tests {
                 }
             }
         }
-        Proxy { width: w, height: h, factor: 1, pixels }
+        Proxy::new(w, h, 1, pixels)
     }
 
     #[test]

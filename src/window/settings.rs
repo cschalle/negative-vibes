@@ -8,6 +8,7 @@ use nv_film::builtin_profiles;
 use nv_process::{analyse_frame, analysis_fields, default_params_for, roll_analysis, FrameAnalysis, ProcessParams, Settings};
 use nv_store::RawReader;
 
+use super::history::{History, Scope};
 use super::{imp, Window};
 use crate::canvas_geom as geom;
 
@@ -63,18 +64,20 @@ impl Window {
 
         // Undo history is per frame: put the old one away, take this one's.
         {
-            let mut history = imp.history.borrow_mut();
-            let old = (imp.undo_stack.borrow().clone(), imp.undo_idx.get());
-            history.insert(imp.history_key.get(), old);
-            let key = known.unwrap_or(0);
-            let (mut stack, mut at) = history.remove(&key).unwrap_or_default();
-            if stack.is_empty() || stack[at.min(stack.len() - 1)] != params {
-                stack.truncate((at + 1).min(stack.len()));
-                stack.push(params.clone());
-                at = stack.len() - 1;
+            let mut all = imp.histories.borrow_mut();
+            let previous = std::mem::take(&mut *imp.history.borrow_mut());
+            if !previous.is_empty() {
+                all.insert(imp.history_key.get(), previous);
             }
-            *imp.undo_stack.borrow_mut() = stack;
-            imp.undo_idx.set(at);
+            let key = known.unwrap_or(0);
+            let mut h = all.remove(&key).unwrap_or_default();
+            if h.is_empty() {
+                h = History::new(params.clone(), imp.scope.get());
+            } else {
+                // The roll may have changed under this frame since it was last shown.
+                h.ensure_current(&params, Scope::Frame);
+            }
+            *imp.history.borrow_mut() = h;
             imp.history_key.set(key);
         }
 
@@ -103,22 +106,27 @@ impl Window {
     /// Record an edit from `old` to `new` where the scope says: the roll's
     /// defaults, or this frame's overrides.
     pub(super) fn record_edit(&self, old: &ProcessParams, new: &ProcessParams) {
+        self.record_edit_in(old, new, self.imp().scope.get());
+    }
+
+    /// [`record_edit`](Self::record_edit) in a given scope: an undo goes back
+    /// to where the edit it undoes was made.
+    pub(super) fn record_edit_in(&self, old: &ProcessParams, new: &ProcessParams, scope: Scope) {
         let diff = Settings::diff(old, new);
         let Some(idx) = *self.imp().selected_frame.borrow() else { return };
         if diff.is_empty() {
             return;
         }
-        let scope = self.imp().scope.get();
         if let Some(roll) = self.imp().roll.borrow_mut().as_mut() {
             match scope {
-                imp::Scope::Roll => {
+                Scope::Roll => {
                     roll.settings.process.merge(&diff);
                     // This frame follows the roll now, for what it just set.
                     if let Some(f) = roll.frame_mut(idx) {
                         f.overrides.clear(&diff);
                     }
                 }
-                imp::Scope::Frame => {
+                Scope::Frame => {
                     if let Some(f) = roll.frame_mut(idx) {
                         f.overrides.merge(&diff);
                     }
@@ -160,7 +168,10 @@ impl Window {
         }
 
         imp.analysing.set(true);
-        self.show_toast(&format!("Analysing {} frames…", jobs.len()));
+        self.show_toast(&match jobs.len() {
+            1 | 2 => format!("Analysing {} frame… three or more give a steadier result", jobs.len()),
+            n => format!("Analysing {n} frames…"),
+        });
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let mut results: Vec<FrameAnalysis> = Vec::new();

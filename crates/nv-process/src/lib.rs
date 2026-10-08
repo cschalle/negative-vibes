@@ -41,10 +41,58 @@ pub fn render(proxy: &Proxy, params: &ProcessParams) -> Vec<u8> {
 
 /// [`render`], plus the levels histogram, from the same conversion.
 pub fn render_detailed(proxy: &Proxy, params: &ProcessParams) -> Rendered {
+    render_cached(proxy, params, &RenderCache::default())
+}
+
+/// What stage 4 depends on. Tone, balance and curves are not in it.
+#[derive(Clone, PartialEq)]
+struct ConvKey {
+    proxy: u64,
+    image_type: ImageType,
+    profile: FilmProfile,
+    conversion: params::ConversionParams,
+}
+
+/// Remembers the last converted picture, so a change that only touches tone
+/// (the common case: a slider, a curve, a pipette) skips the conversion, which
+/// is most of the work. Changing the picture, film base, exposure, cast or
+/// anything else stage 4 reads converts again.
+#[derive(Default)]
+pub struct RenderCache {
+    last: std::sync::Mutex<Option<(ConvKey, std::sync::Arc<Vec<f32>>)>>,
+    conversions: std::sync::atomic::AtomicUsize,
+}
+
+impl RenderCache {
+    /// How many times stage 4 actually ran.
+    pub fn conversions(&self) -> usize {
+        self.conversions.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// [`render_detailed`] through a [`RenderCache`].
+pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache) -> Rendered {
     if proxy.is_empty() {
         return Rendered { rgb: Vec::new(), levels: [0; 256] };
     }
-    let converted = convert(proxy, params);
+    let key = ConvKey {
+        proxy: proxy.id,
+        image_type: params.image_type,
+        profile: params.profile.clone(),
+        conversion: params.conversion.clone(),
+    };
+    let converted = {
+        let mut last = cache.last.lock().unwrap_or_else(|e| e.into_inner());
+        match last.as_ref() {
+            Some((k, c)) if *k == key => c.clone(),
+            _ => {
+                cache.conversions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let c = std::sync::Arc::new(convert(proxy, params));
+                *last = Some((key, c.clone()));
+                c
+            }
+        }
+    };
 
     let mut levels = [0u32; 256];
     let b = params.tone.balance;

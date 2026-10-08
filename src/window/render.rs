@@ -36,11 +36,12 @@ impl Window {
         };
         imp.render_busy.set(true);
         imp.render_dirty.set(false);
+        let cache = imp.render_cache.clone();
 
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let done = gio::spawn_blocking(move || {
-                let out = nv_process::render_detailed(&proxy, &params);
+                let out = nv_process::render_cached(&proxy, &params, &cache);
                 let hist = Histogram::from_rgb8(&out.rgb);
                 (proxy.width, proxy.height, out.rgb, hist, out.levels)
             })

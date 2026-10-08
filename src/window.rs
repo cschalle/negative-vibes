@@ -33,7 +33,7 @@ pub(crate) mod imp {
         pub scope: Cell<Scope>,
         /// Undo history of the frames not on screen, by frame number
         /// (key 0 is an image that has no frame).
-        pub history: RefCell<std::collections::HashMap<u32, (Vec<nv_process::ProcessParams>, usize)>>,
+        pub histories: RefCell<std::collections::HashMap<u32, super::history::History>>,
         pub history_key: Cell<u32>,
         pub analysing: Cell<bool>,
         /// Histogram of the picture entering the tone stage, for the levels.
@@ -103,9 +103,10 @@ pub(crate) mod imp {
         // ── M3 processing ─────────────────────────────────────────────────
         /// Current processing parameters.
         pub proc_params: RefCell<Option<nv_process::ProcessParams>>,
-        /// Undo/redo stack.  undo_idx points at the *current* state.
-        pub undo_stack: RefCell<Vec<nv_process::ProcessParams>>,
-        pub undo_idx: Cell<usize>,
+        /// Undo history of the frame on screen.
+        pub history: RefCell<super::history::History>,
+        /// Converted pictures kept between renders (tone edits skip stage 4).
+        pub render_cache: std::sync::Arc<nv_process::RenderCache>,
         /// Set while syncing UI → params to suppress re-entrant param changes.
         pub updating_ui: Cell<bool>,
         /// True once film base has been estimated (ScanDone) or a raw file loaded.
@@ -120,12 +121,7 @@ pub(crate) mod imp {
         pub histogram_area: RefCell<Option<gtk::DrawingArea>>,
     }
 
-    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Scope {
-        #[default]
-        Roll,
-        Frame,
-    }
+    pub use super::history::Scope;
 
     /// The tool on the canvas: draw a frame, or pick a pixel for a pipette.
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +173,7 @@ pub(crate) mod imp {
 }
 
 mod frames;
+mod history;
 mod render;
 mod settings;
 mod tone_ui;
@@ -521,11 +518,8 @@ impl Window {
         let profiles = builtin_profiles();
         let default_params = nv_process::default_params_for(&profiles[0]);
         let _ = &profiles;
-        let mut stack = Vec::new();
-        stack.push(default_params.clone());
+        *self.imp().history.borrow_mut() = history::History::new(default_params.clone(), history::Scope::Roll);
         *self.imp().proc_params.borrow_mut() = Some(default_params);
-        *self.imp().undo_stack.borrow_mut() = stack;
-        self.imp().undo_idx.set(0);
 
         // ── Connect signals ───────────────────────────────────────────────
         sidebar_btn.bind_property("active", &outer_split, "show-sidebar")
@@ -940,14 +934,7 @@ impl Window {
         let old = self.imp().proc_params.borrow().clone();
         if old.as_ref() == Some(&new_params) { return; }
 
-        // Push onto undo stack (truncate redo branch).
-        {
-            let mut stack = self.imp().undo_stack.borrow_mut();
-            let idx = self.imp().undo_idx.get();
-            stack.truncate(idx + 1);
-            stack.push(new_params.clone());
-            self.imp().undo_idx.set(stack.len() - 1);
-        }
+        self.imp().history.borrow_mut().push(new_params.clone(), self.imp().scope.get());
 
         *self.imp().proc_params.borrow_mut() = Some(new_params.clone());
         if let Some(old) = old { self.record_edit(&old, &new_params); }
@@ -1043,13 +1030,7 @@ impl Window {
     fn commit_params(&self, params: ProcessParams) {
         let old = self.imp().proc_params.borrow().clone();
         self.sync_widgets(&params);
-        {
-            let mut stack = self.imp().undo_stack.borrow_mut();
-            let idx = self.imp().undo_idx.get();
-            stack.truncate(idx + 1);
-            stack.push(params.clone());
-            self.imp().undo_idx.set(stack.len() - 1);
-        }
+        self.imp().history.borrow_mut().push(params.clone(), self.imp().scope.get());
         *self.imp().proc_params.borrow_mut() = Some(params.clone());
         if let Some(old) = old { self.record_edit(&old, &params); }
         self.refresh_canvas();
@@ -1117,28 +1098,24 @@ impl Window {
     }
 
     // ── Undo / redo ───────────────────────────────────────────────────────────
-    fn step_history(&self, new_idx: usize) {
-        self.imp().undo_idx.set(new_idx);
-        let params = self.imp().undo_stack.borrow()[new_idx].clone();
+    /// Show `params` after an undo or redo, putting the roll or the frame
+    /// back where the original edit went, whatever the scope is now.
+    fn apply_history_step(&self, params: ProcessParams, scope: history::Scope) {
         let old = self.imp().proc_params.borrow().clone();
         self.sync_widgets(&params);
         *self.imp().proc_params.borrow_mut() = Some(params.clone());
-        if let Some(old) = old { self.record_edit(&old, &params); }
+        if let Some(old) = old { self.record_edit_in(&old, &params, scope); }
         self.refresh_canvas();
     }
 
     fn do_undo(&self) {
-        let idx = self.imp().undo_idx.get();
-        if idx > 0 {
-            self.step_history(idx - 1);
-        }
+        let step = self.imp().history.borrow_mut().undo();
+        if let Some((params, scope)) = step { self.apply_history_step(params, scope); }
     }
 
     fn do_redo(&self) {
-        let idx = self.imp().undo_idx.get();
-        if idx + 1 < self.imp().undo_stack.borrow().len() {
-            self.step_history(idx + 1);
-        }
+        let step = self.imp().history.borrow_mut().redo();
+        if let Some((params, scope)) = step { self.apply_history_step(params, scope); }
     }
 
     // ── Frame rectangle ───────────────────────────────────────────────────────
@@ -1357,6 +1334,11 @@ impl Window {
                 *self.imp().roll.borrow_mut() = Some(store.roll);
                 *self.imp().selected_frame.borrow_mut() = None;
                 self.imp().thumbs.borrow_mut().clear();
+                if !keep_frames {
+                    self.imp().histories.borrow_mut().clear();
+                    *self.imp().history.borrow_mut() = Default::default();
+                    self.imp().history_key.set(0);
+                }
                 if let Some(t) = self.imp().header_title.borrow().as_ref() {
                     t.set_title(&name);
                 }
@@ -1639,6 +1621,9 @@ impl Window {
         if let Some(t) = self.imp().header_title.borrow().as_ref() {
             t.set_title(&roll.name);
         }
+        *self.imp().histories.borrow_mut() = root.as_deref().map(Self::load_histories).unwrap_or_default();
+        *self.imp().history.borrow_mut() = Default::default();
+        self.imp().history_key.set(0);
         *self.imp().roll.borrow_mut() = Some(roll);
         *self.imp().roll_root.borrow_mut() = root;
         *self.imp().selected_frame.borrow_mut() = None;
@@ -1652,11 +1637,41 @@ impl Window {
     fn save_roll(&self) -> Option<()> {
         let root = self.imp().roll_root.borrow().clone()?;
         let roll = self.imp().roll.borrow().clone()?;
-        if let Err(e) = RollStore::from_parts(root, roll).save() {
+        if let Err(e) = RollStore::from_parts(root.clone(), roll).save() {
             self.show_toast(&format!("Could not save roll: {e}"));
             return None;
         }
+        self.save_histories(&root);
         Some(())
+    }
+
+    /// Undo history of every frame, next to `roll.json`. Failing to write it
+    /// loses undo, not the roll, so it only logs.
+    fn save_histories(&self, root: &std::path::Path) {
+        let imp = self.imp();
+        const KEPT: usize = 30;
+        let mut all: std::collections::BTreeMap<u32, history::History> =
+            imp.histories.borrow().iter().map(|(k, h)| (*k, h.trimmed(KEPT))).collect();
+        if imp.history_key.get() != 0 {
+            all.insert(imp.history_key.get(), imp.history.borrow().trimmed(KEPT));
+        }
+        let write = || -> std::io::Result<()> {
+            let tmp = root.join(".history.json.tmp");
+            std::fs::write(&tmp, serde_json::to_vec(&all)?)?;
+            std::fs::rename(tmp, root.join("history.json"))
+        };
+        if let Err(e) = write() {
+            eprintln!("nv: could not save undo history: {e}");
+        }
+    }
+
+    /// The undo histories saved with the roll in `root`, if any. A file that
+    /// cannot be read (older version, damage) just means no history.
+    fn load_histories(root: &std::path::Path) -> std::collections::HashMap<u32, history::History> {
+        std::fs::read(root.join("history.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
     }
 
     // ── Open Raw Scans ────────────────────────────────────────────────────────
