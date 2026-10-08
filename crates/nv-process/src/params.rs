@@ -17,6 +17,9 @@ pub struct ConversionParams {
     pub tolerance: f32,
     /// Apply dye-gamma alignment (CCR) from film profile.
     pub auto_ccr: bool,
+    /// Colour cast removal in [0, 1]: how far red and blue are lined up with
+    /// green along the picture's own neutral axis (DESIGN.md §7.4 step 5).
+    pub cast_removal: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +32,9 @@ pub struct ToneParams {
     pub midtone: f32,
     /// Contrast boost in [-1, 1]. 0 = none; positive = more contrast.
     pub contrast: f32,
+    /// Per-channel gain applied to the converted image before the points
+    /// (white balance). The grey pipette sets it.
+    pub balance: [f32; 3],
 }
 
 impl Default for ToneParams {
@@ -38,6 +44,7 @@ impl Default for ToneParams {
             white_point: 1.0,
             midtone: 1.0,
             contrast: 0.0,
+            balance: [1.0; 3],
         }
     }
 }

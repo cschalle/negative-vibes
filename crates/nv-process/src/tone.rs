@@ -17,7 +17,7 @@ pub fn apply_tone(pixels: &[f32], p: &ToneParams) -> Vec<f32> {
 
     for i in 0..n {
         for c in 0..3 {
-            let v = pixels[i * 3 + c];
+            let v = pixels[i * 3 + c] * p.balance[c];
             // Black/white point normalisation.
             let v = ((v - bp) / range).clamp(0.0, 1.0);
             // Midtone gamma.
@@ -53,27 +53,20 @@ fn apply_contrast(v: f32, contrast: f32) -> f32 {
 }
 
 /// Auto levels (F§5.1): black and white points from percentiles of the
-/// converted image's luminance, and the midtone that puts its median at
-/// middle grey. `inset` is the fraction of each side ignored, so rebate and
+/// converted image's luminance (measured through `balance`, which is kept),
+/// and the midtone that puts its median at middle grey. Colour cast is not
+/// guessed here: equalising channel medians turned the tulip wall blue-green,
+/// because the scene is mostly red and green. Cast removal is a fit in the
+/// conversion, and the grey pipette is for the rest. `inset` is the fraction of each side ignored, so rebate and
 /// holder do not set the points.
-pub fn auto_tone(converted: &[f32], w: usize, h: usize, inset: f32, low: f32, high: f32) -> ToneParams {
+pub fn auto_tone(converted: &[f32], w: usize, h: usize, inset: f32, low: f32, high: f32, balance: [f32; 3]) -> ToneParams {
     let (bw, bh) = ((w as f32 * inset) as usize, (h as f32 * inset) as usize);
     let (x0, x1, y0, y1) = if w > 2 * bw + 2 && h > 2 * bh + 2 { (bw, w - bw, bh, h - bh) } else { (0, w, 0, h) };
 
     const BINS: usize = 2048;
-    let mut hist = vec![0u32; BINS];
-    for y in y0..y1 {
-        for x in x0..x1 {
-            let i = (y * w + x) * 3;
-            let l = 0.2126 * converted[i] + 0.7152 * converted[i + 1] + 0.0722 * converted[i + 2];
-            hist[((l.clamp(0.0, 1.0) * (BINS - 1) as f32) as usize).min(BINS - 1)] += 1;
-        }
-    }
-    let total: u32 = hist.iter().sum();
-    if total == 0 {
-        return ToneParams::default();
-    }
-    let at = |frac: f32| -> f32 {
+    let bin = |v: f32| ((v.clamp(0.0, 1.0) * (BINS - 1) as f32) as usize).min(BINS - 1);
+    let quantile = |hist: &[u32], frac: f32| -> f32 {
+        let total: u32 = hist.iter().sum();
         let target = ((total as f32 * frac) as u32).max(1);
         let mut seen = 0;
         for (i, n) in hist.iter().enumerate() {
@@ -84,15 +77,24 @@ pub fn auto_tone(converted: &[f32], w: usize, h: usize, inset: f32, low: f32, hi
         }
         1.0
     };
-    let (bp, wp, med) = (at(low), at(high), at(0.5));
+
+    let mut hist = vec![0u32; BINS];
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = (y * w + x) * 3;
+            let l = 0.2126 * converted[i] * balance[0] + 0.7152 * converted[i + 1] * balance[1] + 0.0722 * converted[i + 2] * balance[2];
+            hist[bin(l)] += 1;
+        }
+    }
+    let (bp, wp, med) = (quantile(&hist, low), quantile(&hist, high), quantile(&hist, 0.5));
     if wp - bp < 0.02 {
-        return ToneParams::default(); // flat image: nothing to stretch
+        return ToneParams { balance, ..ToneParams::default() }; // flat image: nothing to stretch
     }
 
     // Median after the black/white stretch, moved to 18% linear (middle grey).
     let v = ((med - bp) / (wp - bp)).clamp(0.01, 0.99);
     let midtone = (v.ln() / 0.18f32.ln()).clamp(0.4, 2.5);
-    ToneParams { black_point: bp, white_point: wp, midtone, contrast: 0.0 }
+    ToneParams { black_point: bp, white_point: wp, midtone, contrast: 0.0, balance }
 }
 
 #[cfg(test)]
@@ -104,7 +106,7 @@ mod tests {
     fn auto_levels_stretch_a_narrow_ramp() {
         let w = 400;
         let px: Vec<f32> = (0..w * 40).flat_map(|i| { let v = 0.2 + 0.4 * (i % w) as f32 / w as f32; [v, v, v] }).collect();
-        let t = auto_tone(&px, w, 40, 0.0, 0.02, 0.98);
+        let t = auto_tone(&px, w, 40, 0.0, 0.02, 0.98, [1.0; 3]);
         assert!((t.black_point - 0.208).abs() < 0.01, "{t:?}");
         assert!((t.white_point - 0.592).abs() < 0.01, "{t:?}");
         let out = apply_tone(&px, &t);
@@ -116,7 +118,7 @@ mod tests {
     #[test]
     fn auto_levels_leave_a_flat_image_alone() {
         let px = vec![0.4f32; 30 * 30 * 3];
-        let t = auto_tone(&px, 30, 30, 0.0, 0.02, 0.98);
+        let t = auto_tone(&px, 30, 30, 0.0, 0.02, 0.98, [1.0; 3]);
         assert_eq!((t.black_point, t.white_point, t.midtone), (0.0, 1.0, 1.0));
     }
 
@@ -125,7 +127,7 @@ mod tests {
     fn auto_midtone_puts_the_median_at_middle_grey() {
         let w = 400;
         let px: Vec<f32> = (0..w * 40).flat_map(|i| { let v = (i % w) as f32 / w as f32; [v * v, v * v, v * v] }).collect();
-        let t = auto_tone(&px, w, 40, 0.0, 0.0, 1.0);
+        let t = auto_tone(&px, w, 40, 0.0, 0.0, 1.0, [1.0; 3]);
         let out = apply_tone(&px, &t);
         let mut luma: Vec<f32> = out.chunks(3).map(|p| p[1]).collect();
         luma.sort_by(|a, b| a.partial_cmp(b).unwrap());

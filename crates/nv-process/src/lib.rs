@@ -47,7 +47,7 @@ pub fn auto_tone(proxy: &Proxy, params: &ProcessParams) -> ToneParams {
     }
     let neutral = ProcessParams { tone: ToneParams::default(), ..params.clone() };
     let converted = convert(proxy, &neutral);
-    let t = tone::auto_tone(&converted, proxy.width, proxy.height, 0.10, 0.02, 0.98);
+    let t = tone::auto_tone(&converted, proxy.width, proxy.height, 0.10, 0.02, 0.98, params.tone.balance);
     ToneParams { contrast: params.tone.contrast, ..t }
 }
 
@@ -138,7 +138,95 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
             exposure: 0.0,
             tolerance: 0.0016,
             auto_ccr: true,
+            cast_removal: 1.0,
         },
         tone: ToneParams::default(),
+    }
+}
+
+/// Average of the `(2·radius+1)²` proxy pixels around `(fx, fy)` (fractions of
+/// the image), as raw linear transmission. For the film base pipette.
+pub fn sample_proxy(proxy: &Proxy, fx: f64, fy: f64, radius: usize) -> Option<[f32; 3]> {
+    sample(&proxy.pixels, proxy.width, proxy.height, fx, fy, radius)
+}
+
+/// The same on the converted positive (stage 4 output, before tone), for the
+/// white, grey and black pipettes. The conversion measures the whole picture,
+/// so this converts all of it.
+pub fn sample_converted(proxy: &Proxy, params: &ProcessParams, fx: f64, fy: f64, radius: usize) -> Option<[f32; 3]> {
+    if proxy.is_empty() {
+        return None;
+    }
+    sample(&convert(proxy, params), proxy.width, proxy.height, fx, fy, radius)
+}
+
+fn sample(px: &[f32], w: usize, h: usize, fx: f64, fy: f64, radius: usize) -> Option<[f32; 3]> {
+    if w == 0 || h == 0 || px.len() < w * h * 3 {
+        return None;
+    }
+    let cx = ((fx.clamp(0.0, 1.0) * w as f64) as usize).min(w - 1);
+    let cy = ((fy.clamp(0.0, 1.0) * h as f64) as usize).min(h - 1);
+    let (x0, x1) = (cx.saturating_sub(radius), (cx + radius + 1).min(w));
+    let (y0, y1) = (cy.saturating_sub(radius), (cy + radius + 1).min(h));
+    let mut acc = [0f32; 3];
+    for y in y0..y1 {
+        for x in x0..x1 {
+            for c in 0..3 {
+                acc[c] += px[(y * w + x) * 3 + c];
+            }
+        }
+    }
+    let n = ((x1 - x0) * (y1 - y0)) as f32;
+    Some([acc[0] / n, acc[1] / n, acc[2] / n])
+}
+
+/// What the pipettes change, as a new `ToneParams`.
+pub mod pipette {
+    use super::ToneParams;
+
+    fn luma(rgb: [f32; 3], balance: [f32; 3]) -> f32 {
+        0.2126 * rgb[0] * balance[0] + 0.7152 * rgb[1] * balance[1] + 0.0722 * rgb[2] * balance[2]
+    }
+
+    /// Grey pipette: gains that make `sample` neutral at the same luminance.
+    pub fn grey(tone: &ToneParams, sample: [f32; 3]) -> ToneParams {
+        let target = luma(sample, [1.0; 3]).max(1e-4);
+        let gain = |c: usize| (target / sample[c].max(1e-4)).clamp(0.25, 4.0);
+        ToneParams { balance: [gain(0), gain(1), gain(2)], ..tone.clone() }
+    }
+
+    /// White pipette: `sample` becomes white. Never at or below the black point.
+    pub fn white(tone: &ToneParams, sample: [f32; 3]) -> ToneParams {
+        let w = luma(sample, tone.balance).clamp(tone.black_point + 0.01, 1.0);
+        ToneParams { white_point: w, ..tone.clone() }
+    }
+
+    /// Black pipette: `sample` becomes black. Never at or above the white point.
+    pub fn black(tone: &ToneParams, sample: [f32; 3]) -> ToneParams {
+        let b = luma(sample, tone.balance).clamp(0.0, tone.white_point - 0.01);
+        ToneParams { black_point: b, ..tone.clone() }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn grey_makes_the_sample_neutral_and_keeps_its_brightness() {
+            let t = grey(&ToneParams::default(), [0.6, 0.4, 0.2]);
+            let out = [0.6 * t.balance[0], 0.4 * t.balance[1], 0.2 * t.balance[2]];
+            assert!((out[0] - out[1]).abs() < 1e-3 && (out[1] - out[2]).abs() < 1e-3, "{out:?}");
+            let before = 0.2126 * 0.6 + 0.7152 * 0.4 + 0.0722 * 0.2;
+            assert!((out[1] - before).abs() < 0.01, "{} vs {before}", out[1]);
+        }
+
+        #[test]
+        fn white_and_black_keep_the_points_ordered() {
+            let t = ToneParams { black_point: 0.3, white_point: 0.8, ..ToneParams::default() };
+            assert!(white(&t, [0.1, 0.1, 0.1]).white_point > 0.3);
+            assert!(black(&t, [0.95, 0.95, 0.95]).black_point < 0.8);
+            let w = white(&t, [0.7, 0.7, 0.7]);
+            assert!((w.white_point - 0.7).abs() < 1e-3);
+        }
     }
 }

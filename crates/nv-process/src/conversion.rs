@@ -37,6 +37,21 @@ pub fn convert_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessPara
         }
     }
 
+    // Step 2b: colour cast removal. Line red and blue density up with green
+    // along the picture's own neutral axis, so neutral things come out
+    // neutral through the midtones as well as at the ends.
+    if p.cast_removal > 0.0 {
+        let fit = cast_fit(&density, w, h);
+        let k = p.cast_removal.clamp(0.0, 1.0);
+        for i in 0..n {
+            for c in [0usize, 2] {
+                let d = density[i * 3 + c];
+                let aligned = (d - fit[c].0) / fit[c].1;
+                density[i * 3 + c] = (d + (aligned - d) * k).max(0.0);
+            }
+        }
+    }
+
     // Step 3: D_max per channel from a high percentile of the IMAGE.
     //
     // The scan window is wider than the film frame, so its edges are the
@@ -124,6 +139,84 @@ fn scurve(t: f32, toe: f32, shoulder: f32) -> f32 {
     }
 }
 
+/// Fit `D_c = a_c + s_c · D_g` for red and blue over the interior of the
+/// picture, using the middle 80% of green density (the ends are clipped
+/// highlights and shadows, which are not on the neutral axis). Returns
+/// `(a, s)` per channel; green is the reference and the identity.
+///
+/// Least squares on a natural scene follows the dominant axis, which is
+/// brightness: most of the picture is closer to neutral than to any one
+/// colour. Slopes outside 0.5–2 are not film, they are a failed fit, and
+/// are not applied.
+fn cast_fit(density: &[f32], w: usize, h: usize) -> [(f32, f32); 3] {
+    let identity = [(0.0, 1.0); 3];
+    let bw = (w / 12).max(4);
+    let bh = (h / 12).max(4);
+    let (x0, x1, y0, y1) = if w > 2 * bw && h > 2 * bh { (bw, w - bw, bh, h - bh) } else { (0, w, 0, h) };
+
+    // Green's 10th and 90th percentiles, from a histogram.
+    let scale = DENSITY_BINS as f32 / DENSITY_RANGE;
+    let mut hist = vec![0u32; DENSITY_BINS];
+    for y in y0..y1 {
+        for x in x0..x1 {
+            hist[((density[(y * w + x) * 3 + 1] * scale) as usize).min(DENSITY_BINS - 1)] += 1;
+        }
+    }
+    let total: u32 = hist.iter().sum();
+    if total < 100 {
+        return identity;
+    }
+    let at = |frac: f32| -> f32 {
+        let target = (total as f32 * frac) as u32;
+        let mut seen = 0;
+        for (i, n) in hist.iter().enumerate() {
+            seen += n;
+            if seen >= target.max(1) {
+                return i as f32 / scale;
+            }
+        }
+        DENSITY_RANGE
+    };
+    let (lo, hi) = (at(0.10), at(0.90));
+    if hi - lo < 0.05 {
+        return identity;
+    }
+
+    // Sums in f64: millions of values near 1 lose digits in f32.
+    let (mut n, mut sg, mut sgg) = (0f64, 0f64, 0f64);
+    let (mut sc, mut sgc) = ([0f64; 3], [0f64; 3]);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = (y * w + x) * 3;
+            let g = density[i + 1];
+            if g < lo || g > hi {
+                continue;
+            }
+            let g = g as f64;
+            n += 1.0;
+            sg += g;
+            sgg += g * g;
+            for c in [0usize, 2] {
+                let v = density[i + c] as f64;
+                sc[c] += v;
+                sgc[c] += g * v;
+            }
+        }
+    }
+    let var = sgg / n - (sg / n) * (sg / n);
+    if n < 100.0 || var < 1e-6 {
+        return identity;
+    }
+    let mut fit = identity;
+    for c in [0usize, 2] {
+        let slope = (sgc[c] / n - (sg / n) * (sc[c] / n)) / var;
+        if (0.5..=2.0).contains(&slope) {
+            fit[c] = ((sc[c] / n - slope * sg / n) as f32, slope as f32);
+        }
+    }
+    fit
+}
+
 /// Largest density the histogram resolves; transmission is clamped at 1e-4,
 /// which is density 4.
 const DENSITY_RANGE: f32 = 4.5;
@@ -171,6 +264,73 @@ fn interior_percentile(pixels: &[f32], w: usize, h: usize, p: f32) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::scurve;
+    use crate::params::{ConversionParams, ImageType, ProcessParams, ToneParams};
+    use nv_film::FilmProfile;
+
+    /// A grey ramp in green density, with red and blue sitting on lines of
+    /// their own: the cast of a scan whose film base was a little off.
+    fn cast_ramp(w: usize, h: usize) -> (Vec<f32>, [f32; 3]) {
+        let base = [0.6f32, 0.3, 0.18];
+        let mut px = Vec::new();
+        for _y in 0..h {
+            for x in 0..w {
+                let dg = 0.1 + 1.6 * x as f32 / w as f32;
+                let d = [0.30 + 1.35 * dg, dg, 0.10 + 0.70 * dg];
+                for c in 0..3 {
+                    px.push(base[c] * 10f32.powf(-d[c].max(0.0)));
+                }
+            }
+        }
+        (px, base)
+    }
+
+    fn params(base: [f32; 3], cast_removal: f32) -> ProcessParams {
+        ProcessParams {
+            image_type: ImageType::ColourNegative,
+            profile: FilmProfile::identity(),
+            conversion: ConversionParams { film_base: Some(base), exposure: 0.0, tolerance: 0.0016, auto_ccr: false, cast_removal },
+            tone: ToneParams::default(),
+        }
+    }
+
+    fn spread(out: &[f32], w: usize, h: usize) -> f32 {
+        // Largest channel difference over the middle of the ramp.
+        let mut worst = 0f32;
+        for y in h / 4..h * 3 / 4 {
+            for x in w / 4..w * 3 / 4 {
+                let p = &out[(y * w + x) * 3..][..3];
+                worst = worst.max((p[0] - p[1]).abs()).max((p[2] - p[1]).abs());
+            }
+        }
+        worst
+    }
+
+    #[test]
+    fn cast_removal_makes_a_biased_ramp_neutral() {
+        let (w, h) = (240, 60);
+        let (px, base) = cast_ramp(w, h);
+        let off = super::convert_negative(&px, w, h, &params(base, 0.0));
+        let on = super::convert_negative(&px, w, h, &params(base, 1.0));
+        assert!(spread(&off, w, h) > 0.08, "test image has no cast: {}", spread(&off, w, h));
+        assert!(spread(&on, w, h) < 0.02, "cast left: {}", spread(&on, w, h));
+    }
+
+    #[test]
+    fn cast_removal_is_continuous_in_its_strength() {
+        let (w, h) = (240, 60);
+        let (px, base) = cast_ramp(w, h);
+        let s = |k| spread(&super::convert_negative(&px, w, h, &params(base, k)), w, h);
+        assert!(s(0.0) > s(0.5) && s(0.5) > s(1.0), "{} {} {}", s(0.0), s(0.5), s(1.0));
+    }
+
+    #[test]
+    fn a_flat_picture_is_left_alone() {
+        let (w, h) = (60, 60);
+        let px = vec![0.3f32; w * h * 3];
+        let a = super::convert_negative(&px, w, h, &params([0.6, 0.3, 0.18], 0.0));
+        let b = super::convert_negative(&px, w, h, &params([0.6, 0.3, 0.18], 1.0));
+        assert_eq!(a, b);
+    }
 
     const TOE: f32 = 0.12;
     const SHOULDER: f32 = 0.18;

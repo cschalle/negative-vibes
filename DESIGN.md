@@ -917,14 +917,17 @@ folder, Open Roll. Not yet verified on hardware: the six-frame roll on the 8200i
 detection on real previews. Still open: crop handles (the rectangle is redrawn, not
 edited), aspect lock and holder templates (F§7), rotation and flip.
 
-**M3 status (2026-10-08), first slice.** Built: the editing proxy (decode once,
-box-reduce to about 2 Mpx; `nv-process::Proxy`), rendering from the proxy on a worker
-thread with latest-wins coalescing, auto levels (F§5.1 thresholds, median to middle
-grey), a live histogram, one undoable step per button press (and a fix for undo losing
-its history after the first step), a histogram-based D_max percentile instead of a
-per-render sort, and golden tests on the tulip fixture (`tests/goldens/`). Still open:
-draggable levels on the histogram, curves, pipettes (white, neutral, black, film base),
-colour-cast removal (the tulip still has a purple cast on the wall), roll analysis,
+**M3 status (2026-10-08).** Built: the editing proxy (decode once, box-reduce to about
+2 Mpx; `nv-process::Proxy`), rendering from it on a worker thread with latest-wins
+coalescing, auto levels (F§5.1 thresholds, median to middle grey), a live histogram,
+colour-cast removal (a trimmed least-squares fit of red and blue density against green,
+with a strength control), per-channel colour balance, and four pipettes on the canvas
+(film base, black, grey, white; one-shot, one undo step each). Also: one undoable step
+per button press, a fix for undo losing its history after the first step, and golden
+tests on the tulip fixture (`tests/goldens/`), including grey-picking the wall.
+Auto does not guess a colour cast: equalising channel medians turned the tulip wall
+blue-green because the scene is mostly red and green, so it is left to the cast fit and
+the grey pipette. Still open: draggable levels on the histogram, curves, roll analysis,
 roll/frame scopes and per-frame settings in `roll.json`, per-frame undo, the stage
 cache, and a check on a real 7200 dpi raw.
 

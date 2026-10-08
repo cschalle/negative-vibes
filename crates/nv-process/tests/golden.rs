@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use nv_film::builtin_profiles;
-use nv_process::{auto_tone, default_params_for, estimate_film_base_proxy, render, Histogram, ProcessParams, Proxy};
+use nv_process::{auto_tone, default_params_for, estimate_film_base_proxy, pipette, render, sample_converted, Histogram, ProcessParams, Proxy};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -126,4 +126,42 @@ fn rendering_a_reduced_proxy_matches_full_size_closely() {
     let b = Histogram::from_rgb8(&render(&small, &params));
     let mean = |h: &Histogram| h.luma.iter().enumerate().map(|(i, n)| i as f64 * *n as f64).sum::<f64>() / h.luma.iter().sum::<u32>() as f64;
     assert!((mean(&a) - mean(&b)).abs() < 4.0, "{} vs {}", mean(&a), mean(&b));
+}
+
+/// Click the concrete wall with the grey pipette: it comes out neutral, and
+/// the rest of the picture keeps its colours.
+#[test]
+fn grey_pipette_on_the_wall_neutralises_it() {
+    let p = tulip();
+    let mut params = defaults(&p);
+    params.tone = auto_tone(&p, &params);
+
+    let wall = |rgb: &[u8]| -> [f64; 3] {
+        let mut acc = [0f64; 3];
+        let mut n = 0.0;
+        for y in 90..150 {
+            for x in 720..800 {
+                for c in 0..3 {
+                    acc[c] += rgb[(y * p.width + x) * 3 + c] as f64;
+                }
+                n += 1.0;
+            }
+        }
+        [acc[0] / n, acc[1] / n, acc[2] / n]
+    };
+    let before = wall(&render(&p, &params));
+    let spread = |w: [f64; 3]| w.iter().cloned().fold(f64::MIN, f64::max) - w.iter().cloned().fold(f64::MAX, f64::min);
+    assert!(spread(before) > 15.0, "fixture wall is not tinted: {before:?}");
+
+    let sample = sample_converted(&p, &neutral_tone(&params), 760.0 / p.width as f64, 120.0 / p.height as f64, 6).unwrap();
+    params.tone = pipette::grey(&params.tone, sample);
+    let rgb = render(&p, &params);
+    let after = wall(&rgb);
+    assert!(spread(after) < 8.0, "wall still tinted: {after:?}");
+    check_golden("tulip-grey-wall", p.width, p.height, &rgb);
+}
+
+/// The pipettes sample the conversion before tone and balance.
+fn neutral_tone(params: &ProcessParams) -> ProcessParams {
+    ProcessParams { tone: Default::default(), ..params.clone() }
 }

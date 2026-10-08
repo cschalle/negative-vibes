@@ -28,6 +28,11 @@ pub(crate) mod imp {
         pub white_pt_row: RefCell<Option<adw::SpinRow>>,
         pub midtone_row: RefCell<Option<adw::SpinRow>>,
         pub contrast_row: RefCell<Option<adw::SpinRow>>,
+        pub cast_row: RefCell<Option<adw::SpinRow>>,
+        pub balance_rows: RefCell<Vec<adw::SpinRow>>,
+        /// What a click on the canvas does.
+        pub canvas_tool: Cell<CanvasTool>,
+        pub tool_buttons: RefCell<Vec<(CanvasTool, gtk::ToggleButton)>>,
 
         // ── App state ─────────────────────────────────────────────────────
         pub roll: RefCell<Option<nv_store::Roll>>,
@@ -98,6 +103,17 @@ pub(crate) mod imp {
         /// Histogram of the last render, drawn in the inspector.
         pub histogram: RefCell<Option<nv_process::Histogram>>,
         pub histogram_area: RefCell<Option<gtk::DrawingArea>>,
+    }
+
+    /// The tool on the canvas: draw a frame, or pick a pixel for a pipette.
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CanvasTool {
+        #[default]
+        Frame,
+        FilmBase,
+        Black,
+        Grey,
+        White,
     }
 
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,6 +270,23 @@ impl Window {
         bottom_bar.append(&zoom_label);
         bottom_bar.append(&zoom_in);
         bottom_bar.append(&zoom_100);
+        let tool_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).build();
+        let mut tool_buttons: Vec<(imp::CanvasTool, gtk::ToggleButton)> = Vec::new();
+        for (tool, label, tip) in [
+            (imp::CanvasTool::Frame, "Frame", "Draw the area to scan"),
+            (imp::CanvasTool::FilmBase, "Base", "Pick the film base: click unexposed film (the rebate)"),
+            (imp::CanvasTool::Black, "Black", "Pick black: click the darkest part that should be black"),
+            (imp::CanvasTool::Grey, "Grey", "Pick grey: click something that should be neutral"),
+            (imp::CanvasTool::White, "White", "Pick white: click the brightest part that should be white"),
+        ] {
+            let b = gtk::ToggleButton::builder().label(label).tooltip_text(tip).active(tool == imp::CanvasTool::Frame).build();
+            if let Some((_, first)) = tool_buttons.first() {
+                b.set_group(Some(first));
+            }
+            tool_box.append(&b);
+            tool_buttons.push((tool, b));
+        }
+        bottom_bar.append(&tool_box);
         bottom_bar.append(&progress_bar);
         let spacer = gtk::Box::builder().hexpand(true).build();
         bottom_bar.append(&spacer);
@@ -435,6 +468,15 @@ impl Window {
         *self.imp().inner_split.borrow_mut() = Some(inner_split.clone());
         *self.imp().main_stack.borrow_mut() = Some(main_stack);
         *self.imp().canvas_picture.borrow_mut() = Some(canvas_picture);
+        for (tool, b) in &tool_buttons {
+            let (tool, weak) = (*tool, self.downgrade());
+            b.connect_toggled(move |b| {
+                if let (true, Some(win)) = (b.is_active(), weak.upgrade()) {
+                    win.imp().canvas_tool.set(tool);
+                }
+            });
+        }
+        *self.imp().tool_buttons.borrow_mut() = tool_buttons;
         *self.imp().canvas_overlay.borrow_mut() = Some(canvas_overlay.clone());
         *self.imp().canvas_scroll.borrow_mut() = Some(canvas_scroll.clone());
         *self.imp().zoom_label.borrow_mut() = Some(zoom_label.clone());
@@ -651,7 +693,18 @@ impl Window {
             .build();
         base_group.add(&film_base_b_row);
 
+        let colour_group = adw::PreferencesGroup::builder().title("Colour").build();
+        let cast_adj = gtk::Adjustment::new(1.0, 0.0, 1.0, 0.05, 0.25, 0.0);
+        let cast_row = adw::SpinRow::builder()
+            .title("Cast Removal")
+            .subtitle("Line red and blue up with green along the picture's neutral axis")
+            .adjustment(&cast_adj)
+            .digits(2)
+            .build();
+        colour_group.add(&cast_row);
+
         conv_page.add(&exp_group);
+        conv_page.add(&colour_group);
         conv_page.add(&base_group);
         conv_scroll.set_child(Some(&conv_page));
         insp_stack.add_titled(&conv_scroll, Some("conversion"), "Conversion");
@@ -717,7 +770,20 @@ impl Window {
             if let Some(win) = win_weak.upgrade() { win.reset_tone(); }
         });
 
+        let balance_group = adw::PreferencesGroup::builder()
+            .title("Colour Balance")
+            .description("Channel gains; the Grey pick in the bottom bar sets them")
+            .build();
+        let mut balance_rows = Vec::new();
+        for name in ["Red", "Green", "Blue"] {
+            let adj = gtk::Adjustment::new(1.0, 0.25, 4.0, 0.01, 0.1, 0.0);
+            let row = adw::SpinRow::builder().title(name).adjustment(&adj).digits(3).build();
+            balance_group.add(&row);
+            balance_rows.push(row);
+        }
+
         tone_page.add(&tone_group);
+        tone_page.add(&balance_group);
         tone_scroll.set_child(Some(&tone_page));
         insp_stack.add_titled(&tone_scroll, Some("tone"), "Tone");
 
@@ -738,6 +804,8 @@ impl Window {
         *self.imp().white_pt_row.borrow_mut() = Some(white_pt_row.clone());
         *self.imp().midtone_row.borrow_mut() = Some(midtone_row.clone());
         *self.imp().contrast_row.borrow_mut() = Some(contrast_row.clone());
+        *self.imp().cast_row.borrow_mut() = Some(cast_row.clone());
+        *self.imp().balance_rows.borrow_mut() = balance_rows.clone();
 
         // ── Connect inspector signals ─────────────────────────────────────
         let win_weak = self.downgrade();
@@ -780,6 +848,16 @@ impl Window {
         contrast_row.connect_value_notify(move |_| {
             if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
         });
+        let win_weak = self.downgrade();
+        cast_row.connect_value_notify(move |_| {
+            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+        });
+        for row in &balance_rows {
+            let win_weak = self.downgrade();
+            row.connect_value_notify(move |_| {
+                if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            });
+        }
 
         inspector_box
     }
@@ -837,6 +915,12 @@ impl Window {
         let white_pt = self.imp().white_pt_row.borrow().as_ref()?.value() as f32;
         let midtone = self.imp().midtone_row.borrow().as_ref()?.value() as f32;
         let contrast = self.imp().contrast_row.borrow().as_ref()?.value() as f32;
+        let cast_removal = self.imp().cast_row.borrow().as_ref()?.value() as f32;
+        let balance = {
+            let rows = self.imp().balance_rows.borrow();
+            if rows.len() != 3 { return None; }
+            [rows[0].value() as f32, rows[1].value() as f32, rows[2].value() as f32]
+        };
 
         Some(ProcessParams {
             image_type,
@@ -846,8 +930,9 @@ impl Window {
                 exposure,
                 tolerance: 0.0016,
                 auto_ccr: true,
+                cast_removal,
             },
-            tone: ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast },
+            tone: ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast, balance },
         })
     }
 
@@ -882,6 +967,10 @@ impl Window {
         if let Some(r) = self.imp().white_pt_row.borrow().as_ref() { r.set_value(params.tone.white_point as f64); }
         if let Some(r) = self.imp().midtone_row.borrow().as_ref() { r.set_value(params.tone.midtone as f64); }
         if let Some(r) = self.imp().contrast_row.borrow().as_ref() { r.set_value(params.tone.contrast as f64); }
+        if let Some(r) = self.imp().cast_row.borrow().as_ref() { r.set_value(params.conversion.cast_removal as f64); }
+        for (row, v) in self.imp().balance_rows.borrow().iter().zip(params.tone.balance) {
+            row.set_value(v as f64);
+        }
 
         self.imp().updating_ui.set(false);
     }
@@ -909,6 +998,51 @@ impl Window {
         };
         params.tone = nv_process::auto_tone(&proxy, &params);
         self.commit_params(params);
+    }
+
+    /// Apply a pipette at `(fx, fy)` (fractions of the picture) and go back
+    /// to the frame tool: a pick is one deliberate act, and the next click on
+    /// the canvas is more likely to be a mistake than a second pick.
+    fn pick_pixel(&self, tool: imp::CanvasTool, fx: f64, fy: f64) {
+        use imp::CanvasTool;
+        let (Some(proxy), Some(mut params)) = (self.imp().proxy.borrow().clone(), self.imp().proc_params.borrow().clone()) else { return };
+        const RADIUS: usize = 3; // a 7 × 7 proxy-pixel patch, to average out grain
+
+        let ok = match tool {
+            CanvasTool::Frame => false,
+            CanvasTool::FilmBase => match nv_process::sample_proxy(&proxy, fx, fy, RADIUS) {
+                Some(base) => {
+                    params.conversion.film_base = Some(base);
+                    true
+                }
+                None => false,
+            },
+            CanvasTool::Black | CanvasTool::Grey | CanvasTool::White => {
+                match nv_process::sample_converted(&proxy, &params, fx, fy, RADIUS) {
+                    Some(s) => {
+                        params.tone = match tool {
+                            CanvasTool::Black => nv_process::pipette::black(&params.tone, s),
+                            CanvasTool::White => nv_process::pipette::white(&params.tone, s),
+                            _ => nv_process::pipette::grey(&params.tone, s),
+                        };
+                        true
+                    }
+                    None => false,
+                }
+            }
+        };
+        if ok {
+            self.commit_params(params);
+        }
+        self.set_canvas_tool(CanvasTool::Frame);
+    }
+
+    fn set_canvas_tool(&self, tool: imp::CanvasTool) {
+        for (t, b) in self.imp().tool_buttons.borrow().iter() {
+            if *t == tool {
+                b.set_active(true);
+            }
+        }
     }
 
     fn reset_tone(&self) {
@@ -999,6 +1133,10 @@ impl Window {
         let start_c = start.clone();
         drag.connect_drag_begin(move |g, x, y| {
             let Some(win) = win_weak.upgrade() else { return };
+            if win.imp().canvas_tool.get() != imp::CanvasTool::Frame {
+                start_c.set(None);
+                return;
+            }
             let (Some((iw, ih)), Some(widget)) = (win.canvas_image_size(), g.widget()) else { return };
             let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
             start_c.set(geom::point_to_frac(x, y, c));
@@ -1029,6 +1167,25 @@ impl Window {
             win.persist_frame_rect();
         });
         area.add_controller(drag);
+
+        // A click with a pipette tool picks the pixel under it.
+        let pick = gtk::GestureClick::builder().button(gdk::BUTTON_PRIMARY).build();
+        let win_weak = self.downgrade();
+        pick.connect_pressed(move |g, _, x, y| {
+            let Some(win) = win_weak.upgrade() else { return };
+            let (tool, Some((iw, ih)), Some(widget)) = (win.imp().canvas_tool.get(), win.canvas_image_size(), g.widget()) else { return };
+            if tool == imp::CanvasTool::Frame {
+                return;
+            }
+            let (cx, cy, cw, ch) = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
+            if x < cx || y < cy || x > cx + cw || y > cy + ch {
+                return; // in the letterbox, not on the picture
+            }
+            if let Some((fx, fy)) = geom::point_to_frac(x, y, (cx, cy, cw, ch)) {
+                win.pick_pixel(tool, fx, fy);
+            }
+        });
+        area.add_controller(pick);
 
         // Right-click: back to the whole window.
         let clear = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();

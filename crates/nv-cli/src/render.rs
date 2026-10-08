@@ -180,12 +180,14 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             exposure: args.exposure,
             tolerance: 0.0016,
             auto_ccr: true,
+            cast_removal: 1.0,
         },
         tone: ToneParams {
             black_point: args.black_point,
             white_point: args.white_point,
             midtone: args.midtone,
             contrast: 0.0,
+            balance: [1.0; 3],
         },
     };
 
