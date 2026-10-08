@@ -76,6 +76,22 @@ impl Window {
         });
         self.add_action(&open);
 
+        for (name, f) in [
+            ("film-create", Window::open_film_profile_dialog as fn(&Window)),
+            ("film-import", Window::import_film_profile),
+            ("film-export", Window::export_film_profile),
+            ("film-delete", Window::delete_film_profile),
+        ] {
+            let action = gio::SimpleAction::new(name, None);
+            let weak = self.downgrade();
+            action.connect_activate(move |_, _| {
+                if let Some(win) = weak.upgrade() {
+                    f(&win);
+                }
+            });
+            self.add_action(&action);
+        }
+
         let calibrate = gio::SimpleAction::new("calibrate", None);
         let weak = self.downgrade();
         calibrate.connect_activate(move |_, _| {

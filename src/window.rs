@@ -110,6 +110,7 @@ pub(crate) mod imp {
         pub curve_channel: Cell<u8>,
         pub wheel_area: RefCell<Option<gtk::DrawingArea>>,
         pub wheel_region: Cell<usize>,
+        pub film_profiles: RefCell<Vec<nv_film::FilmProfile>>,
         pub scanner_profile_row: RefCell<Option<adw::ComboRow>>,
         pub navigator_area: RefCell<Option<gtk::DrawingArea>>,
         pub densi_on: Cell<bool>,
@@ -268,6 +269,7 @@ pub(crate) mod imp {
 mod batch;
 mod calibrate_ui;
 mod colour_ui;
+mod film_ui;
 mod export;
 mod export_dialog;
 mod frames;
@@ -350,6 +352,12 @@ impl Window {
 
         let main_menu = gio::Menu::new();
         main_menu.append(Some("Calibrate with IT8 Target…"), Some("win.calibrate"));
+        let film_menu = gio::Menu::new();
+        film_menu.append(Some("Create Film Profile…"), Some("win.film-create"));
+        film_menu.append(Some("Import Film Profile…"), Some("win.film-import"));
+        film_menu.append(Some("Export Current Film Profile…"), Some("win.film-export"));
+        film_menu.append(Some("Delete Current Film Profile"), Some("win.film-delete"));
+        main_menu.append_section(None, &film_menu);
         main_menu.append(Some("Preferences"), Some("win.preferences"));
         let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&main_menu).tooltip_text("Main Menu").build();
 
@@ -831,7 +839,8 @@ impl Window {
         image_type_row.set_model(Some(&type_model));
         image_group.add(&image_type_row);
 
-        let profiles = builtin_profiles();
+        let profiles = nv_film::all_profiles();
+        *self.imp().film_profiles.borrow_mut() = profiles.clone();
         let profile_names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
         let profile_row = adw::ComboRow::builder()
             .title("Film Profile")
@@ -1249,7 +1258,7 @@ impl Window {
     }
 
     fn read_params_from_inspector(&self) -> Option<ProcessParams> {
-        let profiles = builtin_profiles();
+        let profiles = self.film_profile_list();
 
         let image_type = {
             let row = self.imp().image_type_row.borrow();
@@ -1358,7 +1367,7 @@ impl Window {
             r.set_selected(image_type_idx);
         }
 
-        let profiles = builtin_profiles();
+        let profiles = self.film_profile_list();
         if let Some(idx) = profiles.iter().position(|p| p.id == params.profile.id) {
             if let Some(r) = self.imp().profile_row.borrow().as_ref() {
                 r.set_selected(idx as u32);

@@ -1173,6 +1173,24 @@ our reader's result to the 264 patches reproduces the target to a mean of 0.012 
 sRGB (worst 0.076, a dark patch); lcms2 (ImageMagick) accepts the profile. Not tested: a
 real IT8 target scan (none available), automatic chart recognition on a real scan.
 
+**M6 status, fourth slice: film profile library and builder.** `nv-film::library` keeps the
+user's profiles as one JSON file each in `$XDG_DATA_HOME/negative-vibes/film/` next to the
+shipped ones, with validation (sane ranges, a plain id), import, export and delete (shipped
+profiles can be neither replaced nor deleted); roll and frame settings find a profile by id
+in either. `nv-film::builder` makes a profile from a measurement of the unexposed base and
+an evenly stepped grey wedge exposed on the same film: base from the base, red and blue
+dye gamma from a log-log fit of their density against green's, maximum density per channel
+from the densest usable step, toe and shoulder from where the green response's slope passes
+half its steepest; the order of the steps does not matter, and unsuitable scans (too few
+steps, no usable density range, a wedge that does not climb) are refused with the reason.
+Tested by recovering a synthetic film's gamma to within 0.03 and its base exactly. In the
+app: main menu Create Film Profile… (the wedge is the frame's crop area, cut into the
+given number of steps; the base is the Film Base setting or the estimate), Import, Export
+Current, Delete Current. Crosstalk cannot be told from a grey wedge and stays at identity
+(the pipeline does not use it yet). Not done: measuring actual stocks, which needs film
+and a wedge; the builder has not been run on a real wedge scan, and the dialog has not
+been used on screen. M6 still has fine-angle straighten and Kodachrome.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

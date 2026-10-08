@@ -32,6 +32,7 @@ fn kodak_portra_400() -> FilmProfile {
         curve_toe: 0.15,
         curve_shoulder: 0.20,
         source: "builtin".into(),
+        measured_on: None,
     }
 }
 
@@ -54,6 +55,7 @@ fn kodak_gold_200() -> FilmProfile {
         curve_toe: 0.12,
         curve_shoulder: 0.18,
         source: "builtin".into(),
+        measured_on: None,
     }
 }
 
@@ -76,6 +78,7 @@ fn fuji_superia_400() -> FilmProfile {
         curve_toe: 0.13,
         curve_shoulder: 0.17,
         source: "builtin".into(),
+        measured_on: None,
     }
 }
 
@@ -98,5 +101,6 @@ fn kodak_tmax_400() -> FilmProfile {
         curve_toe: 0.10,
         curve_shoulder: 0.15,
         source: "builtin".into(),
+        measured_on: None,
     }
 }

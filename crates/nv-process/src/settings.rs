@@ -61,7 +61,7 @@ impl Settings {
     pub fn apply_to(&self, p: &mut ProcessParams) {
         if let Some(v) = self.image_type { p.image_type = v; }
         if let Some(id) = &self.profile {
-            if let Some(profile) = nv_film::builtin_profiles().into_iter().find(|f| &f.id == id) {
+            if let Some(profile) = nv_film::find_profile(id) {
                 p.profile = profile;
             }
         }

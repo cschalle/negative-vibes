@@ -35,6 +35,17 @@ pub struct FilmProfile {
     pub curve_shoulder: f32,
     /// "user" | "builtin"
     pub source: String,
+    /// How and where a measured profile was made (§7.4); absent for the
+    /// generic and estimated ones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measured_on: Option<MeasuredOn>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeasuredOn {
+    pub device: String,
+    pub date: String,
+    pub method: String,
 }
 
 impl FilmProfile {
@@ -53,6 +64,7 @@ impl FilmProfile {
             curve_toe: 0.12,
             curve_shoulder: 0.18,
             source: "builtin".into(),
+            measured_on: None,
         }
     }
 
