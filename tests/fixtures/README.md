@@ -9,10 +9,13 @@ Tests that read them are in `crates/nv-process/tests/`.
 | `tulip-600-ir.pgm` | Its infrared plane |
 | `tulip-600-repeat.pnm` | The same frame scanned again |
 
-## Adding a B&W negative or a slide
+`bw-negative-glass-with-light.dng` is a real silver B&W negative from the same scanner, by
+another photographer, under CC BY-SA 4.0: see [`NOTICE.md`](NOTICE.md).
 
-The B&W-negative and positive pipelines are tested on synthetic ramps only. Real
-scans make those tests honest. Scan one at 600 dpi with the same settings as the
+## Adding a slide, or another B&W negative
+
+The positive (slide) pipeline is tested on synthetic ramps only; the B&W negative has one
+real scan. More real scans make those tests honest. Scan one at 600 dpi with the same settings as the
 tulip and save it under these names:
 
 ```sh
@@ -26,5 +29,5 @@ Then generate their golden images and look at them before committing:
 NV_UPDATE_GOLDENS=1 cargo test -p nv-process --test fixtures
 ```
 
-Keep each file under a few MB (600 dpi of one frame is about 3 MB). Use frames you
+`.pnm`, `.tif` and linear `.dng` files are picked up. Keep each file under a few MB (600 dpi of one frame is about 3 MB). Use frames you
 are happy to publish: the repository is GPL-3.0-or-later and fixtures are part of it.

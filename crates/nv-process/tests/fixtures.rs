@@ -22,7 +22,7 @@ fn fixtures(prefix: &str) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| {
             let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            n.starts_with(prefix) && (n.ends_with(".pnm") || n.ends_with(".tif"))
+            n.starts_with(prefix) && (n.ends_with(".pnm") || n.ends_with(".tif") || n.ends_with(".dng"))
         })
         .collect();
     v.sort();

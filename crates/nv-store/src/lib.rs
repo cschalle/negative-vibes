@@ -1,6 +1,7 @@
 pub mod model;
 pub mod store;
 pub mod raw_io;
+pub mod dng;
 
 pub use model::{Frame, FrameState, Geometry, RawRef, Roll};
 pub use store::RollStore;

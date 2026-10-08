@@ -1683,10 +1683,11 @@ impl Window {
             .build();
 
         let filter = gtk::FileFilter::new();
-        filter.set_name(Some("Linear TIFF / PNM"));
+        filter.set_name(Some("Linear TIFF / DNG / PNM"));
         filter.add_mime_type("image/tiff");
         filter.add_pattern("*.tif");
         filter.add_pattern("*.tiff");
+        filter.add_pattern("*.dng");
         filter.add_pattern("*.pnm");
         filter.add_pattern("*.ppm");
         filter.add_pattern("*.pgm");

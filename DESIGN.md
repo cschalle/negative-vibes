@@ -946,10 +946,15 @@ cache, 16 threads: writing the TIFF 0.8 s, reading it 0.6 s, reducing it to the 
 Reading a 7200 dpi TIFF used to fail with `LimitsExceeded` (the `tiff` crate caps a decode
 at 256 MB); the reader now lifts that, checks the size itself, and reads strip by strip.
 Auto does not guess a colour cast: equalising channel medians turned the tulip wall
-blue-green because the scene is mostly red and green. Still open: real B&W and slide
-scans. The checks for those types are synthetic; `tests/fixtures/README.md` says how to
-add real ones, and `tests/fixtures.rs` picks them up and does nothing, saying so, until
-they exist. The timings above are on a warm file cache, not a cold disk.
+blue-green because the scene is mostly red and green. A real silver B&W negative (Ferrania P30, scanned on the reference scanner, CC BY-SA 4.0;
+see `tests/fixtures/NOTICE.md`) is now a fixture and a golden: it needed a linear-DNG
+reader (`nv-store::dng`: follows the SubIFD, uncompressed 8/16 bit, one or three
+samples, black/white levels, every offset bounds-checked and fuzzed by truncation and
+byte flips) and is the first real single-channel scan in the tests. Our rendering of it
+matches the author's own developed JPEG with a correlation of 0.87 at 96 × 64 (0.15
+mirrored), so orientation and polarity are right. Still open: a real slide. The positive
+check is synthetic; `tests/fixtures/README.md` says how to add one, and `tests/fixtures.rs`
+picks up `slide-*` files and does nothing, saying so, until one exists. The timings above are on a warm file cache, not a cold disk.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

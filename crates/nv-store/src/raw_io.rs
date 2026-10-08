@@ -77,6 +77,8 @@ impl RawReader {
         let data = std::fs::read(path)?;
         if data.starts_with(b"P6") || data.starts_with(b"P5") {
             read_pnm(&data)
+        } else if crate::dng::is_dng(&data) {
+            crate::dng::read_dng(&data)
         } else if data.starts_with(b"II") || data.starts_with(b"MM") {
             read_tiff(path)
         } else {
