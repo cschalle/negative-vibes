@@ -12,6 +12,8 @@ pub enum ExportFormat {
     Tiff,
     Jpeg,
     Png,
+    /// The scan itself as a linear DNG: no processing, no colour space.
+    Dng,
 }
 
 impl ExportFormat {
@@ -20,6 +22,7 @@ impl ExportFormat {
             ExportFormat::Tiff => "tif",
             ExportFormat::Jpeg => "jpg",
             ExportFormat::Png => "png",
+            ExportFormat::Dng => "dng",
         }
     }
 

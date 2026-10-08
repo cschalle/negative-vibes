@@ -6,6 +6,7 @@
 //! the HDR RAW export (DESIGN.md §6.3): [`copy_raw`] hands it over unchanged.
 
 pub mod colour;
+pub mod dng;
 pub mod encode;
 pub mod icc;
 pub mod naming;

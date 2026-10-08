@@ -1209,6 +1209,21 @@ row is where a Kodachrome input profile goes (build one from a Kodachrome IT8 ta
 built-in Kodachrome colour data ships, because none has been measured. M6 is complete apart
 from measured stocks and the real-hardware checks (IT8 on a real target, wedge scan).
 
+**M7 status, first slice: DNG export.** A fourth export format, *DNG (the raw scan)*: the scan
+as it came off the scanner, as a linear DNG that darktable, RawTherapee and Lightroom open
+(`nv-export::dng`). IFD0 carries a 256-pixel RGB preview, Make, Model, Software, the DNG
+version, a colour matrix and the Orientation tag; a SubIFD carries the picture as 16-bit
+`LinearRaw`, uncompressed, streamed in megabyte strips so no second copy is held. The frame's
+rotation and flips travel as the EXIF orientation (all eight values, derived by comparing
+against the definitions rather than a table), so nothing is resampled. The colour matrix is
+XYZ to linear sRGB, or, when the frame uses a scanner (IT8) profile, that profile folded in.
+Processing, size, depth, compression and colour space do not apply and are greyed in the
+dialog; straightening is not applied (the developer can). 8-bit scans are widened, an
+infrared sample is left out, and a file over 4 GB is refused (classic TIFF offsets).
+Verified: our own reader gets the scan back sample for sample, exiv2 reads every tag
+including the orientation, and libraw (through ImageMagick) decodes it. Not verified in
+darktable/RawTherapee/Lightroom themselves, which are not installed here.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

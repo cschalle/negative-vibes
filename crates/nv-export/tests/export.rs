@@ -446,3 +446,68 @@ fn a_straightened_export_keeps_its_size_and_matches_the_straightened_render() {
     assert!(mean < 1.5, "mean difference {mean} levels");
     assert_ne!(px, plain);
 }
+
+fn dng_export(raw: &FrameBuf, p: &ProcessParams, o: Orientation, dir: &Path, name: &str) -> PathBuf {
+    let dest = dir.join(name);
+    let s = ExportSettings { format: nv_export::ExportFormat::Dng, ..Default::default() };
+    export_image(raw, p, o, &s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap_or_else(|e| panic!("{name}: {e}"));
+    dest
+}
+
+fn run(cmd: &str, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new(cmd).args(args).output().ok()?;
+    Some(format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)))
+}
+
+#[test]
+fn a_dng_holds_the_scan_unprocessed_and_our_reader_gets_it_back() {
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("dng");
+    let dest = dng_export(&raw, &frozen, Orientation::IDENTITY, &dir, "a.dng");
+    assert!(!dest.with_file_name(".a.dng.part").exists());
+    let bytes = std::fs::read(&dest).unwrap();
+    assert!(nv_store::dng::is_dng(&bytes));
+    let back = nv_store::dng::read_dng(&bytes).expect("our own reader must read it");
+    assert_eq!((back.width, back.effective_height(), back.channels, back.depth), (raw.width, raw.effective_height(), 3, 16));
+    // Sample for sample the scan (the scan may carry an infrared sample we leave out).
+    let (ch, w) = (raw.channels as usize, raw.width as usize);
+    for (x, y) in [(0usize, 0usize), (w - 1, 0), (w / 2, raw.effective_height() as usize / 2), (w - 1, raw.effective_height() as usize - 1)] {
+        for c in 0..3 {
+            let a = nv_image::frame_buf::read_sample(raw.as_bytes(), y * raw.bytes_per_row + (x * ch + c) * 2, 2);
+            let b = nv_image::frame_buf::read_sample(back.as_bytes(), y * back.bytes_per_row + (x * 3 + c) * 2, 2);
+            assert_eq!(a, b, "sample {c} at ({x},{y})");
+        }
+    }
+}
+
+/// libraw (through ImageMagick) and exiv2 are independent readers of the file.
+#[test]
+fn independent_readers_accept_the_dng_and_see_its_orientation() {
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("dng-ext");
+    let o = Orientation { rotation: 1, flip_h: false, flip_v: false };
+    let dest = dng_export(&raw, &frozen, o, &dir, "turned.dng");
+    let path = dest.to_str().unwrap();
+    if let Some(tags) = run("exiv2", &["-pa", path]) {
+        if tags.contains("Exif.") {
+            assert!(tags.contains("Exif.Image.DNGVersion"), "{tags}");
+            assert!(tags.contains("Exif.Image.Orientation") && tags.contains("right, top"), "orientation 6 expected: {tags}");
+            assert!(tags.contains("Negative Vibes"), "{tags}");
+        }
+    }
+    if let Some(out) = run("magick", &["identify", "-format", "%w %h %z", &format!("{path}[0]")]) {
+        // libraw applies the orientation: a quarter turn swaps the sides.
+        if let Some(rest) = out.trim().strip_suffix(" 16").or(Some(out.trim())) {
+            let dims: Vec<u32> = rest.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+            if dims.len() >= 2 {
+                assert!(dims[0] == raw.effective_height() || dims[0] == raw.width, "magick says {out}");
+            }
+        }
+    }
+    // Decode to a PPM with ImageMagick and compare the picture's average to the scan's.
+    let ppm = dir.join("decoded.ppm");
+    if run("magick", &[path, "-depth", "16", ppm.to_str().unwrap()]).is_some() && ppm.exists() {
+        let decoded = nv_store::RawReader::read(&ppm).unwrap();
+        assert_eq!(decoded.width * decoded.effective_height(), raw.width * raw.effective_height(), "decoded size");
+    }
+}

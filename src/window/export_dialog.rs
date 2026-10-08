@@ -11,7 +11,7 @@ use nv_export::{ColourSpace, Compression, ExportFormat, ExportSettings, OutputSi
 
 use super::Window;
 
-const FORMATS: [ExportFormat; 3] = [ExportFormat::Tiff, ExportFormat::Jpeg, ExportFormat::Png];
+const FORMATS: [ExportFormat; 4] = [ExportFormat::Tiff, ExportFormat::Jpeg, ExportFormat::Png, ExportFormat::Dng];
 const COMPRESSIONS: [Compression; 3] = [Compression::None, Compression::Lzw, Compression::Deflate];
 const SPACES: [ColourSpace; 2] = [ColourSpace::Srgb, ColourSpace::AdobeRgb];
 
@@ -28,7 +28,7 @@ impl Window {
 
         let preset_names: Vec<&str> = std::iter::once("Custom").chain(ExportSettings::presets().iter().map(|(n, _)| *n)).collect();
         let preset = combo("Preset", &preset_names, 0);
-        let format = combo("Format", &["TIFF", "JPEG", "PNG"], FORMATS.iter().position(|f| *f == current.format).unwrap_or(0));
+        let format = combo("Format", &["TIFF", "JPEG", "PNG", "DNG (the raw scan)"], FORMATS.iter().position(|f| *f == current.format).unwrap_or(0));
         let depth = combo("Bit Depth", &["8 bit", "16 bit"], usize::from(current.bit_depth == 16));
         let compression = combo("Compression", &["None", "LZW", "Deflate"], COMPRESSIONS.iter().position(|c| *c == current.compression).unwrap_or(0));
         let quality = adw::SpinRow::builder()
@@ -106,17 +106,23 @@ impl Window {
 
         // What applies to what, and the example name.
         let refresh = {
-            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value) =
-                (self.downgrade(), read.clone(), depth.clone(), compression.clone(), quality.clone(), preview.clone(), folder_row.clone(), folder.clone(), size.clone(), size_value.clone());
+            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value, space, grey, embed) =
+                (self.downgrade(), read.clone(), depth.clone(), compression.clone(), quality.clone(), preview.clone(), folder_row.clone(), folder.clone(), size.clone(), size_value.clone(), space.clone(), grey.clone(), embed.clone());
             Rc::new(move || {
                 let Some(win) = win.upgrade() else { return };
                 let s = read();
                 let jpeg = s.format == ExportFormat::Jpeg;
-                depth.set_sensitive(!jpeg);
+                // A DNG is the scan as it came off the scanner: nothing below applies to it.
+                let dng = s.format == ExportFormat::Dng;
+                for w in [size.upcast_ref::<gtk::Widget>(), space.upcast_ref(), grey.upcast_ref(), embed.upcast_ref()] {
+                    w.set_sensitive(!dng);
+                }
+                depth.set_sensitive(!jpeg && !dng);
                 if jpeg {
                     depth.set_selected(0);
                 }
                 compression.set_sensitive(s.format == ExportFormat::Tiff);
+                size_value.set_sensitive(!dng);
                 quality.set_sensitive(jpeg);
                 let n = OutputSize::presets().len();
                 let custom = size.selected() as usize >= n;

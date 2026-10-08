@@ -197,6 +197,9 @@ pub fn export_image_straightened(
         return Err(ExportError::Empty);
     }
     let s = settings.normalised();
+    if s.format == ExportFormat::Dng {
+        return export_dng(raw, frozen, orientation, dest, progress, cancel);
+    }
     // The picture the orientation makes, and the size it is exported at.
     let (pw, ph) = orientation.output_size(sw, sh);
     let (w, h) = s.size.dims(pw, ph);
@@ -208,6 +211,26 @@ pub fn export_image_straightened(
             std::fs::rename(&part, dest)?;
             let bytes = std::fs::metadata(dest)?.len();
             Ok(ExportReport { width: w as u32, height: h as u32, path: dest.to_owned(), bytes })
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&part);
+            Err(e)
+        }
+    }
+}
+
+/// The raw scan as a linear DNG: the frame's orientation rides along as a
+/// tag, and the scanner's profile, if the frame uses one, in the colour matrix.
+fn export_dng(raw: &FrameBuf, frozen: &ProcessParams, orientation: Orientation, dest: &Path, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<ExportReport, ExportError> {
+    let part = temp_name(dest);
+    let result = (|| {
+        let file = BufWriter::new(File::create(&part)?);
+        crate::dng::write_dng(file, raw, orientation, frozen.input.as_ref(), &crate::dng::DngInfo::default(), progress, cancel)
+    })();
+    match result {
+        Ok((width, height)) => {
+            std::fs::rename(&part, dest)?;
+            Ok(ExportReport { width, height, path: dest.to_owned(), bytes: std::fs::metadata(dest)?.len() })
         }
         Err(e) => {
             let _ = std::fs::remove_file(&part);
@@ -273,6 +296,7 @@ fn write_file(
         ExportFormat::Tiff => write_tiff(file, s, w, h, profile.as_deref(), &mut bands),
         ExportFormat::Png => write_png(file, s, w, h, profile.as_deref(), &mut bands),
         ExportFormat::Jpeg => write_jpeg(file, s, w, h, profile.as_deref(), &mut bands),
+        ExportFormat::Dng => unreachable!("a DNG is written from the raw scan, not from bands"),
     }
 }
 

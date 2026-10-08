@@ -209,13 +209,13 @@ impl Window {
         scanning.add(&res);
 
         let output = adw::PreferencesGroup::builder().title("Output").description("What a new roll starts with").build();
-        let formats = [ExportFormat::Tiff, ExportFormat::Jpeg, ExportFormat::Png];
-        let format = adw::ComboRow::builder().title("Format").model(&gtk::StringList::new(&["TIFF", "JPEG", "PNG"])).build();
+        let formats = [ExportFormat::Tiff, ExportFormat::Jpeg, ExportFormat::Png, ExportFormat::Dng];
+        let format = adw::ComboRow::builder().title("Format").model(&gtk::StringList::new(&["TIFF", "JPEG", "PNG", "DNG (the raw scan)"])).build();
         format.set_selected(formats.iter().position(|f| *f == prefs.export.format).unwrap_or(0) as u32);
         {
             let save = save.clone();
             format.connect_selected_notify(move |r| {
-                let f = formats[(r.selected() as usize).min(2)];
+                let f = formats[(r.selected() as usize).min(3)];
                 save(&|p| p.export.format = f);
             });
         }
