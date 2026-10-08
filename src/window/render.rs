@@ -70,6 +70,18 @@ impl Window {
         if w == 0 || h == 0 || rgb.len() < w * h * 3 {
             return;
         }
+        // Show the picture through the frame's rotation and flips.
+        let oriented;
+        let (w, h, rgb) = {
+            let o = self.orientation();
+            if o.is_identity() {
+                (w, h, rgb)
+            } else {
+                let (ow, oh, px) = o.apply(&rgb[..w * h * 3], w, h, 3);
+                oriented = px;
+                (ow, oh, &oriented[..])
+            }
+        };
         // R8G8B8 (3-byte packed) is not natively supported by most GPU
         // drivers, and GTK's conversion corrupts it on Wayland/Vulkan; R8G8B8A8
         // is universally supported.

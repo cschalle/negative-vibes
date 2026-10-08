@@ -15,11 +15,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use nv_image::FrameBuf;
-use nv_process::tiles::{render_toned_region, TILE};
-use nv_process::ProcessParams;
+use nv_process::tiles::{render_toned_region_oriented, TILE};
+use nv_process::{Orientation, ProcessParams};
 
 use crate::colour::{ColourSpace, GREY_GAMMA};
 use crate::icc;
+use crate::resize::Downscaler;
 use crate::settings::{ExportFormat, ExportSettings};
 use crate::tiff::TiffWriter;
 
@@ -116,6 +117,45 @@ impl Encoder {
     }
 }
 
+/// Encoded rows waiting to be written in whole bands.
+struct Pending {
+    samples: Samples,
+    rows: usize,
+    /// Samples per row, learned from the first rows pushed.
+    per_row: usize,
+}
+
+impl Pending {
+    fn new(depth: u8) -> Self {
+        Self { samples: if depth == 16 { Samples::U16(Vec::new()) } else { Samples::U8(Vec::new()) }, rows: 0, per_row: 0 }
+    }
+
+    fn push(&mut self, s: Samples, rows: usize) {
+        match (&mut self.samples, s) {
+            (Samples::U8(a), Samples::U8(b)) => {
+                self.per_row = b.len() / rows.max(1);
+                a.extend(b);
+            }
+            (Samples::U16(a), Samples::U16(b)) => {
+                self.per_row = b.len() / rows.max(1);
+                a.extend(b);
+            }
+            _ => unreachable!("one bit depth per export"),
+        }
+        self.rows += rows;
+    }
+
+    /// The first `rows` rows.
+    fn take(&mut self, rows: usize) -> Samples {
+        let n = rows * self.per_row;
+        self.rows -= rows;
+        match &mut self.samples {
+            Samples::U8(v) => Samples::U8(v.drain(..n).collect()),
+            Samples::U16(v) => Samples::U16(v.drain(..n).collect()),
+        }
+    }
+}
+
 fn temp_name(dest: &Path) -> PathBuf {
     let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     dest.with_file_name(format!(".{name}.part"))
@@ -123,25 +163,30 @@ fn temp_name(dest: &Path) -> PathBuf {
 
 /// Render `raw` with `frozen` parameters and write it to `dest`.
 ///
-/// `progress` is called with the fraction done after each band; `cancel`
-/// is checked between bands. The picture is the whole of `raw`: a scan is
-/// already taken inside the frame's rectangle.
+/// The picture is the whole of `raw`, turned and mirrored as `orientation`
+/// says (a scan is already taken inside the frame's rectangle), then made
+/// smaller if `settings.size` asks. `progress` is called with the fraction
+/// done after each band; `cancel` is checked between bands.
 pub fn export_image(
     raw: &FrameBuf,
     frozen: &ProcessParams,
+    orientation: Orientation,
     settings: &ExportSettings,
     dest: &Path,
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
 ) -> Result<ExportReport, ExportError> {
-    let (w, h) = (raw.width as usize, raw.effective_height() as usize);
-    if w == 0 || h == 0 {
+    let (sw, sh) = (raw.width as usize, raw.effective_height() as usize);
+    if sw == 0 || sh == 0 {
         return Err(ExportError::Empty);
     }
     let s = settings.normalised();
+    // The picture the orientation makes, and the size it is exported at.
+    let (pw, ph) = orientation.output_size(sw, sh);
+    let (w, h) = s.size.dims(pw, ph);
     let part = temp_name(dest);
 
-    let result = write_file(raw, frozen, &s, &part, w, h, progress, cancel);
+    let result = write_file(raw, frozen, orientation, &s, &part, (pw, ph), (w, h), progress, cancel);
     match result {
         Ok(()) => {
             std::fs::rename(&part, dest)?;
@@ -159,10 +204,11 @@ pub fn export_image(
 fn write_file(
     raw: &FrameBuf,
     frozen: &ProcessParams,
+    orientation: Orientation,
     s: &ExportSettings,
     part: &Path,
-    w: usize,
-    h: usize,
+    (pw, ph): (usize, usize),
+    (w, h): (usize, usize),
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
 ) -> Result<(), ExportError> {
@@ -171,20 +217,39 @@ fn write_file(
     let profile = s.embed_profile.then(|| if s.grey { icc::grey_profile() } else { icc::rgb_profile(s.colour_space) });
     let file = BufWriter::new(File::create(part)?);
 
-    // Each band is `TILE` rows: the unit the renderer cuts anyway.
+    // Bands of `TILE` rows of the picture: the unit the renderer cuts anyway.
+    // When the picture is made smaller, the rows that come out of the
+    // downscaler are collected into bands of `TILE` rows again, so the writers
+    // see the same thing either way.
     let mut bands = |sink: &mut dyn FnMut(Samples, usize) -> Result<(), ExportError>| -> Result<(), ExportError> {
+        let mut scaler = ((pw, ph) != (w, h)).then(|| Downscaler::new(pw, ph, w, h, 3));
+        let mut pending = Pending::new(s.bit_depth);
+        let flush = |pending: &mut Pending, all: bool, sink: &mut dyn FnMut(Samples, usize) -> Result<(), ExportError>| -> Result<(), ExportError> {
+            while pending.rows >= TILE || (all && pending.rows > 0) {
+                let n = pending.rows.min(TILE);
+                sink(pending.take(n), n)?;
+            }
+            Ok(())
+        };
         let mut y = 0;
-        while y < h {
+        while y < ph {
             if cancel.load(Ordering::Relaxed) {
                 return Err(ExportError::Cancelled);
             }
-            let rows = TILE.min(h - y);
-            let toned = render_toned_region(raw, frozen, 0, y, w, rows, threads);
-            sink(enc.band(&toned), rows)?;
+            let rows = TILE.min(ph - y);
+            let toned = render_toned_region_oriented(raw, frozen, orientation, 0, y, pw, rows, threads);
+            let out = match scaler.as_mut() {
+                Some(d) => d.push_rows(&toned, pw),
+                None => toned,
+            };
+            if !out.is_empty() {
+                pending.push(enc.band(&out), out.len() / (w * 3));
+                flush(&mut pending, false, sink)?;
+            }
             y += rows;
-            progress(y as f32 / h as f32);
+            progress(y as f32 / ph as f32);
         }
-        Ok(())
+        flush(&mut pending, true, sink)
     };
 
     match s.format {

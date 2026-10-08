@@ -991,9 +991,28 @@ is a loop: scan, banner, preview and scan the next frame as soon as the holder i
 Tested without a scanner: the queue, the model, the encoders, and a headless import that
 exports through the queue (`NV_IMPORT_FILES` with `NV_EXPORT_DIR`). **Not yet tested on the
 scanner:** Scan All, Scan Raw Only, Stop, the manual-advance loop, and export overlapping a
-scan. Not done: size presets and resampling, geometry (rotate, flip) in the pipeline, the
-Preferences dialog's output page, XMP metadata (M7), HDRi RAW (waits for IR, M5), and
-checks H7 to H9 on the scanner.
+scan. **M4 status, third slice: orientation, size, preferences.** Rotate and flip (90° steps,
+four buttons in the bottom bar, Ctrl+←/→): a frame keeps an `Orientation` (mirror the scan,
+then turn it clockwise), and the canvas, thumbnails and exports show the picture through
+it, while everything the pipeline measures, the frame rectangle and the scan area stay in
+scan coordinates; only mouse positions and drawing go through the mapping. Export renders
+only the part of the scan each band of the turned picture comes from, and a turned export
+is bit-for-bit the upright export turned (tested for every rotation and for flips).
+Output size (F§9): original, long edge, fit in a box, percent, and the named sizes (Web,
+Social, Full HD, HD ready, half); never larger than the scan. Resampling is an exact
+area-coverage box filter on linear light, streamed row by row, checked against the
+definition at awkward ratios, and against ImageMagick's box resize (within 3 levels on
+the tulip; ours averages linear light, theirs the encoded values). The inspector has a
+Scan page: resolution from the device's own steps and the live size of the rectangle
+("1724 × 1285 px, 12.7 MB as 16-bit colour"). Preferences (Ctrl+,, from the main menu) set
+what a new roll starts with (scan resolution, format, colour space, folder, naming,
+export after scan), stored as JSON in `~/.config/negative-vibes/` so they need no installed
+GSettings schema. Still not done: the output page's remaining F§14 items, XMP metadata
+(M7), HDRi RAW (waits for IR, M5), straighten (fine angle, M6), and the scanner checks:
+H7 (resolutions and size), H8 (memory: the export side is measured above, the scan side is
+not) and H9 (a cropped scan equals the crop of a full one) need the scanner and a person
+at it. Everything in Scan All, Scan Raw Only, Stop and the manual-advance loop is still
+untried on hardware.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

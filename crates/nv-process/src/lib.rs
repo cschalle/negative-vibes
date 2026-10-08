@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod params;
 mod conversion;
 pub mod curves;
+pub mod orient;
 pub mod settings;
 pub mod tiles;
 pub mod histogram;
@@ -14,6 +15,7 @@ pub use params::{ImageType, ProcessParams};
 pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
+pub use orient::{DisplayOp, Orientation};
 pub use proxy::{Proxy, DEFAULT_PROXY_PIXELS};
 
 use nv_image::FrameBuf;

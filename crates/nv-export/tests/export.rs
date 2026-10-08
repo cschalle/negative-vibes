@@ -3,10 +3,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use nv_export::{copy_raw, export_image, icc, ColourSpace, Compression, ExportError, ExportFormat, ExportSettings};
+use nv_export::{copy_raw, export_image, icc, ColourSpace, Compression, ExportError, ExportFormat, ExportSettings, OutputSize};
 use nv_film::builtin_profiles;
 use nv_image::FrameBuf;
-use nv_process::{default_params_for, render, tiles::freeze, ProcessParams, Proxy};
+use nv_process::{default_params_for, render, tiles::freeze, Orientation, ProcessParams, Proxy};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -29,7 +29,7 @@ fn tulip() -> (FrameBuf, ProcessParams, Vec<u8>) {
 
 fn export(raw: &FrameBuf, p: &ProcessParams, s: &ExportSettings, dir: &Path, name: &str) -> PathBuf {
     let dest = dir.join(name);
-    export_image(raw, p, s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap_or_else(|e| panic!("{name}: {e}"));
+    export_image(raw, p, Orientation::IDENTITY, s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap_or_else(|e| panic!("{name}: {e}"));
     dest
 }
 
@@ -53,6 +53,12 @@ fn mean_abs_diff(a: impl Iterator<Item = f64>, b: impl Iterator<Item = f64>) -> 
         n += 1.0;
     }
     s / n
+}
+
+fn export_oriented(raw: &FrameBuf, p: &ProcessParams, o: Orientation, s: &ExportSettings, dir: &Path, name: &str) -> PathBuf {
+    let dest = dir.join(name);
+    export_image(raw, p, o, s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap_or_else(|e| panic!("{name}: {e}"));
+    dest
 }
 
 #[test]
@@ -212,13 +218,13 @@ fn cancelling_leaves_no_file_behind() {
     let dir = scratch("cancel");
     let dest = dir.join("c.tif");
     let cancel = AtomicBool::new(true);
-    let r = export_image(&raw, &frozen, &ExportSettings::default(), &dest, &|_| {}, &cancel);
+    let r = export_image(&raw, &frozen, Orientation::IDENTITY, &ExportSettings::default(), &dest, &|_| {}, &cancel);
     assert!(matches!(r, Err(ExportError::Cancelled)));
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "left {:?}", std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect::<Vec<_>>());
 
     // Cancel after the first band: the partial file is removed too.
     let cancel = AtomicBool::new(false);
-    let r = export_image(&raw, &frozen, &ExportSettings::default(), &dest, &|f| if f > 0.0 { cancel.store(true, Ordering::Relaxed) }, &cancel);
+    let r = export_image(&raw, &frozen, Orientation::IDENTITY, &ExportSettings::default(), &dest, &|f| if f > 0.0 { cancel.store(true, Ordering::Relaxed) }, &cancel);
     assert!(matches!(r, Err(ExportError::Cancelled)));
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
 }
@@ -228,7 +234,7 @@ fn progress_rises_to_one() {
     let (raw, frozen, _) = tulip();
     let dir = scratch("progress");
     let seen = std::sync::Mutex::new(Vec::new());
-    export_image(&raw, &frozen, &ExportSettings::default(), &dir.join("p.tif"), &|f| seen.lock().unwrap().push(f), &AtomicBool::new(false)).unwrap();
+    export_image(&raw, &frozen, Orientation::IDENTITY, &ExportSettings::default(), &dir.join("p.tif"), &|f| seen.lock().unwrap().push(f), &AtomicBool::new(false)).unwrap();
     let seen = seen.into_inner().unwrap();
     assert!(seen.len() >= 2 && seen.windows(2).all(|w| w[1] > w[0]) && (seen.last().unwrap() - 1.0).abs() < 1e-6, "{seen:?}");
 }
@@ -236,7 +242,7 @@ fn progress_rises_to_one() {
 #[test]
 fn an_unwritable_folder_is_an_error_not_a_panic() {
     let (raw, frozen, _) = tulip();
-    let r = export_image(&raw, &frozen, &ExportSettings::default(), Path::new("/nonexistent-dir/x.tif"), &|_| {}, &AtomicBool::new(false));
+    let r = export_image(&raw, &frozen, Orientation::IDENTITY, &ExportSettings::default(), Path::new("/nonexistent-dir/x.tif"), &|_| {}, &AtomicBool::new(false));
     assert!(matches!(r, Err(ExportError::Io(_))));
 }
 
@@ -282,10 +288,102 @@ fn a_7200_dpi_frame_exports_in_bounded_memory() {
         ("tiff8-none", ExportSettings { bit_depth: 8, compression: Compression::None, ..Default::default() }),
     ] {
         let t = std::time::Instant::now();
-        let r = export_image(&raw, &frozen, &s, &dir.join(format!("{name}.tif")), &|_| {}, &AtomicBool::new(false)).unwrap();
+        let r = export_image(&raw, &frozen, Orientation::IDENTITY, &s, &dir.join(format!("{name}.tif")), &|_| {}, &AtomicBool::new(false)).unwrap();
         eprintln!("{name}: {}x{} in {:?}, {} MB written, peak RSS {} MB (raw and proxy alone: {} MB)", r.width, r.height, t.elapsed(), r.bytes >> 20, peak_rss_mb(), before);
         let _ = std::fs::remove_file(&r.path);
     }
     let over = peak_rss_mb().saturating_sub(before);
     assert!(over < 1500, "the export added {over} MB on top of the raw");
+}
+
+#[test]
+fn an_oriented_export_is_the_upright_export_turned_exactly() {
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("orient");
+    let s = ExportSettings { compression: Compression::None, ..Default::default() };
+    let (uw, uh, _, upright, _) = tiff_pixels(&export(&raw, &frozen, &s, &dir, "up.tif"));
+    for (i, o) in [
+        Orientation { rotation: 1, ..Orientation::IDENTITY },
+        Orientation { rotation: 2, ..Orientation::IDENTITY },
+        Orientation { rotation: 3, ..Orientation::IDENTITY },
+        Orientation { flip_h: true, ..Orientation::IDENTITY },
+        Orientation { flip_v: true, ..Orientation::IDENTITY },
+        Orientation { rotation: 1, flip_h: true, flip_v: false },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (w, h, _, px, _) = tiff_pixels(&export_oriented(&raw, &frozen, o, &s, &dir, &format!("o{i}.tif")));
+        let (ew, eh, expected) = o.apply(&upright, uw as usize, uh as usize, 3);
+        assert_eq!((w as usize, h as usize), (ew, eh), "{o:?}");
+        assert!(px == expected, "{o:?}: the pixels differ from the turned upright export");
+    }
+}
+
+#[test]
+fn a_smaller_export_has_the_size_asked_and_the_same_look() {
+    let (raw, frozen, reference) = tulip();
+    let dir = scratch("resize");
+    for (size, want) in [
+        (OutputSize::LongEdge { pixels: 300 }, (300, 224)),
+        (OutputSize::Percent { percent: 25.0 }, (216, 161)),
+        (OutputSize::Fit { width: 400, height: 100 }, (134, 100)),
+        (OutputSize::LongEdge { pixels: 5000 }, (864, 645)),
+    ] {
+        let s = ExportSettings { size, bit_depth: 8, compression: Compression::Lzw, ..Default::default() };
+        let (w, h, _, px, _) = tiff_pixels(&export(&raw, &frozen, &s, &dir, "r.tif"));
+        assert_eq!((w, h), want, "{size:?}");
+        assert_eq!(px.len(), w as usize * h as usize * 3);
+        // Averaging keeps the picture's brightness.
+        let mean = |v: &mut dyn Iterator<Item = f64>| { let (s, n) = v.fold((0.0, 0.0), |(s, n), x| (s + x, n + 1.0)); s / n };
+        let (a, b) = (mean(&mut px.iter().map(|v| *v as f64)), mean(&mut reference.iter().map(|v| *v as f64)));
+        assert!((a - b).abs() < 3.0, "{size:?}: mean {a} vs {b}");
+    }
+}
+
+/// An independent resampler (ImageMagick, area-weighted) agrees with ours on
+/// what a downscaled picture looks like. Skipped when it is not installed.
+#[test]
+fn an_independent_resampler_agrees_on_the_look_of_a_smaller_picture() {
+    if std::process::Command::new("magick").arg("-version").output().is_err() {
+        eprintln!("ImageMagick not installed: skipping");
+        return;
+    }
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("magick-resize");
+    let full = export(&raw, &frozen, &ExportSettings { bit_depth: 8, compression: Compression::None, ..Default::default() }, &dir, "full.tif");
+    let small = export(&raw, &frozen, &ExportSettings { bit_depth: 8, compression: Compression::None, size: OutputSize::LongEdge { pixels: 288 }, ..Default::default() }, &dir, "small.tif");
+    let theirs = dir.join("theirs.tif");
+    let out = std::process::Command::new("magick").arg(&full).args(["-filter", "box", "-resize", "288x215!", "-depth", "8"]).arg(&theirs).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let (_, _, _, a, _) = tiff_pixels(&small);
+    let (_, _, _, b, _) = tiff_pixels(&theirs);
+    assert_eq!(a.len(), b.len());
+    // Ours averages linear light and theirs averages the encoded values, so
+    // edges differ a little; the two must still be the same picture.
+    let d = mean_abs_diff(a.iter().map(|v| *v as f64), b.iter().map(|v| *v as f64));
+    assert!(d < 3.0, "ImageMagick's downscale differs by {d} levels on average");
+}
+
+#[test]
+fn rotated_and_smaller_together() {
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("both");
+    let s = ExportSettings { size: OutputSize::LongEdge { pixels: 300 }, bit_depth: 8, ..Default::default() };
+    let (w, h, _, px, _) = tiff_pixels(&export_oriented(&raw, &frozen, Orientation { rotation: 1, ..Orientation::IDENTITY }, &s, &dir, "b.tif"));
+    assert_eq!((w, h), (224, 300), "rotated first, then sized by the picture's long edge");
+    assert_eq!(px.len(), 224 * 300 * 3);
+}
+
+#[test]
+fn every_format_handles_a_resized_picture() {
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("formats");
+    let size = OutputSize::Percent { percent: 40.0 };
+    let jpg = export(&raw, &frozen, &ExportSettings { format: ExportFormat::Jpeg, size, ..Default::default() }, &dir, "a.jpg");
+    let info = { let mut d = jpeg_decoder::Decoder::new(std::fs::File::open(&jpg).unwrap()); d.read_info().unwrap(); d.info().unwrap() };
+    assert_eq!((info.width, info.height), (346, 258));
+    let png_path = export(&raw, &frozen, &ExportSettings { format: ExportFormat::Png, bit_depth: 16, size, ..Default::default() }, &dir, "a.png");
+    let r = png::Decoder::new(std::fs::File::open(&png_path).unwrap()).read_info().unwrap();
+    assert_eq!((r.info().width, r.info().height), (346, 258));
 }

@@ -10,9 +10,10 @@ pub mod encode;
 pub mod icc;
 pub mod naming;
 pub mod settings;
+mod resize;
 mod tiff;
 
 pub use colour::ColourSpace;
 pub use encode::{copy_raw, export_image, ExportError, ExportReport};
 pub use naming::{render_template, unique_path, NameContext, NameError};
-pub use settings::{Compression, ExportFormat, ExportSettings};
+pub use settings::{Compression, ExportFormat, ExportSettings, OutputSize};

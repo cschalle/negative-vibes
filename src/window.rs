@@ -61,6 +61,17 @@ pub(crate) mod imp {
         pub auto_scan_next: Cell<bool>,
         /// The scanner (not an import) is what the window is busy with.
         pub acquiring: Cell<bool>,
+        /// Preferences: what a new roll starts with.
+        pub prefs: RefCell<crate::prefs::Prefs>,
+        /// The scan resolution when no roll sets one.
+        pub scan_dpi: Cell<u32>,
+        pub device_resolutions: RefCell<Vec<u32>>,
+        /// The scanner's film window in mm, for the live file size.
+        pub film_window_mm: Cell<Option<[f64; 2]>>,
+        pub scan_res_row: RefCell<Option<adw::ComboRow>>,
+        pub scan_size_row: RefCell<Option<adw::ActionRow>>,
+        /// Orientation of a picture that has no frame (a loose file).
+        pub loose_orientation: Cell<nv_process::Orientation>,
         /// Histogram of the picture entering the tone stage, for the levels.
         pub levels: RefCell<Option<[u32; 256]>>,
         pub levels_area: RefCell<Option<gtk::DrawingArea>>,
@@ -202,7 +213,9 @@ mod export;
 mod export_dialog;
 mod frames;
 mod history;
+mod orient;
 mod render;
+mod scan_settings;
 mod settings;
 mod tone_ui;
 mod zoom;
@@ -273,6 +286,10 @@ impl Window {
             .build();
         let queue_btn = self.build_queue_button();
 
+        let main_menu = gio::Menu::new();
+        main_menu.append(Some("Preferences"), Some("win.preferences"));
+        let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&main_menu).tooltip_text("Main Menu").build();
+
         let open_btn = gtk::Button::builder()
             .icon_name("folder-open-symbolic")
             .tooltip_text("Open Roll…")
@@ -283,6 +300,7 @@ impl Window {
         header.pack_start(&sidebar_btn);
         header.pack_start(&preview_btn);
         header.set_title_widget(Some(&title_widget));
+        header.pack_end(&menu_btn);
         header.pack_end(&scan_btn);
         header.pack_end(&export_btn);
         header.pack_end(&queue_btn);
@@ -334,6 +352,16 @@ impl Window {
         bottom_bar.append(&zoom_label);
         bottom_bar.append(&zoom_in);
         bottom_bar.append(&zoom_100);
+        let turn_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).build();
+        for (icon, action, tip) in [
+            ("object-rotate-left-symbolic", "win.rotate-left", "Rotate Left (Ctrl+←)"),
+            ("object-rotate-right-symbolic", "win.rotate-right", "Rotate Right (Ctrl+→)"),
+            ("object-flip-horizontal-symbolic", "win.flip-horizontal", "Flip Horizontally"),
+            ("object-flip-vertical-symbolic", "win.flip-vertical", "Flip Vertically"),
+        ] {
+            turn_box.append(&gtk::Button::builder().icon_name(icon).action_name(action).tooltip_text(tip).build());
+        }
+        bottom_bar.append(&turn_box);
         let tool_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).build();
         let mut tool_buttons: Vec<(imp::CanvasTool, gtk::ToggleButton)> = Vec::new();
         for (tool, label, tip) in [
@@ -640,6 +668,8 @@ impl Window {
         *self.imp().queue_button.borrow_mut() = Some(queue_btn.clone());
         self.setup_export();
         self.setup_batch();
+        self.setup_orientation();
+        self.setup_preferences();
         self.setup_frames(&frame_list);
         self.setup_zoom(&canvas_scroll);
 
@@ -896,6 +926,7 @@ impl Window {
         let histogram_area = self.build_histogram();
         *self.imp().histogram_area.borrow_mut() = Some(histogram_area.clone());
         inspector_box.append(&histogram_area);
+        insp_stack.add_titled(&self.build_scan_page(), Some("scan"), "Scan");
         inspector_box.append(&switcher);
         inspector_box.append(&insp_stack);
 
@@ -1166,12 +1197,11 @@ impl Window {
 
     // ── Frame rectangle ───────────────────────────────────────────────────────
 
-    /// Size of the image on the canvas, if there is one.
+    /// Size of the picture on the canvas, as shown: the scan's size, turned.
     fn canvas_image_size(&self) -> Option<(f64, f64)> {
-        let buf = self.imp().scan_buf.borrow();
-        let buf = buf.as_ref()?;
-        let h = buf.effective_height();
-        (buf.width > 0 && h > 0).then(|| (buf.width as f64, h as f64))
+        let (w, h) = self.scan_image_size()?;
+        let (dw, dh) = self.orientation().output_size(w as usize, h as usize);
+        Some((dw as f64, dh as f64))
     }
 
     /// The frame to scan, as fractions of the full scan window.
@@ -1181,6 +1211,7 @@ impl Window {
 
     fn set_frame_rect(&self, rect: Option<[f64; 4]>) {
         self.imp().frame_rect.set(rect);
+        self.update_scan_size();
         if let Some(a) = self.imp().frame_overlay.borrow().as_ref() {
             a.queue_draw();
         }
@@ -1194,6 +1225,7 @@ impl Window {
         area.set_draw_func(move |_, cr, wid, hei| {
             let Some(win) = win_weak.upgrade() else { return };
             let (Some(rect), Some((iw, ih))) = (win.frame_rect(), win.canvas_image_size()) else { return };
+            let rect = win.orientation().rect_from_source(rect);
             let (cx, cy, cw, ch) = geom::content_rect(wid as f64, hei as f64, iw, ih);
             let (x, y) = (cx + rect[0] * cw, cy + rect[1] * ch);
             let (w, h) = ((rect[2] - rect[0]) * cw, (rect[3] - rect[1]) * ch);
@@ -1239,7 +1271,7 @@ impl Window {
                 (start_c.get(), win.canvas_image_size(), g.widget(), g.start_point()) else { return };
             let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
             if let Some(b) = geom::point_to_frac(sx + dx, sy + dy, c) {
-                win.set_frame_rect(Some(geom::normalised(a, b)));
+                win.set_frame_rect(Some(win.orientation().rect_to_source(geom::normalised(a, b))));
             }
         });
 
@@ -1271,7 +1303,9 @@ impl Window {
                 return; // in the letterbox, not on the picture
             }
             if let Some((fx, fy)) = geom::point_to_frac(x, y, (cx, cy, cw, ch)) {
-                win.pick_pixel(tool, fx, fy);
+                // The picture may be turned: the pixel to read is in the scan.
+                let p = win.orientation().rect_to_source([fx, fy, fx, fy]);
+                win.pick_pixel(tool, p[0], p[1]);
             }
         });
         area.add_controller(pick);
@@ -1302,7 +1336,7 @@ impl Window {
 
     /// Record the drawn rectangle in the frame's geometry, in preview pixels.
     fn store_frame_crop(&self, idx: u32) {
-        let Some((iw, ih)) = self.canvas_image_size() else { return };
+        let Some((iw, ih)) = self.scan_image_size() else { return };
         let crop = self.frame_rect().map(|r| crate::canvas_geom::rect_to_crop(r, iw as u32, ih as u32));
         if let Some(f) = self.imp().roll.borrow_mut().as_mut().and_then(|r| r.frame_mut(idx)) {
             f.geometry.crop = crop;
@@ -1327,14 +1361,9 @@ impl Window {
         }
     }
 
-    /// Resolution for final scans: the roll's setting, else 1200 dpi.
+    /// Resolution for final scans: the roll's setting, else the session's.
     pub fn final_scan_dpi(&self) -> u32 {
-        self.imp()
-            .roll
-            .borrow()
-            .as_ref()
-            .and_then(|r| r.settings.resolution_dpi)
-            .unwrap_or(1200)
+        self.scan_dpi()
     }
 
     /// Scan the frame on the canvas, inside the rectangle drawn on it.
@@ -1390,9 +1419,14 @@ impl Window {
             .and_then(|_| RollStore::create(&parent, &name));
         match created {
             Ok(mut store) => {
+                // A new roll starts with the preferences.
+                {
+                    store.roll.settings.export = self.imp().prefs.borrow().export.clone();
+                    store.roll.settings.resolution_dpi = Some(self.imp().scan_dpi.get());
+                }
                 if let Some(old) = existing {
                     store.roll.frames = old.frames;
-                    store.roll.settings = old.settings;
+                    store.roll.settings.process = old.settings.process;
                 }
                 *self.imp().roll_root.borrow_mut() = Some(store.root().to_owned());
                 *self.imp().roll.borrow_mut() = Some(store.roll);
@@ -1461,6 +1495,9 @@ impl Window {
                     self.set_scan_controls_sensitive(false, false);
                 } else {
                     let first = caps.into_iter().next().unwrap();
+                    *self.imp().device_resolutions.borrow_mut() = first.resolutions.clone();
+                    self.imp().film_window_mm.set(first.film_window_mm);
+                    self.fill_resolutions();
                     let manual = first.holder == nv_device::HolderKind::ManualAdvance;
                     self.imp().manual_advance.set(manual);
                     if let Some(b) = self.imp().detect_btn.borrow().as_ref() { b.set_visible(!manual); }

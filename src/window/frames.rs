@@ -22,6 +22,7 @@ pub(super) struct Source {
     pub path: PathBuf,
     pub is_preview: bool,
     pub crop: Option<[u32; 4]>,
+    pub orientation: nv_process::Orientation,
 }
 
 fn now_iso() -> String {
@@ -70,11 +71,12 @@ impl Window {
     pub(super) fn frame_source(&self, idx: u32) -> Option<Source> {
         let roll = self.imp().roll.borrow();
         let frame = roll.as_ref()?.frame(idx)?;
+        let orient = nv_process::Orientation { rotation: frame.geometry.rotation % 4, flip_h: frame.geometry.flip_h, flip_v: frame.geometry.flip_v };
         if let Some(prev) = &frame.preview {
-            Some(Source { path: self.raw_file(prev)?, is_preview: true, crop: frame.geometry.crop })
+            Some(Source { path: self.raw_file(prev)?, is_preview: true, crop: frame.geometry.crop, orientation: orient })
         } else {
             let raw = frame.raw.as_ref()?;
-            Some(Source { path: self.raw_file(&raw.filename)?, is_preview: false, crop: None })
+            Some(Source { path: self.raw_file(&raw.filename)?, is_preview: false, crop: None, orientation: orient })
         }
     }
 
@@ -186,7 +188,7 @@ impl Window {
             .crop
             .filter(|_| src.is_preview)
             .and_then(|c| {
-                let (w, h) = self.canvas_image_size()?;
+                let (w, h) = self.scan_image_size()?;
                 geom::crop_to_rect(c, w as u32, h as u32)
             });
         self.imp().frame_rect.set(rect);
@@ -336,7 +338,9 @@ impl Window {
                         .crop
                         .filter(|_| src.is_preview)
                         .and_then(|c| geom::crop_to_rect(c, buf.width, buf.effective_height()));
-                    Some(buf.thumbnail_rgba(THUMB_SIDE, region))
+                    let (w, h, px) = buf.thumbnail_rgba(THUMB_SIDE, region);
+                    let (w, h, px) = src.orientation.apply(&px, w as usize, h as usize, 4);
+                    Some((w as u32, h as u32, px))
                 })
                 .await;
                 let Some(win) = weak.upgrade() else { return };
@@ -426,7 +430,7 @@ impl Window {
             .as_ref()
             .and_then(|p| self.raw_file(p))
             .is_some_and(|p| imp.displayed_file.borrow().as_deref() == Some(p.as_path()));
-        let (Some(preview), true, Some((iw, ih))) = (preview, showing_it, self.canvas_image_size()) else {
+        let (Some(preview), true, Some((iw, ih))) = (preview, showing_it, self.scan_image_size()) else {
             self.show_toast("Preview the film first");
             return;
         };

@@ -36,7 +36,7 @@ impl Window {
         if !self.imp().preview_ready.get() {
             return None;
         }
-        let (w, h) = self.canvas_image_size()?;
+        let (w, h) = self.scan_image_size()?;
         let crop = self.imp().roll.borrow().as_ref()?.frame(idx)?.geometry.crop?;
         let r = geom::crop_to_rect(crop, w as u32, h as u32)?;
         Some([r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32])

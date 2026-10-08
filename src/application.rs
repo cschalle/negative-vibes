@@ -37,6 +37,9 @@ mod imp {
             app.set_accels_for_action("win.undo", &["<Ctrl>z"]);
             app.set_accels_for_action("win.redo", &["<Ctrl>y", "<Ctrl><Shift>z"]);
             app.set_accels_for_action("win.export", &["<Ctrl>e"]);
+            app.set_accels_for_action("win.preferences", &["<Ctrl>comma"]);
+            app.set_accels_for_action("win.rotate-left", &["<Ctrl>Left"]);
+            app.set_accels_for_action("win.rotate-right", &["<Ctrl>Right"]);
             app.set_accels_for_action("win.scan-selected", &["<Ctrl>Return"]);
             app.set_accels_for_action("win.scan-all", &["<Ctrl><Shift>Return"]);
             app.set_accels_for_action("win.zoom-in", &["<Ctrl>plus", "<Ctrl>equal", "<Ctrl>KP_Add"]);

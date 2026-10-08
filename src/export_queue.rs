@@ -23,6 +23,8 @@ pub struct ExportJob {
     pub raw: PathBuf,
     /// What to render it with: the frame's effective settings.
     pub params: ProcessParams,
+    /// The frame's rotation and flips.
+    pub orientation: nv_process::Orientation,
     pub settings: ExportSettings,
     /// Folder (created if missing) and file name without extension.
     pub dir: PathBuf,
@@ -136,7 +138,7 @@ fn run(job: &ExportJob, events: &Sender<ExportEvent>, cancel: &AtomicBool) -> Re
             let _ = events.send_blocking(ExportEvent::Progress { id, fraction: f });
         }
     };
-    export_image(&raw, &frozen, &job.settings, &dest, &progress, cancel)
+    export_image(&raw, &frozen, job.orientation, &job.settings, &dest, &progress, cancel)
 }
 
 #[cfg(test)]
@@ -156,6 +158,7 @@ mod tests {
             label: format!("Frame {id}"),
             raw,
             params: nv_process::default_params_for(&builtin_profiles()[0]),
+            orientation: nv_process::Orientation::IDENTITY,
             settings: ExportSettings { bit_depth: 8, ..Default::default() },
             dir: dir.to_owned(),
             stem: "roll-01".into(),

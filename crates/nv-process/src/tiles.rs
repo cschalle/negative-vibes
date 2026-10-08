@@ -14,7 +14,7 @@ use std::sync::{mpsc, Arc};
 use nv_image::FrameBuf;
 
 use crate::params::{ImageType, ProcessParams};
-use crate::{conversion, estimate_film_base_proxy, render, render_toned, Proxy};
+use crate::{conversion, estimate_film_base_proxy, render, render_toned, Orientation, Proxy};
 
 /// Tile edge in pixels.
 pub const TILE: usize = 512;
@@ -100,6 +100,47 @@ pub fn render_toned_region(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0
             }
         }
     });
+    out
+}
+
+/// [`render_toned_region`] for the picture an [`Orientation`] makes of the
+/// scan: the `w × h` block at `(x0, y0)` *of the picture*. Only the part of
+/// the scan that block comes from is rendered, so an exporter can write a
+/// rotated frame band by band as cheaply as an upright one.
+pub fn render_toned_region_oriented(
+    raw: &FrameBuf,
+    frozen: &ProcessParams,
+    orientation: Orientation,
+    x0: usize,
+    y0: usize,
+    w: usize,
+    h: usize,
+    threads: usize,
+) -> Vec<f32> {
+    if orientation.is_identity() {
+        return render_toned_region(raw, frozen, x0, y0, w, h, threads);
+    }
+    let (sw, sh) = (raw.width as usize, raw.effective_height() as usize);
+    let (ow, oh) = orientation.output_size(sw, sh);
+    let (x1, y1) = ((x0 + w).min(ow), (y0 + h).min(oh));
+    if x0 >= x1 || y0 >= y1 {
+        return Vec::new();
+    }
+    let (w, h) = (x1 - x0, y1 - y0);
+
+    // The scan pixels the block comes from form a rectangle: the corners bound it.
+    let corners = [(x0, y0), (x1 - 1, y0), (x0, y1 - 1), (x1 - 1, y1 - 1)].map(|(x, y)| orientation.source_of(x, y, sw, sh));
+    let (bx0, bx1) = (corners.iter().map(|c| c.0).min().unwrap_or(0), corners.iter().map(|c| c.0).max().unwrap_or(0) + 1);
+    let (by0, by1) = (corners.iter().map(|c| c.1).min().unwrap_or(0), corners.iter().map(|c| c.1).max().unwrap_or(0) + 1);
+    let (bw, block) = (bx1 - bx0, render_toned_region(raw, frozen, bx0, by0, bx1 - bx0, by1 - by0, threads));
+
+    let mut out = Vec::with_capacity(w * h * 3);
+    for oy in y0..y1 {
+        for ox in x0..x1 {
+            let (sx, sy) = orientation.source_of(ox, oy, sw, sh);
+            out.extend_from_slice(&block[((sy - by0) * bw + (sx - bx0)) * 3..][..3]);
+        }
+    }
     out
 }
 
@@ -275,6 +316,28 @@ mod tests {
         let part = render_toned_region(&raw, &frozen, 200, 100, 700, 500, 2);
         assert_eq!(part.len(), 700 * 500 * 3);
         assert_eq!(&part[..3], &whole[((100 * 1300) + 200) * 3..][..3]);
+    }
+
+    #[test]
+    fn an_oriented_region_is_the_same_block_of_the_oriented_whole() {
+        let raw = scan(1300, 900);
+        let frozen = frozen_for(&raw, 0);
+        let whole = render_toned(&Proxy::from_raw(&raw, usize::MAX), &frozen);
+        for rotation in 0..4u8 {
+            for (flip_h, flip_v) in [(false, false), (true, false), (false, true)] {
+                let o = Orientation { rotation, flip_h, flip_v };
+                let (ow, oh, upright) = o.apply(&whole, 1300, 900, 3);
+                // A band across tile edges, and a block with ragged ends.
+                for (x0, y0, w, h) in [(0, 0, ow, 512.min(oh)), (300, 400, 700.min(ow - 300), 300.min(oh - 400)), (0, oh - 100, ow, 100)] {
+                    let got = render_toned_region_oriented(&raw, &frozen, o, x0, y0, w, h, 2);
+                    let mut want = Vec::new();
+                    for y in y0..y0 + h {
+                        want.extend_from_slice(&upright[(y * ow + x0) * 3..(y * ow + x0 + w) * 3]);
+                    }
+                    assert_eq!(got, want, "{o:?} block {x0},{y0} {w}x{h}");
+                }
+            }
+        }
     }
 
     #[test]

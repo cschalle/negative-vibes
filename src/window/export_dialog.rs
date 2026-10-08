@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use adw::subclass::prelude::ObjectSubclassIsExt;
-use nv_export::{ColourSpace, Compression, ExportFormat, ExportSettings};
+use nv_export::{ColourSpace, Compression, ExportFormat, ExportSettings, OutputSize};
 
 use super::Window;
 
@@ -36,6 +36,33 @@ impl Window {
             .adjustment(&gtk::Adjustment::new(current.jpeg_quality as f64, 1.0, 100.0, 1.0, 10.0, 0.0))
             .build();
         let space = combo("Colour Space", &["sRGB", "Adobe RGB (1998)"], SPACES.iter().position(|c| *c == current.colour_space).unwrap_or(0));
+        // Size: the named sizes, then a custom long edge or percentage.
+        let presets = OutputSize::presets();
+        let mut size_names: Vec<&str> = presets.iter().map(|(n, _)| *n).collect();
+        size_names.extend(["Long edge…", "Percent…"]);
+        let size_idx = |s: OutputSize| match presets.iter().position(|(_, p)| *p == s) {
+            Some(i) => i,
+            None => match s {
+                OutputSize::Percent { .. } => presets.len() + 1,
+                _ => presets.len(),
+            },
+        };
+        let size = combo("Size", &size_names, size_idx(current.size));
+        let size_value = adw::SpinRow::builder()
+            .title("Pixels")
+            .adjustment(&gtk::Adjustment::new(
+                match current.size {
+                    OutputSize::LongEdge { pixels } => pixels as f64,
+                    OutputSize::Percent { percent } => percent as f64,
+                    _ => 2048.0,
+                },
+                1.0,
+                100000.0,
+                1.0,
+                100.0,
+                0.0,
+            ))
+            .build();
         let grey = adw::SwitchRow::builder().title("Grey Output").subtitle("One grey channel, for black and white film").active(current.grey).build();
         let embed = adw::SwitchRow::builder().title("Embed Colour Profile").active(current.embed_profile).build();
         let template = adw::EntryRow::builder().title("File Name").text(&current.template).build();
@@ -53,14 +80,22 @@ impl Window {
 
         // The dialog's widgets as an ExportSettings.
         let read = {
-            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder) =
-                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), grey.clone(), embed.clone(), template.clone(), after_scan.clone(), folder.clone());
+            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value) =
+                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), grey.clone(), embed.clone(), template.clone(), after_scan.clone(), folder.clone(), size.clone(), size_value.clone());
             Rc::new(move || ExportSettings {
                 format: FORMATS[(format.selected() as usize).min(2)],
                 bit_depth: if depth.selected() == 1 { 16 } else { 8 },
                 compression: COMPRESSIONS[(compression.selected() as usize).min(2)],
                 jpeg_quality: quality.value() as u8,
                 colour_space: SPACES[(space.selected() as usize).min(1)],
+                size: {
+                    let n = OutputSize::presets().len();
+                    match size.selected() as usize {
+                        i if i < n => OutputSize::presets()[i].1,
+                        i if i == n => OutputSize::LongEdge { pixels: size_value.value() as u32 },
+                        _ => OutputSize::Percent { percent: size_value.value() as f32 },
+                    }
+                },
                 grey: grey.is_active(),
                 embed_profile: embed.is_active(),
                 folder: folder.borrow().clone(),
@@ -71,8 +106,8 @@ impl Window {
 
         // What applies to what, and the example name.
         let refresh = {
-            let (win, read, depth, compression, quality, preview, folder_row, folder) =
-                (self.downgrade(), read.clone(), depth.clone(), compression.clone(), quality.clone(), preview.clone(), folder_row.clone(), folder.clone());
+            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value) =
+                (self.downgrade(), read.clone(), depth.clone(), compression.clone(), quality.clone(), preview.clone(), folder_row.clone(), folder.clone(), size.clone(), size_value.clone());
             Rc::new(move || {
                 let Some(win) = win.upgrade() else { return };
                 let s = read();
@@ -83,6 +118,10 @@ impl Window {
                 }
                 compression.set_sensitive(s.format == ExportFormat::Tiff);
                 quality.set_sensitive(jpeg);
+                let n = OutputSize::presets().len();
+                let custom = size.selected() as usize >= n;
+                size_value.set_visible(custom);
+                size_value.set_title(if size.selected() as usize == n { "Long Edge (px)" } else { "Percent" });
                 let example_frame = selected.or_else(|| win.imp().roll.borrow().as_ref().and_then(|r| r.frames.first().map(|f| f.index))).unwrap_or(1);
                 match win.export_stem(example_frame, &s.template) {
                     Ok(stem) => {
@@ -100,13 +139,17 @@ impl Window {
         };
         refresh();
 
-        for row in [&format, &depth, &compression, &space] {
+        for row in [&format, &depth, &compression, &space, &size] {
             let refresh = refresh.clone();
             row.connect_selected_notify(move |_| refresh());
         }
         {
             let refresh = refresh.clone();
             template.connect_changed(move |_| refresh());
+        }
+        {
+            let refresh = refresh.clone();
+            size_value.connect_value_notify(move |_| refresh());
         }
 
         // A preset fills in the format, depth, compression, quality and colour; the folder and name stay.
@@ -154,6 +197,8 @@ impl Window {
             g_format.add(r);
         }
         g_format.add(&quality);
+        g_format.add(&size);
+        g_format.add(&size_value);
         for w in [space.upcast_ref::<gtk::Widget>(), grey.upcast_ref(), embed.upcast_ref()] {
             g_colour.add(w);
         }
