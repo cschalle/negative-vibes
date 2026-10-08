@@ -192,20 +192,38 @@ pub fn export_image_straightened(
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
 ) -> Result<ExportReport, ExportError> {
+    export_image_with(raw, frozen, orientation, angle_deg, None, settings, dest, progress, cancel)
+}
+
+/// [`export_image_straightened`] with an XMP packet (see [`crate::metadata`])
+/// embedded in the file, when `xmp` is given and the settings allow it.
+#[allow(clippy::too_many_arguments)]
+pub fn export_image_with(
+    raw: &FrameBuf,
+    frozen: &ProcessParams,
+    orientation: Orientation,
+    angle_deg: f32,
+    xmp: Option<&[u8]>,
+    settings: &ExportSettings,
+    dest: &Path,
+    progress: &dyn Fn(f32),
+    cancel: &AtomicBool,
+) -> Result<ExportReport, ExportError> {
+    let xmp = xmp.filter(|_| settings.embed_metadata);
     let (sw, sh) = (raw.width as usize, raw.effective_height() as usize);
     if sw == 0 || sh == 0 {
         return Err(ExportError::Empty);
     }
     let s = settings.normalised();
     if s.format == ExportFormat::Dng {
-        return export_dng(raw, frozen, orientation, dest, progress, cancel);
+        return export_dng(raw, frozen, orientation, xmp, dest, progress, cancel);
     }
     // The picture the orientation makes, and the size it is exported at.
     let (pw, ph) = orientation.output_size(sw, sh);
     let (w, h) = s.size.dims(pw, ph);
     let part = temp_name(dest);
 
-    let result = write_file(raw, frozen, orientation, angle_deg, &s, &part, (pw, ph), (w, h), progress, cancel);
+    let result = write_file(raw, frozen, orientation, angle_deg, xmp, &s, &part, (pw, ph), (w, h), progress, cancel);
     match result {
         Ok(()) => {
             std::fs::rename(&part, dest)?;
@@ -221,11 +239,11 @@ pub fn export_image_straightened(
 
 /// The raw scan as a linear DNG: the frame's orientation rides along as a
 /// tag, and the scanner's profile, if the frame uses one, in the colour matrix.
-fn export_dng(raw: &FrameBuf, frozen: &ProcessParams, orientation: Orientation, dest: &Path, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<ExportReport, ExportError> {
+fn export_dng(raw: &FrameBuf, frozen: &ProcessParams, orientation: Orientation, xmp: Option<&[u8]>, dest: &Path, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<ExportReport, ExportError> {
     let part = temp_name(dest);
     let result = (|| {
         let file = BufWriter::new(File::create(&part)?);
-        crate::dng::write_dng(file, raw, orientation, frozen.input.as_ref(), &crate::dng::DngInfo::default(), progress, cancel)
+        crate::dng::write_dng(file, raw, orientation, frozen.input.as_ref(), &crate::dng::DngInfo::default(), xmp, progress, cancel)
     })();
     match result {
         Ok((width, height)) => {
@@ -245,6 +263,7 @@ fn write_file(
     frozen: &ProcessParams,
     orientation: Orientation,
     angle_deg: f32,
+    xmp: Option<&[u8]>,
     s: &ExportSettings,
     part: &Path,
     (pw, ph): (usize, usize),
@@ -293,9 +312,9 @@ fn write_file(
     };
 
     match s.format {
-        ExportFormat::Tiff => write_tiff(file, s, w, h, profile.as_deref(), &mut bands),
-        ExportFormat::Png => write_png(file, s, w, h, profile.as_deref(), &mut bands),
-        ExportFormat::Jpeg => write_jpeg(file, s, w, h, profile.as_deref(), &mut bands),
+        ExportFormat::Tiff => write_tiff(file, s, w, h, profile.as_deref(), xmp, &mut bands),
+        ExportFormat::Png => write_png(file, s, w, h, profile.as_deref(), xmp, &mut bands),
+        ExportFormat::Jpeg => write_jpeg(file, s, w, h, profile.as_deref(), xmp, &mut bands),
         ExportFormat::Dng => unreachable!("a DNG is written from the raw scan, not from bands"),
     }
 }
@@ -304,9 +323,9 @@ type Bands<'a> = &'a mut dyn FnMut(&mut dyn FnMut(Samples, usize) -> Result<(), 
 
 // ── TIFF ──────────────────────────────────────────────────────────────────────
 
-fn write_tiff<W: Write + Seek>(out: W, s: &ExportSettings, w: usize, h: usize, profile: Option<&[u8]>, bands: Bands) -> Result<(), ExportError> {
+fn write_tiff<W: Write + Seek>(out: W, s: &ExportSettings, w: usize, h: usize, profile: Option<&[u8]>, xmp: Option<&[u8]>, bands: Bands) -> Result<(), ExportError> {
     let channels = if s.grey { 1 } else { 3 };
-    let mut tiff = TiffWriter::new(out, w as u32, h as u32, channels, s.bit_depth as u16, s.compression, TIFF_STRIP_ROWS, profile.map(<[u8]>::to_vec))?;
+    let mut tiff = TiffWriter::new(out, w as u32, h as u32, channels, s.bit_depth as u16, s.compression, TIFF_STRIP_ROWS, profile.map(<[u8]>::to_vec))?.with_xmp(xmp.map(<[u8]>::to_vec));
     bands(&mut |samples, rows| {
         match samples {
             Samples::U8(v) => tiff.write_rows_u8(rows as u32, &v)?,
@@ -320,13 +339,17 @@ fn write_tiff<W: Write + Seek>(out: W, s: &ExportSettings, w: usize, h: usize, p
 
 // ── PNG ───────────────────────────────────────────────────────────────────────
 
-fn write_png<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile: Option<&[u8]>, bands: Bands) -> Result<(), ExportError> {
+fn write_png<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile: Option<&[u8]>, xmp: Option<&[u8]>, bands: Bands) -> Result<(), ExportError> {
     let png_err = |e: png::EncodingError| ExportError::Png(e.to_string());
     let mut info = png::Info::with_size(w as u32, h as u32);
     info.color_type = if s.grey { png::ColorType::Grayscale } else { png::ColorType::Rgb };
     info.bit_depth = if s.bit_depth == 16 { png::BitDepth::Sixteen } else { png::BitDepth::Eight };
     if let Some(p) = profile {
         info.icc_profile = Some(std::borrow::Cow::Owned(p.to_vec()));
+    }
+    if let Some(x) = xmp {
+        // XMP lives in an uncompressed iTXt chunk with this keyword (XMP specification, part 3).
+        info.utf8_text.push(png::text_metadata::ITXtChunk::new("XML:com.adobe.xmp", String::from_utf8_lossy(x).into_owned()));
     }
     let encoder = png::Encoder::with_info(out, info).map_err(png_err)?;
     let mut writer = encoder.write_header().map_err(png_err)?;
@@ -345,7 +368,7 @@ fn write_png<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile: 
 
 // ── JPEG ──────────────────────────────────────────────────────────────────────
 
-fn write_jpeg<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile: Option<&[u8]>, bands: Bands) -> Result<(), ExportError> {
+fn write_jpeg<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile: Option<&[u8]>, xmp: Option<&[u8]>, bands: Bands) -> Result<(), ExportError> {
     if w > u16::MAX as usize || h > u16::MAX as usize {
         return Err(ExportError::Jpeg("a JPEG cannot be wider or taller than 65535 pixels".into()));
     }
@@ -363,6 +386,14 @@ fn write_jpeg<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile:
     }
     if let Some(p) = profile {
         enc.add_icc_profile(p).map_err(|e| ExportError::Jpeg(e.to_string()))?;
+    }
+    if let Some(x) = xmp {
+        // One APP1 segment holds up to 65502 bytes after its namespace.
+        const NS: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+        if NS.len() + x.len() > 65533 {
+            return Err(ExportError::Jpeg("the metadata is too long for a JPEG; shorten the caption or keywords".into()));
+        }
+        enc.add_app_segment(1, &[NS, x].concat()).map_err(|e| ExportError::Jpeg(e.to_string()))?;
     }
     let color = if s.grey { jpeg_encoder::ColorType::Luma } else { jpeg_encoder::ColorType::Rgb };
     enc.encode(&pixels, w as u16, h as u16, color).map_err(|e| ExportError::Jpeg(e.to_string()))

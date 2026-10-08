@@ -511,3 +511,50 @@ fn independent_readers_accept_the_dng_and_see_its_orientation() {
         assert_eq!(decoded.width * decoded.effective_height(), raw.width * raw.effective_height(), "decoded size");
     }
 }
+
+/// Every format carries the XMP packet, and an independent reader (exiv2) finds the fields.
+#[test]
+fn metadata_is_embedded_in_every_format_and_read_back_by_exiv2() {
+    use nv_export::metadata::{xmp_packet, FrameInfo, Metadata};
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("xmp");
+    let meta = Metadata {
+        creator: "Ann Example".into(),
+        title: "Harbour".into(),
+        caption: "Boats & \"dawn\"".into(),
+        keywords: vec!["boats".into(), "harbour".into()],
+        copyright: "© 1987 Ann".into(),
+        city: "Oslo".into(),
+        country: "Norway".into(),
+        date_taken: "1987-06-15".into(),
+        film_stock: "Kodak Portra 400".into(),
+        ..Default::default()
+    };
+    let info = FrameInfo { roll: "Roll 7".into(), frame_number: Some(12), scanner: "Plustek OpticFilm 8200i".into(), resolution_dpi: Some(600), scan_date: "2026-10-08T12:00:00Z".into(), ..Default::default() };
+    let xmp = xmp_packet(&meta, &info);
+    for (format, ext) in [(nv_export::ExportFormat::Tiff, "tif"), (nv_export::ExportFormat::Jpeg, "jpg"), (nv_export::ExportFormat::Png, "png"), (nv_export::ExportFormat::Dng, "dng")] {
+        let s = ExportSettings { format, bit_depth: if format == nv_export::ExportFormat::Jpeg { 8 } else { 16 }, ..Default::default() };
+        let dest = dir.join(format!("m.{ext}"));
+        nv_export::export_image_with(&raw, &frozen, Orientation::IDENTITY, 0.0, Some(&xmp), &s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap_or_else(|e| panic!("{ext}: {e}"));
+        // The packet is in the file byte for byte (PNG stores it as text, which is the same bytes for UTF-8).
+        let bytes = std::fs::read(&dest).unwrap();
+        assert!(bytes.windows(xmp.len()).any(|w| w == &xmp[..]), "{ext}: the packet is not in the file");
+        let Some(tags) = run("exiv2", &["-pa", dest.to_str().unwrap()]) else { continue };
+        if !tags.contains("Xmp.") {
+            panic!("{ext}: exiv2 sees no XMP:\n{tags}");
+        }
+        for want in ["Xmp.dc.creator", "Ann Example", "Xmp.dc.subject", "boats", "Xmp.photoshop.City", "Oslo", "Xmp.dc.title", "Harbour", "Xmp.photoshop.DateCreated", "1987-06-15", "Xmp.nv.FilmStock", "Kodak Portra 400", "Xmp.nv.ScanResolution"] {
+            assert!(tags.contains(want), "{ext}: exiv2 does not report {want}:\n{tags}");
+        }
+        // The file is still the picture.
+        if format == nv_export::ExportFormat::Tiff {
+            let (w, h, ct, _, _) = tiff_pixels(&dest);
+            assert_eq!((w, h, ct), (864, 645, tiff::ColorType::RGB(16)));
+        }
+    }
+    // Turned off, or not given: no packet.
+    let off = ExportSettings { embed_metadata: false, ..Default::default() };
+    let dest = dir.join("off.tif");
+    nv_export::export_image_with(&raw, &frozen, Orientation::IDENTITY, 0.0, Some(&xmp), &off, &dest, &|_| {}, &AtomicBool::new(false)).unwrap();
+    assert!(!std::fs::read(&dest).unwrap().windows(9).any(|w| w == b"xpacket b"));
+}

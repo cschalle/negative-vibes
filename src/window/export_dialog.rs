@@ -68,6 +68,7 @@ impl Window {
         let template = adw::EntryRow::builder().title("File Name").text(&current.template).build();
         let preview = adw::ActionRow::builder().title("Example").subtitle("").build();
         preview.add_css_class("property");
+        let embed_meta = adw::SwitchRow::builder().title("Embed Metadata").subtitle("The author, caption and film details from Metadata (Ctrl+I)").active(current.embed_metadata).build();
         let after_scan = adw::SwitchRow::builder().title("Export After Each Scan").active(current.after_scan).build();
         let frames = combo("Frames", &["Selected Frame", "All Scanned Frames"], 0);
 
@@ -80,10 +81,11 @@ impl Window {
 
         // The dialog's widgets as an ExportSettings.
         let read = {
-            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value) =
-                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), grey.clone(), embed.clone(), template.clone(), after_scan.clone(), folder.clone(), size.clone(), size_value.clone());
+            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value, embed_meta) =
+                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), grey.clone(), embed.clone(), template.clone(), after_scan.clone(), folder.clone(), size.clone(), size_value.clone(), embed_meta.clone());
+            let metadata = current.metadata.clone();
             Rc::new(move || ExportSettings {
-                format: FORMATS[(format.selected() as usize).min(2)],
+                format: FORMATS[(format.selected() as usize).min(3)],
                 bit_depth: if depth.selected() == 1 { 16 } else { 8 },
                 compression: COMPRESSIONS[(compression.selected() as usize).min(2)],
                 jpeg_quality: quality.value() as u8,
@@ -101,6 +103,8 @@ impl Window {
                 folder: folder.borrow().clone(),
                 template: template.text().to_string(),
                 after_scan: after_scan.is_active(),
+                metadata: metadata.clone(),
+                embed_metadata: embed_meta.is_active(),
             })
         };
 
@@ -211,6 +215,7 @@ impl Window {
         g_files.add(&folder_row);
         g_files.add(&template);
         g_files.add(&preview);
+        g_files.add(&embed_meta);
         g_files.add(&after_scan);
         g_which.add(&frames);
         for grp in [&g_preset, &g_format, &g_colour, &g_files, &g_which] {

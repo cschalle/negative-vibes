@@ -185,6 +185,7 @@ pub fn write_dng<W: Write + Seek>(
     orientation: Orientation,
     input: Option<&InputProfile>,
     info: &DngInfo,
+    xmp: Option<&[u8]>,
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
 ) -> Result<(u32, u32), ExportError> {
@@ -258,9 +259,7 @@ pub fn write_dng<W: Write + Seek>(
         ],
     )?;
     let m = color_matrix(input);
-    let first = write_ifd(
-        &mut out,
-        vec![
+    let mut tags = vec![
             long(254, &[1]),
             long(256, &[tw]),
             long(257, &[th]),
@@ -283,8 +282,11 @@ pub fn write_dng<W: Write + Seek>(
             rationals(50721, &m.iter().flatten().cloned().collect::<Vec<_>>()),
             unsigned_rationals(50728, &[1, 1, 1]),
             short(50778, &[21]), // CalibrationIlluminant1: D65
-        ],
-    )?;
+    ];
+    if let Some(x) = xmp {
+        tags.push(Entry { tag: 700, typ: BYTE, count: x.len() as u32, data: x.to_vec() });
+    }
+    let first = write_ifd(&mut out, tags)?;
     out.seek(SeekFrom::Start(4))?;
     out.write_all(&first.to_le_bytes())?;
     out.flush()?;
@@ -351,11 +353,11 @@ mod tests {
     #[test]
     fn an_empty_scan_is_refused_and_cancelling_stops() {
         let empty = FrameBuf::new(0, Some(0), 16, 3);
-        let r = write_dng(Cursor::new(Vec::new()), &empty, Orientation::IDENTITY, None, &DngInfo::default(), &|_| {}, &AtomicBool::new(false));
+        let r = write_dng(Cursor::new(Vec::new()), &empty, Orientation::IDENTITY, None, &DngInfo::default(), None, &|_| {}, &AtomicBool::new(false));
         assert!(matches!(r, Err(ExportError::Empty)));
         let mut b = FrameBuf::new(4, Some(4), 8, 3);
         b.append(&[7u8; 48]);
-        let r = write_dng(Cursor::new(Vec::new()), &b, Orientation::IDENTITY, None, &DngInfo::default(), &|_| {}, &AtomicBool::new(true));
+        let r = write_dng(Cursor::new(Vec::new()), &b, Orientation::IDENTITY, None, &DngInfo::default(), None, &|_| {}, &AtomicBool::new(true));
         assert!(matches!(r, Err(ExportError::Cancelled)));
     }
 }

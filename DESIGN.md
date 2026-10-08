@@ -1224,6 +1224,24 @@ Verified: our own reader gets the scan back sample for sample, exiv2 reads every
 including the orientation, and libraw (through ImageMagick) decodes it. Not verified in
 darktable/RawTherapee/Lightroom themselves, which are not installed here.
 
+**M7 status, second slice: metadata.** `nv-export::metadata` holds the F§10 fields (photographer,
+title, headline, caption, keywords, copyright, credit, source, special instructions, city,
+province, country, date taken, original camera and lens, film) and builds one XMP packet per
+frame: Dublin Core, Photoshop (IPTC core), `exif:DateTimeOriginal`, and the app's `nv:`
+namespace for scanner, resolution, roll, frame and film, plus `xmp:CreateDate` (the scan
+date) and the creator tool. The frame's label is the title when none was written, and the
+film profile names the film when none was typed (generic profiles do not). The packet is
+embedded in TIFF (tag 700), JPEG (APP1), PNG (iTXt `XML:com.adobe.xmp`) and DNG (tag 700);
+the metadata is stored with the roll's export settings and can be switched off per roll.
+Presets are one JSON file each in `$XDG_DATA_HOME/negative-vibes/metadata/`. In the app: the
+Metadata dialog (Ctrl+I, main menu) edits the roll's fields and saves, applies or deletes
+presets; the Export dialog has an Embed Metadata switch. Verified: every format round-trips
+through exiv2, which reports the creator, subject, city, title, date and `nv:` fields; a
+well-formedness and escaping test covers hostile characters. Not written: the legacy
+IPTC-IIM block and EXIF tags in JPEG (XMP is what current software reads), and per-frame
+overrides beyond the label. Also fixed in this slice: the DNG choice in the Export dialog
+could not be selected (the format index was capped at PNG).
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

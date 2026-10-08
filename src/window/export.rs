@@ -92,6 +92,15 @@ impl Window {
             self.add_action(&action);
         }
 
+        let metadata = gio::SimpleAction::new("metadata", None);
+        let weak = self.downgrade();
+        metadata.connect_activate(move |_, _| {
+            if let Some(win) = weak.upgrade() {
+                win.open_metadata_dialog();
+            }
+        });
+        self.add_action(&metadata);
+
         let calibrate = gio::SimpleAction::new("calibrate", None);
         let weak = self.downgrade();
         calibrate.connect_activate(move |_, _| {
@@ -156,6 +165,37 @@ impl Window {
         )
     }
 
+    /// The XMP packet for frame `idx`: what the person wrote for the roll plus
+    /// what is known about the frame and its scan. `None` when switched off.
+    pub(super) fn frame_xmp(&self, idx: u32, settings: &ExportSettings) -> Option<Vec<u8>> {
+        if !settings.embed_metadata {
+            return None;
+        }
+        let roll = self.imp().roll.borrow();
+        let roll = roll.as_ref()?;
+        let frame = roll.frame(idx);
+        let scan = frame.and_then(|f| f.raw.as_ref()).map(|r| &r.scan);
+        let info = nv_export::metadata::FrameInfo {
+            roll: roll.name.clone(),
+            frame_number: Some(idx),
+            label: frame.and_then(|f| f.label.clone()).unwrap_or_default(),
+            scanner: roll.device_id.clone().unwrap_or_default(),
+            resolution_dpi: scan.map(|s| s.resolution_dpi),
+            scan_date: scan.map(|s| s.scanned_at.clone()).unwrap_or_default(),
+            film_profile: {
+                // A generic profile says nothing about the film.
+                let p = self.effective_params(idx).profile;
+                if p.vendor == "Generic" { String::new() } else { format!("{} {}", p.vendor, p.name) }
+            },
+        };
+        // The roll's film stock fills the field when the person left it empty.
+        let mut meta = settings.metadata.clone();
+        if meta.film_stock.trim().is_empty() {
+            meta.film_stock = roll.film_stock.clone().unwrap_or_default();
+        }
+        Some(nv_export::metadata::xmp_packet(&meta, &info))
+    }
+
     /// Queue the frames' scans for export with the roll's export settings.
     /// Frames that have not been scanned are skipped, and the toast says so.
     pub(super) fn queue_export(&self, frames: &[u32]) {
@@ -181,7 +221,7 @@ impl Window {
             self.imp().next_export_id.set(id);
             let label = format!("Frame {idx}");
             self.imp().export_jobs.borrow_mut().push(JobInfo { id, frame: idx, label: label.clone(), state: JobState::Queued, fraction: 0.0 });
-            queue.enqueue(ExportJob { id, frame: idx, label, raw, params: self.effective_params(idx), orientation: self.orientation_of(idx), angle: self.angle_of(idx), settings: settings.clone(), dir: dir.clone(), stem });
+            queue.enqueue(ExportJob { id, frame: idx, label, raw, params: self.effective_params(idx), orientation: self.orientation_of(idx), angle: self.angle_of(idx), xmp: self.frame_xmp(idx, &settings), settings: settings.clone(), dir: dir.clone(), stem });
             queued += 1;
         }
         self.refresh_queue_ui();

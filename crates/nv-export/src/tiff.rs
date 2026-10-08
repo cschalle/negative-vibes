@@ -14,6 +14,7 @@ use std::io::{self, Seek, SeekFrom, Write};
 
 use crate::settings::Compression;
 
+const BYTE: u16 = 1;
 const SHORT: u16 = 3;
 const LONG: u16 = 4;
 const ASCII: u16 = 2;
@@ -28,6 +29,7 @@ pub struct TiffWriter<W: Write + Seek> {
     compression: Compression,
     rows_per_strip: u32,
     profile: Option<Vec<u8>>,
+    xmp: Option<Vec<u8>>,
     strips: Vec<(u32, u32)>,
     rows_written: u32,
 }
@@ -36,11 +38,17 @@ impl<W: Write + Seek> TiffWriter<W> {
     pub fn new(mut out: W, width: u32, height: u32, channels: u16, depth: u16, compression: Compression, rows_per_strip: u32, profile: Option<Vec<u8>>) -> io::Result<Self> {
         // Header: byte order, magic, and room for the directory offset.
         out.write_all(b"II*\0\0\0\0\0")?;
-        Ok(Self { out, width, height, channels, depth, compression, rows_per_strip, profile, strips: Vec::new(), rows_written: 0 })
+        Ok(Self { out, width, height, channels, depth, compression, rows_per_strip, profile, xmp: None, strips: Vec::new(), rows_written: 0 })
     }
 
     /// Write the next `rows` rows as strips of `rows_per_strip`, compressing
     /// the strips of this call on all cores. `samples` are 8-bit.
+    /// Embed an XMP packet (tag 700).
+    pub fn with_xmp(mut self, xmp: Option<Vec<u8>>) -> Self {
+        self.xmp = xmp;
+        self
+    }
+
     pub fn write_rows_u8(&mut self, rows: u32, samples: &[u8]) -> io::Result<()> {
         self.write_rows(rows, samples.len(), |range| samples[range].to_vec())
     }
@@ -133,6 +141,9 @@ impl<W: Write + Seek> TiffWriter<W> {
         if self.channels == 4 {
             // The fourth sample is infrared, which has no TIFF name: "unspecified".
             entries.push((338, SHORT, 1, short(0)));
+        }
+        if let Some(x) = &self.xmp {
+            entries.push((700, BYTE, x.len() as u32, x.clone()));
         }
         if let Some(p) = &self.profile {
             entries.push((34675, UNDEFINED, p.len() as u32, p.clone()));

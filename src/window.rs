@@ -277,6 +277,7 @@ mod export_dialog;
 mod frames;
 mod history;
 mod loupe;
+mod metadata_ui;
 mod navigator;
 mod mask;
 mod orient;
@@ -353,6 +354,7 @@ impl Window {
         let queue_btn = self.build_queue_button();
 
         let main_menu = gio::Menu::new();
+        main_menu.append(Some("Metadata…"), Some("win.metadata"));
         main_menu.append(Some("Calibrate with IT8 Target…"), Some("win.calibrate"));
         let film_menu = gio::Menu::new();
         film_menu.append(Some("Create Film Profile…"), Some("win.film-create"));

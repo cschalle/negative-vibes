@@ -109,6 +109,9 @@ pub struct ExportSettings {
     pub template: String,
     /// Export automatically after each scan.
     pub after_scan: bool,
+    /// What the person wrote for the roll (F§10), and whether it goes into the files.
+    pub metadata: crate::metadata::Metadata,
+    pub embed_metadata: bool,
 }
 
 impl Default for ExportSettings {
@@ -125,6 +128,8 @@ impl Default for ExportSettings {
             folder: None,
             template: "{roll}-{frame:02}".to_owned(),
             after_scan: true,
+            metadata: Default::default(),
+            embed_metadata: true,
         }
     }
 }
