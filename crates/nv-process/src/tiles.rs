@@ -27,9 +27,27 @@ pub fn freeze(proxy: &Proxy, params: &ProcessParams) -> ProcessParams {
     if proxy.is_empty() {
         return p;
     }
+    // Local contrast is measured on the whole picture, once: a tile measuring
+    // its own would equalise against a neighbourhood the size of the tile.
+    if p.detail.local_contrast > 0.0 && p.detail.aaco.is_none() {
+        let mut plain = p.clone();
+        plain.detail = crate::DetailParams::default();
+        plain.dust.mode = DustMode::Off;
+        let toned = crate::render_toned_q(proxy, &plain, crate::Quality::Preview);
+        p.detail.aaco = Some(crate::detail::measure_grid(&toned, proxy.width, proxy.height));
+    }
     // A mark bigger than this is not dust, however it is cut into tiles.
     let full_pixels = proxy.width * proxy.height * proxy.factor * proxy.factor;
     p.dust.max_area.get_or_insert(((0.004 * full_pixels as f64) as usize).max(50));
+    // The offset of the infrared is a property of the scan: measure it once on
+    // the proxy, and every tile uses that.
+    if p.dust.mode != DustMode::Off && p.dust.align && p.dust.ir_shift.is_none() {
+        if let Some(ir) = &proxy.ir {
+            let f = proxy.factor as f32;
+            let s = crate::dust::estimate_shift(&proxy.pixels, ir, proxy.width, proxy.height, proxy.factor).unwrap_or([0.0, 0.0]);
+            p.dust.ir_shift = Some([s[0] * f, s[1] * f]);
+        }
+    }
     match p.image_type {
         ImageType::Positive => {
             if p.conversion.positive_range.is_none() {
@@ -385,6 +403,30 @@ mod tests {
         let mut plain = frozen.clone();
         plain.detail = Default::default();
         assert_ne!(render_toned(&Proxy::from_raw(&raw, usize::MAX), &plain), whole);
+    }
+
+    /// Local contrast is measured over the whole picture by `freeze`; with
+    /// that grid every tile equalises as the whole picture does.
+    #[test]
+    fn local_contrast_tiles_without_seams() {
+        let raw = scan(1300, 900);
+        let mut params = crate::default_params_for(&builtin_profiles()[0]);
+        params.dust.mode = DustMode::Off;
+        params.detail.local_contrast = 80.0;
+        let frozen = freeze(&Proxy::from_raw(&raw, usize::MAX), &params);
+        assert!(frozen.detail.aaco.is_some(), "freeze did not measure the grid");
+        let whole = render_toned(&Proxy::from_raw(&raw, usize::MAX), &frozen);
+        let tiled = render_toned_region(&raw, &frozen, 0, 0, 1300, 900, 3);
+        let worst = whole.iter().zip(&tiled).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(worst < 1e-4, "a seam of {worst}");
+        let mut plain = frozen.clone();
+        plain.detail = Default::default();
+        assert_ne!(render_toned(&Proxy::from_raw(&raw, usize::MAX), &plain), whole, "local contrast did nothing");
+        // A grid measured on a reduced copy is close to the one measured on the whole.
+        let reduced = freeze(&Proxy::from_raw(&raw, 100_000), &params);
+        let (a, b) = (render_toned(&Proxy::from_raw(&raw, usize::MAX), &reduced), whole.clone());
+        let mean = a.iter().zip(&b).map(|(x, y)| (x - y).abs()).sum::<f32>() / a.len() as f32;
+        assert!(mean < 0.02, "a proxy-measured grid differs by {mean} on average");
     }
 
     #[test]

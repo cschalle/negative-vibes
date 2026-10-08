@@ -139,3 +139,17 @@ fn strokes_agree_between_tiles_and_the_whole_picture() {
     let mean = xs.iter().sum::<usize>() as f64 / xs.len() as f64 / p.width as f64;
     assert!((mean - 0.58).abs() < 0.04, "centre at {mean}");
 }
+
+/// The 8200i delivers its infrared registered with the colour, and the
+/// estimator agrees: it finds (almost) no offset on the real scan.
+#[test]
+fn the_real_infrared_is_registered_with_the_colour() {
+    let p = tulip();
+    let s = nv_process::dust::estimate_shift(&p.pixels, p.ir.as_ref().unwrap(), p.width, p.height, 1).expect("structure to correlate");
+    assert!(s[0].abs() < 0.5 && s[1].abs() < 0.5, "the estimator found an offset of {s:?} on a registered scan");
+    // Shifted by hand, it finds that.
+    let ir = p.ir.as_ref().unwrap();
+    let moved = nv_process::dust::shift_plane(ir, p.width, p.height, -6.0, 4.0);
+    let s = nv_process::dust::estimate_shift(&p.pixels, &moved, p.width, p.height, 1).unwrap();
+    assert!((s[0] - 6.0).abs() < 0.6 && (s[1] + 4.0).abs() < 0.6, "{s:?}");
+}

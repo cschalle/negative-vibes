@@ -37,11 +37,12 @@ pub struct Settings {
     pub usm_radius: Option<f32>,
     pub usm_threshold: Option<u8>,
     pub noise: Option<crate::detail::NoiseLevel>,
+    pub local_contrast: Option<f32>,
 }
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise)
+        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast)
     };
 }
 
@@ -80,6 +81,7 @@ impl Settings {
         if let Some(v) = self.usm_radius { p.detail.usm.radius = v; }
         if let Some(v) = self.usm_threshold { p.detail.usm.threshold = v; }
         if let Some(v) = self.noise { p.detail.noise = v; }
+        if let Some(v) = self.local_contrast { p.detail.local_contrast = v; }
     }
 
     /// The fields that differ between `old` and `new`.
@@ -123,6 +125,7 @@ impl Settings {
             usm_radius: chf(old.detail.usm.radius, new.detail.usm.radius),
             usm_threshold: ch(old.detail.usm.threshold, new.detail.usm.threshold),
             noise: ch(old.detail.noise, new.detail.noise),
+            local_contrast: chf(old.detail.local_contrast, new.detail.local_contrast),
         }
     }
 

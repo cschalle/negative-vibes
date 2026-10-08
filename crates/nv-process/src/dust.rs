@@ -161,6 +161,14 @@ pub struct DustParams {
     pub mark: [f32; 3],
     /// Where dust removal must leave the picture alone (F§6 mask: fine detail
     /// such as stars or eyelashes).
+    /// Line the infrared up with the colour before looking for dust, when it
+    /// is offset (F§6: a scanner's passes need not register; up to 20 pixels).
+    #[serde(default = "default_true")]
+    pub align: bool,
+    /// The offset to apply, in scan pixels, once measured on the whole picture
+    /// (so every tile uses the same one). `None` measures it.
+    #[serde(default)]
+    pub ir_shift: Option<[f32; 2]>,
     #[serde(default)]
     pub exclude: Vec<Stroke>,
     /// Where it must repair, whether or not anything was detected.
@@ -174,13 +182,17 @@ pub struct DustParams {
     pub max_area: Option<usize>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_mark() -> [f32; 3] {
     [1.0, 0.0, 1.0]
 }
 
 impl Default for DustParams {
     fn default() -> Self {
-        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), exclude: Vec::new(), include: Vec::new(), detection: 12, max_area: None }
+        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), align: true, ir_shift: None, exclude: Vec::new(), include: Vec::new(), detection: 12, max_area: None }
     }
 }
 
@@ -223,6 +235,155 @@ fn median_mad(v: &[f32]) -> (f32, f32) {
     let m = median(&mut a);
     let mut d: Vec<f32> = v.iter().map(|x| (x - m).abs()).collect();
     (m, median(&mut d))
+}
+
+// ── Registration ──────────────────────────────────────────────────────────────
+
+/// The farthest the infrared may be out of line with the colour, in scan pixels.
+pub const MAX_SHIFT: usize = 20;
+
+/// Gradient magnitude of a plane.
+fn edges(a: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let mut out = vec![0f32; w * h];
+    for y in 1..h.saturating_sub(1) {
+        for x in 1..w.saturating_sub(1) {
+            let gx = a[y * w + x + 1] - a[y * w + x - 1];
+            let gy = a[(y + 1) * w + x] - a[(y - 1) * w + x];
+            out[y * w + x] = gx.hypot(gy);
+        }
+    }
+    out
+}
+
+/// Average `f × f` blocks.
+fn reduce(a: &[f32], w: usize, h: usize, f: usize) -> (Vec<f32>, usize, usize) {
+    if f <= 1 {
+        return (a.to_vec(), w, h);
+    }
+    let (rw, rh) = (w / f, h / f);
+    let mut out = vec![0f32; rw * rh];
+    for y in 0..rh {
+        for x in 0..rw {
+            let mut s = 0.0;
+            for dy in 0..f {
+                for dx in 0..f {
+                    s += a[(y * f + dy) * w + x * f + dx];
+                }
+            }
+            out[y * rw + x] = s / (f * f) as f32;
+        }
+    }
+    (out, rw, rh)
+}
+
+/// Normalised correlation of two edge maps with `b` shifted by `(dx, dy)`,
+/// over the part of `a` that stays inside both and away from the border.
+fn shifted_ncc(a: &[f32], b: &[f32], w: usize, h: usize, dx: isize, dy: isize, margin: usize) -> f32 {
+    let (mut sab, mut saa, mut sbb) = (0f64, 0f64, 0f64);
+    for y in margin..h.saturating_sub(margin) {
+        let yy = y as isize + dy;
+        if yy < 0 || yy >= h as isize {
+            continue;
+        }
+        for x in margin..w.saturating_sub(margin) {
+            let xx = x as isize + dx;
+            if xx < 0 || xx >= w as isize {
+                continue;
+            }
+            let (va, vb) = (a[y * w + x] as f64, b[yy as usize * w + xx as usize] as f64);
+            sab += va * vb;
+            saa += va * va;
+            sbb += vb * vb;
+        }
+    }
+    if saa < 1e-12 || sbb < 1e-12 { 0.0 } else { (sab / (saa * sbb).sqrt()) as f32 }
+}
+
+/// How far the infrared sits from the colour: the `(dx, dy)`, in pixels of
+/// this image, such that `ir(x + dx, y + dy)` lines up with the colour at
+/// `(x, y)`. Found by correlating the edges of the two, coarsely over the
+/// whole range and then finely, and to a fraction of a pixel by a parabola
+/// through the best offset and its neighbours. `None` when there is too
+/// little structure to tell, or nothing correlates.
+pub fn estimate_shift(pixels: &[f32], ir: &[f32], w: usize, h: usize, factor: usize) -> Option<[f32; 2]> {
+    if w < 48 || h < 48 || pixels.len() < w * h * 3 || ir.len() < w * h {
+        return None;
+    }
+    let max = (MAX_SHIFT / factor.max(1)).max(2);
+    let ln_c: Vec<f32> = (0..w * h).map(|i| pixels[i * 3].max(1e-4).ln()).collect();
+    let ln_i: Vec<f32> = ir.iter().map(|v| v.max(1e-4).ln()).collect();
+    let (ec, ei) = (edges(&ln_c, w, h), edges(&ln_i, w, h));
+
+    // Coarse: reduce until the search is small.
+    let f = (max / 6).max(1);
+    let (cc, cw, ch) = reduce(&ec, w, h, f);
+    let (ci, _, _) = reduce(&ei, w, h, f);
+    let r = (max / f + 1) as isize;
+    let margin = (r as usize + 2).min(cw / 4);
+    let mut best = (f32::MIN, 0isize, 0isize);
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let n = shifted_ncc(&cc, &ci, cw, ch, dx, dy, margin);
+            if n > best.0 {
+                best = (n, dx, dy);
+            }
+        }
+    }
+    // Fine: around the coarse answer, at this image's own resolution.
+    let (cx, cy) = (best.1 * f as isize, best.2 * f as isize);
+    let span = f as isize + 1;
+    let fine_margin = (max + 4).min(w.min(h) / 4);
+    let mut fine = (f32::MIN, cx, cy);
+    for dy in cy - span..=cy + span {
+        for dx in cx - span..=cx + span {
+            let n = shifted_ncc(&ec, &ei, w, h, dx, dy, fine_margin);
+            if n > fine.0 {
+                fine = (n, dx, dy);
+            }
+        }
+    }
+    if fine.0 < 0.12 {
+        return None; // the two share no structure worth trusting
+    }
+    // A parabola through the peak and its two neighbours, on each axis.
+    let at = |dx: isize, dy: isize| shifted_ncc(&ec, &ei, w, h, dx, dy, fine_margin);
+    let sub = |m1: f32, c: f32, p1: f32| -> f32 {
+        let d = m1 - 2.0 * c + p1;
+        if d.abs() < 1e-9 { 0.0 } else { (0.5 * (m1 - p1) / d).clamp(-0.5, 0.5) }
+    };
+    let (sx, sy) = (sub(at(fine.1 - 1, fine.2), fine.0, at(fine.1 + 1, fine.2)), sub(at(fine.1, fine.2 - 1), fine.0, at(fine.1, fine.2 + 1)));
+    Some([fine.1 as f32 + sx, fine.2 as f32 + sy])
+}
+
+/// The infrared resampled so it lines up with the colour: `out(x, y) =
+/// ir(x + dx, y + dy)`, bilinear, edges repeated.
+pub fn shift_plane(ir: &[f32], w: usize, h: usize, dx: f32, dy: f32) -> Vec<f32> {
+    let mut out = vec![0f32; w * h];
+    let at = |x: isize, y: isize| ir[y.clamp(0, h as isize - 1) as usize * w + x.clamp(0, w as isize - 1) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let (fx, fy) = (x as f32 + dx, y as f32 + dy);
+            let (x0, y0) = (fx.floor(), fy.floor());
+            let (tx, ty) = (fx - x0, fy - y0);
+            let (x0, y0) = (x0 as isize, y0 as isize);
+            out[y * w + x] = at(x0, y0) * (1.0 - tx) * (1.0 - ty) + at(x0 + 1, y0) * tx * (1.0 - ty) + at(x0, y0 + 1) * (1.0 - tx) * ty + at(x0 + 1, y0 + 1) * tx * ty;
+        }
+    }
+    out
+}
+
+/// What to shift the infrared by, in this image's pixels, if anything: the
+/// frozen offset when the picture has been measured as a whole, else the
+/// measurement. Offsets under a quarter of a pixel are noise and are left alone.
+fn registration(pixels: &[f32], ir: &[f32], w: usize, h: usize, params: &DustParams, factor: usize) -> Option<[f32; 2]> {
+    if !params.align {
+        return None;
+    }
+    let s = match params.ir_shift {
+        Some(s) => [s[0] / factor as f32, s[1] / factor as f32],
+        None => estimate_shift(pixels, ir, w, h, factor)?,
+    };
+    (s[0].abs() >= 0.25 || s[1].abs() >= 0.25).then_some(s)
 }
 
 // ── Detection ─────────────────────────────────────────────────────────────────
@@ -557,23 +718,61 @@ fn dilate(mask: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
 
 // ── Repair ────────────────────────────────────────────────────────────────────
 
-/// Fill the masked pixels from the ones around them, in log transmission,
-/// working inwards from the edge of each mark so every pixel is made from
-/// pixels that are already good or already filled.
-pub fn repair(pixels: &mut [f32], mask: &[u8], w: usize, h: usize) {
-    const R: isize = 3;
-    let mut known: Vec<bool> = mask.iter().map(|m| *m == 0).collect();
-    if !known.iter().any(|k| *k) {
-        return; // nothing to learn from
+/// Marks larger than this many pixels are filled from matching patches of the
+/// picture instead of being smoothed over: a smooth fill is invisible in a
+/// speck and a smear in a scratch.
+const LARGE_MARK: usize = 30;
+/// Marks larger than this are smoothed over, whatever their size.
+const PATCH_MAX: usize = 6000;
+
+/// Connected components (four-way) of the mask that are larger than `limit`.
+fn large_marks(mask: &[u8], w: usize, h: usize, limit: usize) -> Vec<bool> {
+    let mut label = vec![false; w * h];
+    let mut large = vec![false; w * h];
+    let mut stack = Vec::new();
+    for start in 0..w * h {
+        if mask[start] == 0 || label[start] {
+            continue;
+        }
+        let mut members = vec![start];
+        label[start] = true;
+        stack.push(start);
+        while let Some(p) = stack.pop() {
+            let (px, py) = (p % w, p / w);
+            for (nx, ny) in [(px.wrapping_sub(1), py), (px + 1, py), (px, py.wrapping_sub(1)), (px, py + 1)] {
+                if nx < w && ny < h {
+                    let q = ny * w + nx;
+                    if mask[q] != 0 && !label[q] {
+                        label[q] = true;
+                        members.push(q);
+                        stack.push(q);
+                    }
+                }
+            }
+        }
+        if members.len() > limit {
+            for q in members {
+                large[q] = true;
+            }
+        }
     }
-    let touches_known = |known: &[bool], p: usize| -> bool {
-        let (px, py) = ((p % w) as isize, (p / w) as isize);
-        (-1..=1).any(|dy| (-1..=1).any(|dx| {
-            let (x, y) = (px + dx, py + dy);
-            x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
-        }))
-    };
-    let mut frontier: Vec<usize> = (0..w * h).filter(|p| !known[*p] && touches_known(&known, *p)).collect();
+    large
+}
+
+fn touches_known(known: &[bool], p: usize, w: usize, h: usize) -> bool {
+    let (px, py) = ((p % w) as isize, (p / w) as isize);
+    (-1..=1).any(|dy| (-1..=1).any(|dx| {
+        let (x, y) = (px + dx, py + dy);
+        x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
+    }))
+}
+
+/// Fill the pixels in `fill` from the known ones around them, in log
+/// transmission, working in from the edge so every pixel is made from pixels
+/// that are already good or already filled.
+fn onion(pixels: &mut [f32], known: &mut [bool], fill: &[bool], w: usize, h: usize) {
+    const R: isize = 3;
+    let mut frontier: Vec<usize> = (0..w * h).filter(|p| fill[*p] && !known[*p] && touches_known(known, *p, w, h)).collect();
     while !frontier.is_empty() {
         let mut filled = Vec::with_capacity(frontier.len());
         for &p in &frontier {
@@ -606,10 +805,109 @@ pub fn repair(pixels: &mut [f32], mask: &[u8], w: usize, h: usize) {
             pixels[p * 3..p * 3 + 3].copy_from_slice(v);
             known[*p] = true;
         }
-        frontier = (0..w * h).filter(|p| !known[*p] && touches_known(&known, *p)).collect();
         if filled.is_empty() {
             break;
         }
+        frontier = (0..w * h).filter(|p| fill[*p] && !known[*p] && touches_known(known, *p, w, h)).collect();
+    }
+}
+
+/// Fill the pixels in `fill` by copying, for each, the pixel whose
+/// surroundings best match what is already known around it, found within a
+/// window, and brought to this place's brightness and colour. Unlike
+/// [`onion`] this keeps the grain and the lines of the picture.
+fn patch_fill(pixels: &mut [f32], known: &mut [bool], fill: &[bool], w: usize, h: usize) {
+    const SEARCH: isize = 14;
+    const P: isize = 2; // compare 5 × 5 neighbourhoods
+    let ln = |p: &[f32], i: usize, c: usize| (p[i * 3 + c].max(1e-5) as f64).ln();
+    let mut frontier: Vec<usize> = (0..w * h).filter(|p| fill[*p] && !known[*p] && touches_known(known, *p, w, h)).collect();
+    while !frontier.is_empty() {
+        let mut progressed = false;
+        for &p in &frontier {
+            let (px, py) = ((p % w) as isize, (p / w) as isize);
+            // What is known around this pixel, as offsets.
+            let around: Vec<(isize, isize)> = (-P..=P)
+                .flat_map(|dy| (-P..=P).map(move |dx| (dx, dy)))
+                .filter(|(dx, dy)| (*dx, *dy) != (0, 0) && {
+                    let (x, y) = (px + dx, py + dy);
+                    x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
+                })
+                .collect();
+            if around.len() < 4 {
+                continue; // not enough to match on yet: a later layer
+            }
+            let mut best: Option<(f64, usize)> = None;
+            for sy in (py - SEARCH).max(P)..=(py + SEARCH).min(h as isize - 1 - P) {
+                for sx in (px - SEARCH).max(P)..=(px + SEARCH).min(w as isize - 1 - P) {
+                    let q = sy as usize * w + sx as usize;
+                    if !known[q] || fill[q] && !known[q] {
+                        continue;
+                    }
+                    let mut ssd = 0.0;
+                    let mut ok = true;
+                    for (dx, dy) in &around {
+                        let (qx, qy) = (sx + dx, sy + dy);
+                        let qi = qy as usize * w + qx as usize;
+                        if qx < 0 || qy < 0 || qx as usize >= w || qy as usize >= h || !known[qi] {
+                            ok = false;
+                            break;
+                        }
+                        let pi = (py + dy) as usize * w + (px + dx) as usize;
+                        for c in 0..3 {
+                            let d = ln(pixels, pi, c) - ln(pixels, qi, c);
+                            ssd += d * d;
+                        }
+                    }
+                    if ok && best.is_none_or(|(b, _)| ssd < b) {
+                        best = Some((ssd, q));
+                    }
+                }
+            }
+            let Some((_, q)) = best else { continue };
+            // Brightness and colour of this place: the mean difference over the matched neighbourhood.
+            let (qx, qy) = ((q % w) as isize, (q / w) as isize);
+            let mut off = [0f64; 3];
+            for (dx, dy) in &around {
+                let pi = (py + dy) as usize * w + (px + dx) as usize;
+                let qi = (qy + dy) as usize * w + (qx + dx) as usize;
+                for c in 0..3 {
+                    off[c] += ln(pixels, pi, c) - ln(pixels, qi, c);
+                }
+            }
+            for c in 0..3 {
+                let v = ln(pixels, q, c) + off[c] / around.len() as f64;
+                pixels[p * 3 + c] = v.exp() as f32;
+            }
+            known[p] = true;
+            progressed = true;
+        }
+        if !progressed {
+            break;
+        }
+        frontier = (0..w * h).filter(|p| fill[*p] && !known[*p] && touches_known(known, *p, w, h)).collect();
+    }
+    // Anything the patches could not reach is smoothed over, so nothing is left unfilled.
+    onion(pixels, known, fill, w, h);
+}
+
+/// Fill the masked pixels: small marks by smoothing from their surroundings,
+/// large ones (scratches, hairs) from matching patches, so the grain of the
+/// film runs through the repair.
+pub fn repair(pixels: &mut [f32], mask: &[u8], w: usize, h: usize) {
+    let mut known: Vec<bool> = mask.iter().map(|m| *m == 0).collect();
+    if !known.iter().any(|k| *k) {
+        return; // nothing to learn from
+    }
+    // Patch search costs about a few hundred thousand operations per pixel
+    // filled: right for a hair or a scratch, far too much for a blotch, which
+    // is smoothed over instead.
+    let large = large_marks(mask, w, h, LARGE_MARK);
+    let huge = large_marks(mask, w, h, PATCH_MAX);
+    let patch: Vec<bool> = (0..w * h).map(|i| large[i] && !huge[i]).collect();
+    let smooth: Vec<bool> = (0..w * h).map(|i| mask[i] != 0 && !patch[i]).collect();
+    onion(pixels, &mut known, &smooth, w, h);
+    if patch.iter().any(|l| *l) {
+        patch_fill(pixels, &mut known, &patch, w, h);
     }
 }
 
@@ -630,7 +928,10 @@ pub fn apply_placed(pixels: &[f32], ir: Option<&[f32]>, w: usize, h: usize, para
     }
     let detected = match (params.method, ir) {
         (DustMethod::Software, _) => Some(detect_software(pixels, w, h, params, factor)),
-        (DustMethod::Infrared, Some(ir)) => Some(detect(pixels, ir, w, h, params, factor)),
+        (DustMethod::Infrared, Some(ir)) => match registration(pixels, ir, w, h, params, factor) {
+            Some(s) => Some(detect(pixels, &shift_plane(ir, w, h, s[0], s[1]), w, h, params, factor)),
+            None => Some(detect(pixels, ir, w, h, params, factor)),
+        },
         (DustMethod::Infrared, None) => None,
     };
     // Without a plane there is nothing to detect, but a stroke can still ask for a repair.
@@ -833,6 +1134,58 @@ mod tests {
         assert_eq!(all, px);
     }
 
+    /// Standard deviation of one channel over the pixels in `at`.
+    fn spread(p: &[f32], at: impl Iterator<Item = usize>) -> f32 {
+        let v: Vec<f32> = at.map(|i| p[i * 3]).collect();
+        let m = v.iter().sum::<f32>() / v.len() as f32;
+        (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / v.len() as f32).sqrt()
+    }
+
+    /// A scratch is repaired with the grain of its surroundings, not smoothed
+    /// into a smear, and the colour still matches.
+    #[test]
+    fn a_large_mark_is_filled_with_grain_and_a_small_one_with_a_smooth_fill() {
+        let (clean_px, _) = clean();
+        let grainy: Vec<f32> = clean_px.iter().enumerate().map(|(i, v)| v * (1.0 + 0.06 * noise(i * 7 + 3))).collect();
+        let hole = |x0: usize, y0: usize, n: usize| -> Vec<usize> { (y0..y0 + n).flat_map(|y| (x0..x0 + n).map(move |x| y * W + x)).collect() };
+
+        // 14 × 14 = 196 pixels: a large mark.
+        let big = hole(70, 50, 14);
+        let mut mask = vec![0u8; W * H];
+        let mut broken = grainy.clone();
+        for i in &big { mask[*i] = 1; for c in 0..3 { broken[i * 3 + c] = 9.0; } }
+        repair(&mut broken, &mask, W, H);
+        let (orig, filled) = (spread(&grainy, big.iter().copied()), spread(&broken, big.iter().copied()));
+        assert!(filled > 0.5 * orig, "grain lost: {filled} against {orig}");
+        let mean = |p: &[f32]| big.iter().map(|i| p[i * 3]).sum::<f32>() / big.len() as f32;
+        assert!((mean(&broken) - mean(&grainy)).abs() / mean(&grainy) < 0.08, "colour off");
+
+        // 4 × 4 = 16 pixels: small, smoothed (and invisible at that size).
+        let tiny = hole(30, 80, 4);
+        let mut mask = vec![0u8; W * H];
+        let mut broken = grainy.clone();
+        for i in &tiny { mask[*i] = 1; for c in 0..3 { broken[i * 3 + c] = 9.0; } }
+        repair(&mut broken, &mask, W, H);
+        assert!(spread(&broken, tiny.iter().copied()) < 0.5 * spread(&grainy, tiny.iter().copied()) + 0.02, "small marks use the smooth fill");
+    }
+
+    /// An edge through a large mark is carried across it by the patches.
+    #[test]
+    fn a_line_through_a_large_mark_continues_through_it() {
+        let (mut px, _) = clean();
+        for y in 0..H { for x in W / 2..W { for c in 0..3 { px[(y * W + x) * 3 + c] *= 0.4; } } }
+        let mut mask = vec![0u8; W * H];
+        let mut broken = px.clone();
+        for y in 50..64 { for x in W / 2 - 7..W / 2 + 7 { mask[y * W + x] = 1; for c in 0..3 { broken[(y * W + x) * 3 + c] = 9.0; } } }
+        repair(&mut broken, &mask, W, H);
+        // The step from the left of the hole to the right of it, along its middle row.
+        let row = 57 * W;
+        let (left, right) = (broken[(row + W / 2 - 8) * 3], broken[(row + W / 2 + 7) * 3]);
+        let (a, b) = (broken[(row + W / 2 - 4) * 3], broken[(row + W / 2 + 3) * 3]);
+        let true_step = (left - right).abs();
+        assert!((a - b).abs() > 0.45 * true_step, "the edge was smeared flat: {} of a true {true_step}", (a - b).abs());
+    }
+
     #[test]
     fn tiny_or_mismatched_input_is_left_alone() {
         let r = detect(&[0.5; 12], &[0.5; 4], 2, 2, &DustParams::default(), 1);
@@ -999,5 +1352,96 @@ mod tests {
         assert_eq!(back, p);
         let old: DustParams = serde_json::from_str(r#"{"mode":"correct","detection":12}"#).unwrap();
         assert!(old.exclude.is_empty() && old.include.is_empty());
+    }
+
+    // ── Registration ──
+
+    /// A textured picture with edges, and an infrared plane that carries its
+    /// ghost: the same structure, shifted by `(sx, sy)`.
+    fn textured(sx: f32, sy: f32) -> (Vec<f32>, Vec<f32>) {
+        let (w, h) = (192usize, 144usize);
+        // Value noise on a grid of 9-pixel cells: structure at every place and
+        // no repeat to confuse the search (a checkerboard matches itself half a
+        // period away, since edges have no polarity).
+        let hash = |ix: i32, iy: i32| -> f32 {
+            let v = (ix.wrapping_mul(73856093) ^ iy.wrapping_mul(19349663)) as u32;
+            let v = v.wrapping_mul(2654435761).rotate_left(11).wrapping_mul(40503);
+            (v >> 8) as f32 / (1u32 << 24) as f32
+        };
+        let pic = |x: f32, y: f32| -> f32 {
+            let (gx, gy) = (x / 9.0, y / 9.0);
+            let (ix, iy) = (gx.floor() as i32, gy.floor() as i32);
+            let (tx, ty) = (gx - ix as f32, gy - iy as f32);
+            let (sx, sy) = (tx * tx * (3.0 - 2.0 * tx), ty * ty * (3.0 - 2.0 * ty));
+            let top = hash(ix, iy) * (1.0 - sx) + hash(ix + 1, iy) * sx;
+            let bottom = hash(ix, iy + 1) * (1.0 - sx) + hash(ix + 1, iy + 1) * sx;
+            (0.15 + 0.8 * (top * (1.0 - sy) + bottom * sy)).clamp(0.05, 1.0)
+        };
+        let mut px = Vec::new();
+        let mut ir = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let c = pic(x as f32, y as f32);
+                px.extend_from_slice(&[c, c * 0.6, c * 0.4]);
+                // The plane at (x, y) is the picture at (x - sx, y - sy): ir(x + sx, y + sy) = colour(x, y).
+                ir.push(0.8 * pic(x as f32 - sx, y as f32 - sy).powf(0.3));
+            }
+        }
+        (px, ir)
+    }
+
+    #[test]
+    fn the_offset_between_infrared_and_colour_is_measured_to_a_fraction_of_a_pixel() {
+        for (sx, sy) in [(0.0f32, 0.0f32), (4.0, -3.0), (-7.0, 5.0), (2.4, 1.3), (12.0, 9.0)] {
+            let (px, ir) = textured(sx, sy);
+            let got = estimate_shift(&px, &ir, 192, 144, 1).expect("a shift");
+            assert!((got[0] - sx).abs() < 0.4 && (got[1] - sy).abs() < 0.4, "wanted ({sx}, {sy}) got {got:?}");
+        }
+    }
+
+    #[test]
+    fn a_featureless_plane_gives_no_offset_and_small_ones_are_ignored() {
+        let (px, _) = textured(0.0, 0.0);
+        assert!(estimate_shift(&px, &vec![0.7; 192 * 144], 192, 144, 1).is_none());
+        let p = DustParams::default();
+        let (px, ir) = textured(0.1, -0.1);
+        assert!(registration(&px, &ir, 192, 144, &p, 1).is_none(), "noise-level offsets must not be applied");
+        let off = DustParams { align: false, ..Default::default() };
+        let (px, ir) = textured(5.0, 0.0);
+        assert!(registration(&px, &ir, 192, 144, &off, 1).is_none());
+        // A frozen offset is used as given, scaled to this image.
+        let frozen = DustParams { ir_shift: Some([8.0, -4.0]), ..Default::default() };
+        assert_eq!(registration(&px, &ir, 192, 144, &frozen, 2), Some([4.0, -2.0]));
+    }
+
+    #[test]
+    fn shifting_a_plane_moves_it_and_a_whole_shift_is_exact() {
+        let (w, h) = (20usize, 10usize);
+        let a: Vec<f32> = (0..w * h).map(|i| (i % w) as f32).collect();
+        let s = shift_plane(&a, w, h, 3.0, 0.0);
+        assert_eq!(&s[..6], &[3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        let half = shift_plane(&a, w, h, 0.5, 0.0);
+        assert!((half[5] - 5.5).abs() < 1e-6);
+    }
+
+    /// Dust is found where the colour has it, even when the infrared that shows it is displaced.
+    #[test]
+    fn dust_is_found_in_the_right_place_when_the_infrared_is_out_of_line() {
+        let (mut px, mut ir) = textured(5.0, -4.0);
+        let spot = [(60usize, 50usize), (140, 90)];
+        for (cx, cy) in spot {
+            for dy in 0..3 {
+                for dx in 0..3 {
+                    // The speck on the film: dark in colour here, dark in the plane at (+5, -4).
+                    let i = (cy + dy) * 192 + cx + dx;
+                    for c in 0..3 { px[i * 3 + c] *= 0.4; }
+                    let j = ((cy + dy) as isize - 4) as usize * 192 + cx + dx + 5;
+                    ir[j] *= 0.25;
+                }
+            }
+        }
+        let hit = |p: &DustParams| { let (_, r) = apply(&px, Some(&ir), 192, 144, p, 1); let m = r.unwrap().mask; spot.iter().filter(|(cx, cy)| m[(cy + 1) * 192 + cx + 1] == 1).count() };
+        assert_eq!(hit(&DustParams::default()), 2, "aligned detection missed the dust");
+        assert!(hit(&DustParams { align: false, ..Default::default() }) < 2, "misaligned detection should lose it");
     }
 }

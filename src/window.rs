@@ -37,6 +37,10 @@ pub(crate) mod imp {
         pub stroke_points: RefCell<Vec<[f32; 2]>>,
         // ── 1:1 loupe ─────────────────────────────────────────────────────
         pub loupe_on: Cell<bool>,
+        pub hq_on: Cell<bool>,
+        pub hq_picture: RefCell<Option<gtk::Picture>>,
+        pub hq_gen: Cell<u32>,
+        pub hq_timer: RefCell<Option<glib::SourceId>>,
         pub loupe_frame: RefCell<Option<gtk::Frame>>,
         pub loupe_picture: RefCell<Option<gtk::Picture>>,
         /// Where the pointer last was on the picture, as fractions of it.
@@ -49,6 +53,7 @@ pub(crate) mod imp {
         pub dust_defect_row: RefCell<Option<adw::ComboRow>>,
         pub usm_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow, adw::SpinRow, adw::SpinRow)>>,
         pub noise_row: RefCell<Option<adw::ComboRow>>,
+        pub local_contrast_row: RefCell<Option<adw::SpinRow>>,
         /// Where inspector edits go: the roll's defaults or this frame.
         pub scope: Cell<Scope>,
         /// Undo history of the frames not on screen, by frame number
@@ -411,6 +416,10 @@ impl Window {
         let weak = self.downgrade();
         loupe_btn.connect_toggled(move |b| { if let Some(win) = weak.upgrade() { win.set_loupe(b.is_active()); } });
         bottom_bar.append(&loupe_btn);
+        let hq_btn = gtk::ToggleButton::builder().label("HQ").tooltip_text("Full-quality view of what is on screen, at 1:1 or more").margin_start(6).build();
+        let weak = self.downgrade();
+        hq_btn.connect_toggled(move |b| { if let Some(win) = weak.upgrade() { win.set_hq(b.is_active()); } });
+        bottom_bar.append(&hq_btn);
         let tool_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).build();
         let mut tool_buttons: Vec<(imp::CanvasTool, gtk::ToggleButton)> = Vec::new();
         for (tool, label, tip) in [
@@ -489,6 +498,9 @@ impl Window {
         frame_overlay.set_cursor_from_name(Some("crosshair"));
         let canvas_overlay = gtk::Overlay::new();
         canvas_overlay.set_child(Some(&canvas_picture));
+        // The full-quality view goes under the frame and the strokes.
+        let hq = self.build_hq();
+        canvas_overlay.add_overlay(&hq);
         canvas_overlay.add_overlay(&frame_overlay);
         let canvas_scroll = gtk::ScrolledWindow::builder()
             .hexpand(true)
@@ -1051,13 +1063,22 @@ impl Window {
         }
         detail_page.add(&sharp_group);
 
-        let noise_group = adw::PreferencesGroup::builder().title("Grain and Noise").build();
+        let noise_group = adw::PreferencesGroup::builder().title("Grain, Noise and Local Contrast").build();
         let noise_row = adw::ComboRow::builder()
             .title("Reduction")
             .subtitle("Shown at 1:1 and applied in exports; too slow for the whole-frame preview")
             .model(&gtk::StringList::new(&["Off", "Light", "Medium", "Strong"]))
             .build();
         noise_group.add(&noise_row);
+        let local_contrast_row = adw::SpinRow::builder()
+            .title("Local Contrast")
+            .subtitle("Percent. Brings out detail in flat regions, shadows and highlights")
+            .adjustment(&gtk::Adjustment::new(0.0, 0.0, 100.0, 5.0, 20.0, 0.0))
+            .build();
+        noise_group.add(&local_contrast_row);
+        *self.imp().local_contrast_row.borrow_mut() = Some(local_contrast_row.clone());
+        let weak = self.downgrade();
+        local_contrast_row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
         detail_page.add(&noise_group);
         let detail_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&detail_page).build();
         insp_stack.add_titled(&detail_scroll, Some("detail"), "Detail");
@@ -1247,6 +1268,7 @@ impl Window {
         p.dust.defect = dust_defect;
         p.detail.usm = nv_process::UsmParams { enabled: usm_enabled, amount: usm_amount, radius: usm_radius, threshold: usm_threshold };
         p.detail.noise = noise;
+        p.detail.local_contrast = self.imp().local_contrast_row.borrow().as_ref()?.value() as f32;
         p.tone = ToneParams { black_point: black_pt, white_point: white_pt, midtone, contrast, balance, ..p.tone.clone() };
         Some(p)
     }
@@ -1297,6 +1319,7 @@ impl Window {
             r.set_value(params.detail.usm.radius as f64);
             t.set_value(params.detail.usm.threshold as f64);
         }
+        if let Some(r) = self.imp().local_contrast_row.borrow().as_ref() { r.set_value(params.detail.local_contrast as f64); }
         if let Some(r) = self.imp().noise_row.borrow().as_ref() {
             r.set_selected(match params.detail.noise { nv_process::NoiseLevel::Off => 0, nv_process::NoiseLevel::Light => 1, nv_process::NoiseLevel::Medium => 2, nv_process::NoiseLevel::Strong => 3 });
         }
@@ -1967,6 +1990,7 @@ impl Window {
     // ── Canvas ────────────────────────────────────────────────────────────────
     fn refresh_canvas(&self) {
         self.schedule_loupe();
+        self.schedule_hq();
         // A finished scan renders from the proxy, in the background.
         if self.imp().film_base_ready.get() && self.imp().proxy.borrow().is_some() {
             self.request_render();

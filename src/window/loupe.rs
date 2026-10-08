@@ -107,6 +107,14 @@ impl Window {
         let (bw, bh) = (SIZE.min(sw), SIZE.min(sh));
         let x0 = (cx - (SIZE / 2) as i64).clamp(0, (sw - bw) as i64) as u32;
         let y0 = (cy - (SIZE / 2) as i64).clamp(0, (sh - bh) as i64) as u32;
+        self.render_in_background((x0, y0, bw, bh), proxy, params, o, false);
+    }
+
+    /// Render the scan block `(x0, y0, w, h)` at full quality in the
+    /// background and show it in the loupe, or (`hq`) over the canvas.
+    fn render_in_background(&self, (x0, y0, bw, bh): (u32, u32, u32, u32), proxy: std::sync::Arc<Proxy>, params: ProcessParams, o: nv_process::Orientation, hq: bool) {
+        let imp = self.imp();
+        let Some((sw, sh)) = self.scan_image_size().map(|(w, h)| (w as u32, h as u32)) else { return };
         let (rx0, ry0) = (x0.saturating_sub(MARGIN), y0.saturating_sub(MARGIN));
         let (rw, rh) = ((x0 + bw + MARGIN).min(sw) - rx0, (y0 + bh + MARGIN).min(sh) - ry0);
 
@@ -115,21 +123,24 @@ impl Window {
         let path = imp.displayed_file.borrow().clone();
         let cached = imp.loupe_frozen.borrow().clone();
 
-        imp.loupe_gen.set(imp.loupe_gen.get() + 1);
-        let generation = imp.loupe_gen.get();
+        let gen_cell = if hq { &imp.hq_gen } else { &imp.loupe_gen };
+        gen_cell.set(gen_cell.get() + 1);
+        let generation = gen_cell.get();
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let result = gio::spawn_blocking(move || render_block(&proxy, &params, cached, in_memory, path, (rx0, ry0, rw, rh), (x0, y0, bw, bh), o)).await;
             let Some(win) = weak.upgrade() else { return };
-            if win.imp().loupe_gen.get() != generation {
-                return; // the pointer moved on
+            let current = if hq { win.imp().hq_gen.get() } else { win.imp().loupe_gen.get() };
+            if current != generation {
+                return; // the pointer or the view moved on
             }
-            match result {
-                Ok(Some((frozen_key, w, h, rgb))) => {
-                    *win.imp().loupe_frozen.borrow_mut() = Some(frozen_key);
+            if let Ok(Some((frozen_key, w, h, rgb))) = result {
+                *win.imp().loupe_frozen.borrow_mut() = Some(frozen_key);
+                if hq {
+                    win.show_hq(w, h, &rgb);
+                } else {
                     win.show_loupe(w, h, &rgb);
                 }
-                _ => {}
             }
         });
     }
@@ -139,6 +150,109 @@ impl Window {
         let rgba: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
         let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), w * 4);
         pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));
+    }
+}
+
+// ── Full-quality view of the visible region ──────────────────────────────────
+
+/// Largest region the HQ view renders, in scan pixels: more than a screenful at
+/// 1:1 on a large display, and bounded so that a mistake does not render a frame.
+const HQ_MAX_PIXELS: f64 = 8_000_000.0;
+
+impl Window {
+    /// The HQ picture, laid over the canvas under the frame and the brush
+    /// strokes. It is not clickable: the canvas under it still gets the pointer.
+    pub(super) fn build_hq(&self) -> gtk::Picture {
+        let pic = gtk::Picture::builder().content_fit(gtk::ContentFit::Fill).halign(gtk::Align::Start).valign(gtk::Align::Start).visible(false).can_target(false).build();
+        *self.imp().hq_picture.borrow_mut() = Some(pic.clone());
+        pic
+    }
+
+    pub(super) fn set_hq(&self, on: bool) {
+        self.imp().hq_on.set(on);
+        if !on {
+            if let Some(p) = self.imp().hq_picture.borrow().as_ref() {
+                p.set_visible(false);
+            }
+            self.imp().hq_gen.set(self.imp().hq_gen.get() + 1);
+        } else {
+            self.schedule_hq();
+        }
+    }
+
+    /// The view scrolled, zoomed or changed: render the visible region soon.
+    pub(super) fn schedule_hq(&self) {
+        let imp = self.imp();
+        if !imp.hq_on.get() {
+            return;
+        }
+        if let Some(id) = imp.hq_timer.take() {
+            id.remove();
+        }
+        let weak = self.downgrade();
+        let id = glib::timeout_add_local_once(Duration::from_millis(180), move || {
+            if let Some(win) = weak.upgrade() {
+                drop(win.imp().hq_timer.take());
+                win.update_hq();
+            }
+        });
+        *imp.hq_timer.borrow_mut() = Some(id);
+    }
+
+    fn update_hq(&self) {
+        let imp = self.imp();
+        let hide = || {
+            if let Some(p) = imp.hq_picture.borrow().as_ref() {
+                p.set_visible(false);
+            }
+        };
+        let (Some(proxy), Some(params), Some(scroll), Some((iw, ih))) =
+            (imp.proxy.borrow().clone(), imp.proc_params.borrow().clone(), imp.canvas_scroll.borrow().clone(), self.canvas_image_size())
+        else {
+            return hide();
+        };
+        // Only where each scan pixel is at least a screen pixel: below that the
+        // ordinary preview already shows more than the eye can use.
+        let Some(z) = imp.zoom.get().filter(|z| *z >= 1.0) else {
+            hide();
+            self.show_toast("Zoom to 1:1 or more for the full-quality view");
+            return;
+        };
+        // The visible part of the picture, in pixels of the picture as shown.
+        let (hadj, vadj) = (scroll.hadjustment(), scroll.vadjustment());
+        let (fw, fh) = (iw * z, ih * z);
+        let (vx, vy) = (hadj.value().max(0.0).min((fw - hadj.page_size()).max(0.0)), vadj.value().max(0.0).min((fh - vadj.page_size()).max(0.0)));
+        let (vw, vh) = (hadj.page_size().min(fw), vadj.page_size().min(fh));
+        let (dx0, dy0, dw, dh) = (vx / z, vy / z, vw / z, vh / z);
+        if dw * dh > HQ_MAX_PIXELS || dw < 8.0 || dh < 8.0 {
+            hide();
+            return;
+        }
+        // The same region of the scan.
+        let o = self.orientation();
+        let r = o.rect_to_source([dx0 / iw, dy0 / ih, (dx0 + dw) / iw, (dy0 + dh) / ih]);
+        let Some((sw, sh)) = self.scan_image_size() else { return };
+        let (x0, y0) = ((r[0] * sw).floor().max(0.0) as u32, (r[1] * sh).floor().max(0.0) as u32);
+        let (x1, y1) = (((r[2] * sw).ceil() as u32).min(sw as u32), ((r[3] * sh).ceil() as u32).min(sh as u32));
+        if x1 <= x0 || y1 <= y0 {
+            return hide();
+        }
+        // Where it goes on the zoomed canvas, and how big.
+        if let Some(p) = imp.hq_picture.borrow().as_ref() {
+            let (ox, oy, ow, oh) = (dx0.floor(), dy0.floor(), dw.ceil().min(iw - dx0.floor()), dh.ceil().min(ih - dy0.floor()));
+            p.set_margin_start((ox * z) as i32);
+            p.set_margin_top((oy * z) as i32);
+            p.set_size_request((ow * z) as i32, (oh * z) as i32);
+        }
+        self.render_in_background((x0, y0, x1 - x0, y1 - y0), proxy, params, o, true);
+    }
+
+    fn show_hq(&self, w: usize, h: usize, rgb: &[u8]) {
+        let Some(pic) = self.imp().hq_picture.borrow().clone() else { return };
+        let rgba: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
+        let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), w * 4);
+        pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));
+        pic.set_visible(true);
     }
 }
 

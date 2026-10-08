@@ -1109,10 +1109,34 @@ are one undo step each, with the rest of the frame's history. Tested: a stroke's
 position, the same coverage at half size and in a block cut from the scan, the eraser (it
 follows paths, not just points), protect and heal on synthetic dust (heal also with no
 infrared), strokes through JSON and old settings, and a stroke landing at the same place in
-a tiled export as in the whole-picture render. Still not done: patch-based repair for large
-marks (the fill is smooth), correction of infrared that is not registered with the colour
-(the 8200i's is), AACO, a whole-viewport HQ preview beyond the loupe, and trying the mask
-tools and the loupe with a real pointer on the screen.
+a tiled export as in the whole-picture render. 
+
+**M5 status, fourth slice: registration, patch repair, local contrast, HQ view.**
+*Infrared registration* (F§6, up to 20 px): the offset between the infrared plane and the
+colour is measured by correlating their edges (coarsely over the range, then finely, then
+to a fraction of a pixel with a parabola through the peak), applied by bilinear resampling
+before detection, ignored under a quarter of a pixel, and frozen from the proxy so every
+tile uses the same one; it is found to a few tenths of a pixel on synthetic offsets up to
+12 px and finds essentially none on the real scan, which agrees with the 8200i delivering
+registered planes. (The test image is value noise, not a checkerboard: edges have no
+polarity, so a regular pattern matches itself half a period away.) *Patch repair:* marks
+over 30 pixels (hairs, scratches) are filled by copying the best-matching patch from the
+nearby picture, brought to the local brightness and colour, working in from the mark's edge,
+so the grain runs through the repair; small marks keep the smooth fill, and blotches over
+6000 pixels are smoothed rather than searched, to bound the cost. *Local contrast (AACO):*
+contrast-limited adaptive equalisation of brightness on an 8 × 8 grid of cell histograms,
+interpolated between cells and bins and blended by an Effect percentage; the grid is
+measured once on the whole picture by `freeze` and addressed by each block's place in the
+scan, so tiles, the loupe and exports equalise as the whole picture does (a block rendered
+with the grid equals the same block of the whole picture, and a grid measured on a reduced
+copy differs from the full one by under 0.02 on average). Adaptive equalisation can dip a
+little at a cell boundary on a steep ramp, which is inherent to it. *HQ view:* a toggle in
+the bottom bar renders the region on screen at the scan's resolution with every filter,
+when zoom is 1:1 or more, and lays it over the canvas under the frame and the strokes; it
+reuses the loupe's renderer and follows scrolling and zoom. Still not done: trying the loupe,
+the HQ view and the mask tools with a real pointer on screen, the comparison with
+SilverFast's iSRD (§11.5), which needs SilverFast, and the IR/colour alignment on a scanner
+that does not deliver registered planes.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

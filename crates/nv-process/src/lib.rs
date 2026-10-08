@@ -17,7 +17,7 @@ pub use params::{ImageType, ProcessParams};
 pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
-pub use detail::{DetailParams, NoiseLevel, Quality, UsmParams};
+pub use detail::{AacoGrid, DetailParams, NoiseLevel, Placement, Quality, UsmParams};
 pub use dust::{DefectType, DustMethod, DustMode, DustParams, Stroke};
 pub use orient::{DisplayOp, Orientation};
 pub use proxy::{Proxy, ProxyBuilder, DEFAULT_PROXY_PIXELS};
@@ -112,7 +112,7 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
     }
 
     let mut toned = tone::apply_tone(&converted.pixels, &params.tone);
-    detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, Quality::Preview);
+    detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, Quality::Preview, Placement { origin: proxy.origin, full: proxy.full });
     // B&W is one grey channel; collapse it before painting, or the marks go grey too.
     let grey = params.image_type == ImageType::BwNegative;
     if grey {
@@ -249,7 +249,7 @@ pub fn render_toned_q(proxy: &Proxy, params: &ProcessParams, quality: Quality) -
     }
     let (converted, mask) = convert_stage(proxy, params);
     let mut toned = tone::apply_tone(&converted, &params.tone);
-    detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, quality);
+    detail::apply(&mut toned, proxy.width, proxy.height, &params.detail, proxy.factor, quality, Placement { origin: proxy.origin, full: proxy.full });
     if params.image_type == ImageType::BwNegative {
         collapse_to_grey(&mut toned);
     }

@@ -51,6 +51,7 @@ impl Window {
         if let Some(l) = imp.zoom_label.borrow().as_ref() {
             l.set_label(&label);
         }
+        self.schedule_hq();
     }
 
     /// Set the zoom (`None` = fit), keeping the middle of the view in place.
@@ -85,6 +86,11 @@ impl Window {
 
     /// Register `win.zoom-*` actions and the mouse gestures that go with them.
     pub(super) fn setup_zoom(&self, scroll: &gtk::ScrolledWindow) {
+        // The full-quality view follows what is on screen.
+        for adj in [scroll.hadjustment(), scroll.vadjustment()] {
+            let weak = self.downgrade();
+            adj.connect_value_changed(move |_| { if let Some(win) = weak.upgrade() { win.schedule_hq(); } });
+        }
         let actions: [(&str, fn(&Window)); 4] = [
             ("zoom-in", |w| w.zoom_by(STEP)),
             ("zoom-out", |w| w.zoom_by(1.0 / STEP)),
