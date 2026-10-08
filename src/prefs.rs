@@ -77,6 +77,7 @@ mod tests {
             export: ExportSettings { template: "{date}-{frame}".into(), after_scan: false, ..Default::default() },
             scan_dpi: 3600,
             mark_colour: [0.0, 0.8, 0.2],
+            guided_on_start: false,
         };
         p.save_to(&file).unwrap();
         assert_eq!(Prefs::load_from(&file), p);
