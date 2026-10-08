@@ -20,6 +20,11 @@ pub struct ScanArgs {
     #[arg(long)]
     ir: bool,
 
+    /// Scan only part of the window: `x0,y0,x1,y1` as fractions of it
+    /// (for example `0.25,0.2,0.75,0.8`).
+    #[arg(long, value_parser = parse_area)]
+    area: Option<[f64; 4]>,
+
     /// Output file path (.pnm for raw data).
     #[arg(long, short, default_value = "scan.pnm")]
     output: PathBuf,
@@ -34,6 +39,14 @@ pub struct ScanArgs {
     render: bool,
 }
 
+fn parse_area(s: &str) -> Result<[f64; 4], String> {
+    let v: Vec<f64> = s.split(',').map(|p| p.trim().parse::<f64>().map_err(|e| format!("{p:?}: {e}"))).collect::<Result<_, _>>()?;
+    match v[..] {
+        [a, b, c, d] if (0.0..=1.0).contains(&a) && (0.0..=1.0).contains(&c) && (0.0..=1.0).contains(&b) && (0.0..=1.0).contains(&d) && a < c && b < d => Ok([a, b, c, d]),
+        _ => Err("expected x0,y0,x1,y1 with 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1".into()),
+    }
+}
+
 pub fn run(args: ScanArgs) -> anyhow::Result<()> {
     let worker = AcquireWorker::spawn(args.quirks.clone());
     worker.probe();
@@ -41,7 +54,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
     let device_name = wait_for_device(&worker.evt_rx, args.device.as_deref())?;
     println!("Scanning on {device_name} @ {} dpi (ir={})…", args.dpi, args.ir);
 
-    worker.start_scan(device_name, args.dpi, args.ir, None);
+    worker.start_scan(device_name, args.dpi, args.ir, args.area);
 
     let buf = collect_scan(&worker.evt_rx, &args.output)?;
 

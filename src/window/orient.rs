@@ -29,12 +29,18 @@ impl Window {
         }
     }
 
+    /// Whether there is a picture on the canvas.
+    pub(super) fn has_image(&self) -> bool {
+        self.imp().scan_buf.borrow().is_some() || self.imp().scan_dims.get().is_some()
+    }
+
     /// Size of the scan on the canvas, in scan pixels.
     pub(super) fn scan_image_size(&self) -> Option<(f64, f64)> {
-        let buf = self.imp().scan_buf.borrow();
-        let buf = buf.as_ref()?;
-        let h = buf.effective_height();
-        (buf.width > 0 && h > 0).then(|| (buf.width as f64, h as f64))
+        if let Some(buf) = self.imp().scan_buf.borrow().as_ref() {
+            let h = buf.effective_height();
+            return (buf.width > 0 && h > 0).then(|| (buf.width as f64, h as f64));
+        }
+        self.imp().scan_dims.get().map(|(w, h)| (w as f64, h as f64))
     }
 
     fn turn(&self, op: DisplayOp) {

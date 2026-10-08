@@ -18,6 +18,12 @@ const AUTOSAVE_SECS: u32 = 2;
 
 /// Where a frame's image comes from: the file, whether it is the preview
 /// (as opposed to a full scan), and the frame's crop within a preview.
+/// What loading a frame produced.
+enum Loaded {
+    Whole(nv_image::FrameBuf, nv_process::Proxy),
+    Proxy(nv_process::Proxy, (u32, u32)),
+}
+
 pub(super) struct Source {
     pub path: PathBuf,
     pub is_preview: bool,
@@ -144,7 +150,7 @@ impl Window {
 
         // Frames cut from one preview share its file: only the rectangle moves.
         let already = self.imp().displayed_file.borrow().as_deref() == Some(src.path.as_path())
-            && self.imp().scan_buf.borrow().is_some();
+            && self.has_image();
         if already {
             self.show_frame_rect(&src);
             return;
@@ -154,14 +160,21 @@ impl Window {
         self.imp().load_gen.set(generation);
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
-            let path = src.path.clone();
+            let (path, is_preview) = (src.path.clone(), src.is_preview);
+            // A preview is small and is edited and saved from memory. A scan
+            // can be 482 MB: only its working-size copy is made, a strip at a
+            // time, and the frame itself is read again only to export it.
             let result = gio::spawn_blocking(move || {
-                RawReader::read(&path)
-                    .map(|buf| {
-                        let proxy = nv_process::Proxy::from_raw(&buf, nv_process::DEFAULT_PROXY_PIXELS);
-                        (buf, proxy)
-                    })
-                    .map_err(|e| e.to_string())
+                if is_preview {
+                    RawReader::read(&path)
+                        .map(|buf| {
+                            let proxy = nv_process::Proxy::from_raw(&buf, nv_process::DEFAULT_PROXY_PIXELS);
+                            Loaded::Whole(buf, proxy)
+                        })
+                        .map_err(|e| e.to_string())
+                } else {
+                    RawReader::proxy(&path, nv_process::DEFAULT_PROXY_PIXELS).map(|(p, size)| Loaded::Proxy(p, size)).map_err(|e| e.to_string())
+                }
             })
             .await;
             let Some(win) = weak.upgrade() else { return };
@@ -169,11 +182,14 @@ impl Window {
                 return; // another frame was picked meanwhile
             }
             match result {
-                Ok(Ok((buf, proxy))) => {
+                Ok(Ok(loaded)) => {
                     // Set before loading: the frame's measuring region depends on them.
                     *win.imp().displayed_file.borrow_mut() = Some(src.path.clone());
                     win.imp().preview_ready.set(src.is_preview);
-                    win.load_frame_buf_with_proxy(buf, proxy);
+                    match loaded {
+                        Loaded::Whole(buf, proxy) => win.load_frame_buf_with_proxy(buf, proxy),
+                        Loaded::Proxy(proxy, size) => win.load_proxy_only(proxy, size),
+                    }
                     win.show_frame_rect(&src);
                 }
                 Ok(Err(e)) => win.show_toast(&format!("Could not load frame {idx}: {e}")),
@@ -204,6 +220,7 @@ impl Window {
         let imp = self.imp();
         imp.load_gen.set(imp.load_gen.get() + 1);
         *imp.scan_buf.borrow_mut() = None;
+        imp.scan_dims.set(None);
         *imp.proxy.borrow_mut() = None;
         *imp.histogram.borrow_mut() = None;
         *imp.levels.borrow_mut() = None;
@@ -333,12 +350,15 @@ impl Window {
             for idx in indices {
                 let Some(src) = weak.upgrade().and_then(|w| w.frame_source(idx)) else { continue };
                 let thumb = gio::spawn_blocking(move || {
-                    let buf = RawReader::read(&src.path).ok()?;
-                    let region = src
-                        .crop
-                        .filter(|_| src.is_preview)
-                        .and_then(|c| geom::crop_to_rect(c, buf.width, buf.effective_height()));
-                    let (w, h, px) = buf.thumbnail_rgba(THUMB_SIDE, region);
+                    let (w, h, px) = if src.is_preview {
+                        let buf = RawReader::read(&src.path).ok()?;
+                        let region = src.crop.and_then(|c| geom::crop_to_rect(c, buf.width, buf.effective_height()));
+                        buf.thumbnail_rgba(THUMB_SIDE, region)
+                    } else {
+                        // A big scan: its working-size copy, streamed, is plenty for a thumbnail.
+                        let (proxy, _) = RawReader::proxy(&src.path, 1 << 18).ok()?;
+                        proxy.thumbnail_rgba(THUMB_SIDE)
+                    };
                     let (w, h, px) = src.orientation.apply(&px, w as usize, h as usize, 4);
                     Some((w as u32, h as u32, px))
                 })

@@ -338,3 +338,59 @@ pub fn copy_raw(src: &Path, dest: &Path) -> Result<u64, ExportError> {
     }
     Ok(result?)
 }
+
+// ── Raw scans ─────────────────────────────────────────────────────────────────
+
+/// Write a scan as it came from the scanner (1 or 3 channels, 8 or 16 bit,
+/// samples in the host's byte order, rows possibly padded) as a TIFF for the
+/// roll's raw folder. Rows are gathered a band at a time, so saving a 7200 dpi
+/// frame needs a band of memory beyond the frame itself, not copies of it.
+pub fn write_scan_tiff(buf: &FrameBuf, dest: &Path, compression: crate::settings::Compression) -> Result<(), ExportError> {
+    let (w, h) = (buf.width as usize, buf.effective_height() as usize);
+    if w == 0 || h == 0 {
+        return Err(ExportError::Empty);
+    }
+    let (channels, depth) = (buf.channels as usize, buf.depth as usize);
+    if !matches!(channels, 1 | 3) || !matches!(depth, 8 | 16) {
+        return Err(ExportError::Io(io::Error::other(format!("cannot write a {channels}-channel {depth}-bit scan"))));
+    }
+    let row_bytes = w * channels * depth / 8;
+    let bytes = buf.as_bytes();
+    if bytes.len() < buf.bytes_per_row * (h - 1) + row_bytes {
+        return Err(ExportError::Io(io::Error::other("incomplete scan data")));
+    }
+
+    let part = temp_name(dest);
+    let write = || -> Result<(), ExportError> {
+        let file = BufWriter::new(File::create(&part)?);
+        let mut tiff = TiffWriter::new(file, w as u32, h as u32, channels as u16, depth as u16, compression, TIFF_STRIP_ROWS, None)?;
+        let mut y = 0;
+        while y < h {
+            let rows = TILE.min(h - y);
+            let src = |r: usize| &bytes[(y + r) * buf.bytes_per_row..][..row_bytes];
+            if depth == 16 {
+                let mut band = Vec::with_capacity(rows * w * channels);
+                for r in 0..rows {
+                    band.extend(src(r).chunks_exact(2).map(|p| u16::from_ne_bytes([p[0], p[1]])));
+                }
+                tiff.write_rows_u16(rows as u32, &band)?;
+            } else {
+                let mut band = Vec::with_capacity(rows * row_bytes);
+                for r in 0..rows {
+                    band.extend_from_slice(src(r));
+                }
+                tiff.write_rows_u8(rows as u32, &band)?;
+            }
+            y += rows;
+        }
+        tiff.finish()?;
+        Ok(())
+    };
+    match write() {
+        Ok(()) => Ok(std::fs::rename(&part, dest)?),
+        Err(e) => {
+            let _ = std::fs::remove_file(&part);
+            Err(e)
+        }
+    }
+}

@@ -16,7 +16,7 @@ pub use settings::Settings;
 pub use params::ToneParams;
 pub use curves::{Curve, Curves};
 pub use orient::{DisplayOp, Orientation};
-pub use proxy::{Proxy, DEFAULT_PROXY_PIXELS};
+pub use proxy::{Proxy, ProxyBuilder, DEFAULT_PROXY_PIXELS};
 
 use nv_image::FrameBuf;
 use nv_film::FilmProfile;

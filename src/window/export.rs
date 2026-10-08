@@ -218,6 +218,11 @@ impl Window {
         }
         self.rebuild_frame_list();
         self.schedule_autosave();
+        if std::env::var_os("NV_AUTOSCAN").is_some() {
+            eprintln!("nv: NV_AUTOSCAN: exported {}", report.path.display());
+            self.flush_autosave();
+            self.application().map(|a| a.quit());
+        }
 
         let name = report.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let toast = adw::Toast::new(&format!("Exported {name}"));

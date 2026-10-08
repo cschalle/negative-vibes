@@ -1,3 +1,4 @@
+use std::io::{self, Read};
 use std::path::Path;
 use nv_image::FrameBuf;
 use crate::{Result, StoreError};
@@ -23,48 +24,12 @@ impl RawWriter {
         Ok(())
     }
 
-    /// Write a full-resolution scan as an uncompressed TIFF, keeping the
-    /// scanner's bit depth (16-bit samples are stored in the host's order,
-    /// which the TIFF header records, so nothing is lost or swapped).
+    /// Write a full-resolution scan as a TIFF (Deflate with the horizontal
+    /// predictor), keeping the scanner's bit depth. 16-bit samples go to disk
+    /// from the host's order, which the TIFF header records, so nothing is
+    /// lost or swapped. Rows are written a band at a time.
     pub fn write_scan(buf: &FrameBuf, path: &Path) -> Result<()> {
-        use tiff::encoder::{colortype, TiffEncoder};
-
-        let w = buf.width;
-        let h = buf.effective_height();
-        if w == 0 || h == 0 {
-            return Err(StoreError::Other("empty frame buffer".into()));
-        }
-
-        let bps = buf.depth as usize / 8;
-        let row_len = w as usize * buf.channels as usize * bps;
-        let bytes = buf.as_bytes();
-        if bytes.len() < buf.bytes_per_row * h as usize {
-            return Err(StoreError::Other("incomplete scan data".into()));
-        }
-        // Drop any per-line alignment padding the backend added.
-        let mut packed = Vec::with_capacity(row_len * h as usize);
-        for row in 0..h as usize {
-            let start = row * buf.bytes_per_row;
-            packed.extend_from_slice(&bytes[start..start + row_len]);
-        }
-
-        let file = std::io::BufWriter::new(std::fs::File::create(path)?);
-        let mut enc = TiffEncoder::new(file)?;
-        let samples16 = || -> Vec<u16> {
-            packed.chunks_exact(2).map(|p| u16::from_ne_bytes([p[0], p[1]])).collect()
-        };
-        match (buf.channels, buf.depth) {
-            (3, 16) => enc.write_image::<colortype::RGB16>(w, h, &samples16())?,
-            (3, 8) => enc.write_image::<colortype::RGB8>(w, h, &packed)?,
-            (1, 16) => enc.write_image::<colortype::Gray16>(w, h, &samples16())?,
-            (1, 8) => enc.write_image::<colortype::Gray8>(w, h, &packed)?,
-            (c, d) => {
-                return Err(StoreError::Other(format!(
-                    "cannot write {c}-channel {d}-bit scan"
-                )))
-            }
-        }
-        Ok(())
+        nv_export::write_scan_tiff(buf, path, nv_export::Compression::Deflate).map_err(|e| StoreError::Other(e.to_string()))
     }
 }
 
@@ -72,12 +37,31 @@ impl RawWriter {
 pub struct RawReader;
 
 impl RawReader {
+    /// The working-size copy of a scan on disk, and the scan's size in pixels.
+    ///
+    /// A strip-based TIFF (what the roll stores) is reduced as it is read, a
+    /// strip at a time, so opening a 7200 dpi frame to look at it never holds
+    /// the 482 MB frame. Anything else (PNM, DNG, tiled TIFF) is read whole
+    /// and reduced.
+    pub fn proxy(path: &Path, max_pixels: usize) -> Result<(nv_process::Proxy, (u32, u32))> {
+        if let Some(r) = proxy_from_strips(path, max_pixels)? {
+            return Ok(r);
+        }
+        let buf = Self::read(path)?;
+        Ok((nv_process::Proxy::from_raw(&buf, max_pixels), (buf.width, buf.effective_height())))
+    }
+
     /// Read a PNM or TIFF file into a FrameBuf.
     pub fn read(path: &Path) -> Result<FrameBuf> {
+        // A PNM is streamed from the file: reading it whole and then copying
+        // it into a frame would hold the scan twice (or, with the byte swap, three times).
+        let mut head = [0u8; 2];
+        let n = std::fs::File::open(path)?.read(&mut head)?;
+        if n == 2 && (&head == b"P6" || &head == b"P5") {
+            return read_pnm_from(std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(path)?));
+        }
         let data = std::fs::read(path)?;
-        if data.starts_with(b"P6") || data.starts_with(b"P5") {
-            read_pnm(&data)
-        } else if crate::dng::is_dng(&data) {
+        if crate::dng::is_dng(&data) {
             crate::dng::read_dng(&data)
         } else if data.starts_with(b"II") || data.starts_with(b"MM") {
             read_tiff(path)
@@ -87,59 +71,153 @@ impl RawReader {
     }
 }
 
-/// Read the next whitespace-delimited header token, skipping `#` comments
-/// (which run to the end of the line and may sit anywhere in the header).
-fn pnm_token<'a>(data: &'a [u8], pos: &mut usize) -> Option<&'a str> {
+/// The next header token of a PNM, skipping whitespace and `#` comments (a
+/// comment runs to the end of the line and may sit anywhere in the header).
+/// The one whitespace byte after a token is consumed with it, which is what
+/// separates the last header value from the pixels.
+fn pnm_token<R: std::io::BufRead>(r: &mut R) -> Result<String> {
+    let mut byte = || -> Result<Option<u8>> {
+        let b = r.fill_buf()?.first().copied();
+        if b.is_some() {
+            r.consume(1);
+        }
+        Ok(b)
+    };
+    let mut token = Vec::new();
     loop {
-        match data.get(*pos)? {
-            b'#' => {
-                while *data.get(*pos)? != b'\n' {
-                    *pos += 1;
+        match byte()? {
+            None if token.is_empty() => return Err(StoreError::Other("invalid PNM header".into())),
+            None => break,
+            Some(b'#') => while !matches!(byte()?, Some(b'\n') | None) {},
+            Some(c) if c.is_ascii_whitespace() => {
+                if !token.is_empty() {
+                    break;
                 }
             }
-            c if c.is_ascii_whitespace() => *pos += 1,
-            _ => break,
+            Some(c) => {
+                token.push(c);
+                if token.len() > 16 {
+                    return Err(StoreError::Other("invalid PNM header".into()));
+                }
+            }
         }
     }
-    let start = *pos;
-    while data.get(*pos).is_some_and(|c| !c.is_ascii_whitespace() && *c != b'#') {
-        *pos += 1;
-    }
-    std::str::from_utf8(&data[start..*pos]).ok()
+    String::from_utf8(token).map_err(|_| StoreError::Other("invalid PNM header".into()))
 }
 
+#[cfg(test)]
 fn read_pnm(data: &[u8]) -> Result<FrameBuf> {
+    read_pnm_from(std::io::Cursor::new(data))
+}
+
+/// Read a PNM from a stream into a frame, a megabyte at a time. A file that
+/// ends early gives the rows it has.
+fn read_pnm_from<R: std::io::BufRead>(mut r: R) -> Result<FrameBuf> {
     let bad = || StoreError::Other("invalid PNM header".into());
-    let mut pos = 0;
-    let magic = pnm_token(data, &mut pos).ok_or_else(bad)?;
-    let channels: u8 = match magic {
+    let channels: u8 = match pnm_token(&mut r)?.as_str() {
         "P6" => 3,
         "P5" => 1,
         _ => return Err(bad()),
     };
-    let mut number = || -> Result<u32> { pnm_token(data, &mut pos).and_then(|t| t.parse().ok()).ok_or_else(bad) };
+    let mut number = || -> Result<u32> { pnm_token(&mut r)?.parse().map_err(|_| bad()) };
     let (w, h, maxval) = (number()?, number()?, number()?);
     let depth: u8 = if maxval > 255 { 16 } else { 8 };
-    // Exactly one whitespace byte separates the header from the pixels.
-    let header_bytes = pos + 1;
-    if header_bytes > data.len() {
-        return Err(bad());
+    let total = w as u64 * h as u64 * channels as u64 * (depth as u64 / 8);
+    if w == 0 || h == 0 || total > MAX_SCAN_BYTES {
+        return Err(StoreError::Other(format!("{w}×{h} PNM is not a size we can open")));
     }
 
-    let pixel_data = &data[header_bytes..];
     let mut buf = FrameBuf::new(w, Some(h), depth, channels);
-    if depth == 16 {
-        // PNM stores 16-bit samples most significant byte first; FrameBuf
-        // holds them in the host's order, the same as SANE delivers them.
-        let swapped: Vec<u8> = pixel_data
-            .chunks_exact(2)
-            .flat_map(|p| u16::from_be_bytes([p[0], p[1]]).to_ne_bytes())
-            .collect();
-        buf.append(&swapped);
-    } else {
-        buf.append(pixel_data);
+    let mut chunk = vec![0u8; 1 << 20];
+    let mut left = total as usize;
+    while left > 0 {
+        let want = left.min(chunk.len());
+        let got = read_full(&mut r, &mut chunk[..want])?;
+        if got == 0 {
+            break;
+        }
+        let got = if depth == 16 { got & !1 } else { got };
+        if depth == 16 {
+            // PNM stores 16-bit samples most significant byte first; FrameBuf
+            // holds them in the host's order, the same as SANE delivers them.
+            for p in chunk[..got].chunks_exact_mut(2) {
+                let v = u16::from_be_bytes([p[0], p[1]]).to_ne_bytes();
+                p.copy_from_slice(&v);
+            }
+        }
+        buf.append(&chunk[..got]);
+        left -= got;
+        if got < want {
+            break;
+        }
     }
     Ok(buf)
+}
+
+/// `read_exact` that reports a short read instead of failing.
+fn read_full<R: std::io::Read>(r: &mut R, out: &mut [u8]) -> io::Result<usize> {
+    let mut n = 0;
+    while n < out.len() {
+        match r.read(&mut out[n..]) {
+            Ok(0) => break,
+            Ok(k) => n += k,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(n)
+}
+
+/// [`RawReader::proxy`] for a TIFF stored in strips, or `None` when the file
+/// is something else and must be read whole.
+fn proxy_from_strips(path: &Path, max_pixels: usize) -> Result<Option<(nv_process::Proxy, (u32, u32))>> {
+    use tiff::decoder::{ChunkType, DecodingResult, Limits};
+
+    let mut head = [0u8; 4];
+    if std::fs::File::open(path)?.read(&mut head)? < 4 || !(&head == b"II*\0" || &head == b"MM\0*") {
+        return Ok(None);
+    }
+    let file = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut d = tiff::decoder::Decoder::new(file)?.with_limits(Limits::unlimited());
+    // A DNG's first directory is a thumbnail; its picture needs our own reader.
+    if d.find_tag(tiff::tags::Tag::Unknown(50706))?.is_some() || d.get_chunk_type() != ChunkType::Strip {
+        return Ok(None);
+    }
+    let (w, h) = d.dimensions()?;
+    let (channels, depth) = match d.colortype()? {
+        tiff::ColorType::Gray(8) => (1usize, 8u32),
+        tiff::ColorType::Gray(16) => (1, 16),
+        tiff::ColorType::RGB(8) => (3, 8),
+        tiff::ColorType::RGB(16) => (3, 16),
+        _ => return Ok(None),
+    };
+    let scale = if depth == 16 { 65535.0f32 } else { 255.0 };
+    let mut builder = nv_process::ProxyBuilder::new(w as usize, h as usize, max_pixels);
+    let mut y0 = 0usize;
+    let mut row = vec![0f32; w as usize * 3];
+    for i in 0..d.strip_count()? {
+        let (cw, rows) = d.chunk_data_dimensions(i);
+        let samples: Vec<f32> = match d.read_chunk(i)? {
+            DecodingResult::U8(v) => v.into_iter().map(|x| x as f32 / scale).collect(),
+            DecodingResult::U16(v) => v.into_iter().map(|x| x as f32 / scale).collect(),
+            _ => return Ok(None),
+        };
+        if cw != w || samples.len() < rows as usize * w as usize * channels {
+            return Err(StoreError::Other("damaged strip".into()));
+        }
+        for r in 0..rows as usize {
+            let src = &samples[r * w as usize * channels..][..w as usize * channels];
+            for x in 0..w as usize {
+                let g = src[x * channels];
+                row[x * 3] = g;
+                row[x * 3 + 1] = if channels == 3 { src[x * channels + 1] } else { g };
+                row[x * 3 + 2] = if channels == 3 { src[x * channels + 2] } else { g };
+            }
+            builder.add_row(y0 + r, &row);
+        }
+        y0 += rows as usize;
+    }
+    Ok(Some((builder.finish(), (w, h))))
 }
 
 /// Largest scan we agree to read: a 7200 dpi frame is 482 MB, and this leaves
@@ -211,6 +289,53 @@ mod tests {
     use super::{read_pnm, RawReader, RawWriter};
 
     /// `pnmtopnm`, GIMP and the SANE tools write comments into the header.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("nv-store-proxy-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// Reading a proxy from the strips of a TIFF gives what reading the whole
+    /// frame and reducing it gives, for each kind of scan the roll stores.
+    #[test]
+    fn a_streamed_proxy_equals_reading_the_whole_frame_and_reducing_it() {
+        let dir = scratch("stream");
+        for (channels, depth, w, h) in [(3u8, 16u8, 150u32, 95u32), (1, 16, 120, 70), (3, 8, 64, 80), (1, 8, 33, 41)] {
+            let mut buf = FrameBuf::new(w, Some(h), depth, channels);
+            for i in 0..(w * h * channels as u32) {
+                let v = i.wrapping_mul(2654435761) >> 9;
+                if depth == 16 { buf.append(&(v as u16).to_ne_bytes()) } else { buf.append(&[v as u8]) }
+            }
+            let path = dir.join(format!("{channels}x{depth}.tif"));
+            RawWriter::write_scan(&buf, &path).unwrap();
+            let whole = nv_process::Proxy::from_raw(&RawReader::read(&path).unwrap(), 2500);
+            let (streamed, size) = RawReader::proxy(&path, 2500).unwrap();
+            assert_eq!(size, (w, h));
+            assert_eq!((streamed.width, streamed.height, streamed.factor), (whole.width, whole.height, whole.factor), "{channels}x{depth}");
+            let worst = streamed.pixels.iter().zip(&whole.pixels).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "{channels}x{depth}: {worst}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Formats that cannot be streamed are read whole, and give the right picture
+    /// (a DNG's first directory is a thumbnail, not the scan).
+    #[test]
+    fn other_formats_fall_back_to_a_whole_read() {
+        let dir = scratch("fallback");
+        let pnm = dir.join("a.pnm");
+        std::fs::write(&pnm, b"P5\n2 1\n255\n\x10\x20").unwrap();
+        let (p, size) = RawReader::proxy(&pnm, 100).unwrap();
+        assert_eq!((size, p.width, p.height), ((2, 1), 2, 1));
+        let dng = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/plustek8200i/bw-negative-glass-with-light.dng");
+        let (p, size) = RawReader::proxy(&dng, usize::MAX).unwrap();
+        assert_eq!(size, (2508, 1680), "got the thumbnail instead of the picture");
+        assert_eq!((p.width, p.height), (2508, 1680));
+        assert!(RawReader::proxy(&dir.join("missing.tif"), 100).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn pnm_header_comments_are_skipped() {
         let mut data = b"P6\n# SANE data follows\n2 1 # size\n255\n".to_vec();

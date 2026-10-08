@@ -61,6 +61,10 @@ pub(crate) mod imp {
         pub auto_scan_next: Cell<bool>,
         /// The scanner (not an import) is what the window is busy with.
         pub acquiring: Cell<bool>,
+        pub autoscan_started: Cell<bool>,
+        pub autostop_done: Cell<bool>,
+        pub stop_at: Cell<Option<std::time::Instant>>,
+        pub autoscan_done: Cell<bool>,
         /// Preferences: what a new roll starts with.
         pub prefs: RefCell<crate::prefs::Prefs>,
         /// The scan resolution when no roll sets one.
@@ -88,6 +92,10 @@ pub(crate) mod imp {
         // ── App state ─────────────────────────────────────────────────────
         pub roll: RefCell<Option<nv_store::Roll>>,
         pub scan_buf: RefCell<Option<nv_image::FrameBuf>>,
+        /// Size of the scan on the canvas when `scan_buf` was let go: a frame
+        /// of a few hundred megabytes is rendered from its proxy, and holding
+        /// the whole raw beside the proxy only costs memory.
+        pub scan_dims: Cell<Option<(u32, u32)>>,
         pub scan_state: RefCell<ScanUiState>,
         pub selected_frame: RefCell<Option<u32>>,
 
@@ -1005,7 +1013,7 @@ impl Window {
         if self.imp().updating_ui.get() { return; }
         // Spin rows fire notify::value during widget realization; ignore those
         // until an actual scan is loaded.
-        if self.imp().scan_buf.borrow().is_none() { return; }
+        if !self.has_image() { return; }
 
         let Some(new_params) = self.read_params_from_inspector() else { return };
         let old = self.imp().proc_params.borrow().clone();
@@ -1512,6 +1520,12 @@ impl Window {
                         t.set_subtitle(&format!("{} {}", first.vendor, first.model));
                     }
                     self.update_scan_controls();
+                    // Headless hook: NV_AUTOSCAN=raw|scan|all previews as soon as the scanner is ready,
+                    // then scans as named (see on_scan_done).
+                    if std::env::var_os("NV_AUTOSCAN").is_some() && !self.imp().autoscan_started.replace(true) {
+                        eprintln!("nv: NV_AUTOSCAN: previewing");
+                        self.start_preview();
+                    }
                 }
             }
 
@@ -1521,6 +1535,7 @@ impl Window {
                     *self.imp().final_buf.borrow_mut() = Some(buf);
                 } else {
                     *self.imp().scan_buf.borrow_mut() = Some(buf);
+                    self.imp().scan_dims.set(None);
                     self.imp().film_base_ready.set(false);
                     *self.imp().displayed_file.borrow_mut() = None;
                     *self.imp().proxy.borrow_mut() = None;
@@ -1550,6 +1565,16 @@ impl Window {
             }
 
             ScanEvent::Progress(p) => {
+                // Headless hook for the cancel check (H4): press Stop at 30% of a final scan.
+                if std::env::var_os("NV_AUTOSCAN_STOP").is_some()
+                    && self.imp().scan_kind.get() == imp::ScanKind::Final
+                    && p >= 0.3
+                    && !self.imp().autostop_done.replace(true)
+                {
+                    eprintln!("nv: NV_AUTOSCAN_STOP: stopping at {:.0}%", p * 100.0);
+                    self.imp().stop_at.set(Some(std::time::Instant::now()));
+                    self.stop();
+                }
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_fraction(p as f64);
                 }
@@ -1578,6 +1603,10 @@ impl Window {
                 }
                 self.end_batch();
                 self.abort_acquisition();
+                if let Some(t) = self.imp().stop_at.take() {
+                    eprintln!("nv: NV_AUTOSCAN_STOP: stopped after {:.2} s; scanning again", t.elapsed().as_secs_f64());
+                    self.scan_selected(true);
+                }
             }
 
             ScanEvent::Error(msg) => {
@@ -1648,6 +1677,11 @@ impl Window {
                         win.queue_export(&[frame_idx]);
                     }
                     saved = true;
+                    if std::env::var("NV_AUTOSCAN").is_ok_and(|m| m == "raw") {
+                        eprintln!("nv: NV_AUTOSCAN: raw saved for frame {frame_idx}");
+                        win.flush_autosave();
+                        win.application().map(|a| a.quit());
+                    }
                 }
                 Ok(Err(e)) => win.show_toast(&format!("Could not save scan: {e}")),
                 Err(_) => win.show_toast("Could not save scan: writer thread panicked"),
@@ -1751,6 +1785,17 @@ impl Window {
         if self.imp().auto_scan_next.replace(false) {
             self.start_final_scan();
         }
+        // Headless hook: the preview is in; do what NV_AUTOSCAN says, once.
+        if let Ok(mode) = std::env::var("NV_AUTOSCAN") {
+            if !self.imp().autoscan_done.replace(true) {
+                eprintln!("nv: NV_AUTOSCAN: preview done, running {mode}");
+                match mode.as_str() {
+                    "raw" => self.scan_selected(true),
+                    "all" => self.scan_all(),
+                    _ => self.scan_selected(false),
+                }
+            }
+        }
     }
     fn save_roll(&self) -> Option<()> {
         let root = self.imp().roll_root.borrow().clone()?;
@@ -1844,8 +1889,25 @@ impl Window {
         self.load_frame_buf_with_proxy(buf, proxy);
     }
 
+    /// Show a big scan from its working-size copy alone: the frame is not held
+    /// in memory, only its size.
+    fn load_proxy_only(&self, proxy: nv_process::Proxy, size: (u32, u32)) {
+        *self.imp().scan_buf.borrow_mut() = None;
+        self.imp().scan_dims.set(Some(size));
+        *self.imp().proxy.borrow_mut() = Some(std::sync::Arc::new(proxy));
+        self.set_page("canvas");
+        let frame = *self.imp().selected_frame.borrow();
+        self.load_params_for(frame);
+    }
+
+    /// Show a scan whose proxy was already built (on a worker thread).
     fn load_frame_buf_with_proxy(&self, buf: nv_image::FrameBuf, proxy: nv_process::Proxy) {
-        *self.imp().scan_buf.borrow_mut() = Some(buf);
+        // Only a preview-sized scan stays in memory whole: everything that
+        // needs the pixels again (detection, saving the preview) is about
+        // previews, and a big raw is read from its file when exported.
+        const KEEP_WHOLE_BYTES: usize = 96 << 20;
+        self.imp().scan_dims.set(Some((buf.width, buf.effective_height())));
+        *self.imp().scan_buf.borrow_mut() = (buf.bytes_received() <= KEEP_WHOLE_BYTES).then_some(buf);
         *self.imp().proxy.borrow_mut() = Some(std::sync::Arc::new(proxy));
         self.set_page("canvas");
         let frame = *self.imp().selected_frame.borrow();

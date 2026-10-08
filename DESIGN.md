@@ -1014,6 +1014,35 @@ not) and H9 (a cropped scan equals the crop of a full one) need the scanner and 
 at it. Everything in Scan All, Scan Raw Only, Stop and the manual-advance loop is still
 untried on hardware.
 
+**Hardware results, OpticFilm 8200i with the packaged `plustek8200i` backend, tulip
+negative (2026-10-08).** Run through `nv-cli scan` (same acquisition worker as the app) and
+through the app itself with headless hooks (`NV_AUTOSCAN=raw|scan|all`,
+`NV_AUTOSCAN_STOP=1`; they preview, scan, press Stop at 30%, and quit when done).
+
+| Check | Result |
+|---|---|
+| H1 app raw equals driver output | Pass: 600 dpi app scan vs `scanimage`: dy +0.04 rows, dx 0, ncc 0.9996. The app's own roll file (1200 dpi, averaged to 600): dy +0.04, dx 0 |
+| H2 repeatability | Pass on alignment: dy 0.00, dx 0, ncc 0.9997. The bands' lowest ncc is 0.9978, just under the 0.998 bar |
+| H3 progress is real | Pass: the driver climbs 31% at 10.4 s, 63% at 13.2 s, 94% at 16.0 s after about 7.6 s of positioning; the app showed steps of about 8% |
+| H4 cancel | Pass: Stop at 30% of a 1200 dpi scan returned in 0.07 s; the next scan succeeded and aligned (dy +0.05) |
+| H5 RGB + IR | Not run: the app does not capture IR yet (M5) |
+| H6 raw settings | Pass: `ir-clean` 0 (logged), `auto-wb` off by default and neutralised by the quirks file, depth 16, mode Color |
+| H7 resolutions and size | 3600 dpi in 35 s: dy +0.22 rows against the 600 dpi reference, 0.02 over the ±0.2 bar. 7200 dpi in 73 s (482 MB): dy +0.17, within it |
+| H8 memory | Found and fixed (below). `nv-cli` holds a 7200 dpi frame once (509 MB peak) |
+| H9 crop | Pass: a 50% × 60% area scan equals the same region of the full scan (dy +0.03, dx 0, ncc 0.9991); it lands one pixel up and left of the requested origin and one row short (432 × 386 against 432 × 387), which is the device's step size |
+
+Through the app: Scan Raw Only saved a 1728 × 1291 16-bit RGB raw with no export; Scan All on
+this manual-advance scanner scanned the previewed frame, exported it (TIFF, sRGB profile) and
+marked the frame Exported. **H8 finding:** the app peaked at 3.0 GB importing and exporting a
+7200 dpi frame, because the whole file was read into memory and byte-swapped, the TIFF writer
+made two more copies, and the canvas, the thumbnail and the export each held the 482 MB frame.
+Fixed: the raw writer and the PNM reader stream; a big raw is shown from a working-size copy
+built a strip at a time (`RawReader::proxy`), which is also what its thumbnail uses; the frame
+is read whole only to export it. The same run now peaks at 1.3 GB, which is the import's copy,
+the export's read, its band and the GTK baseline. Not exercised: the Stop button itself (the
+action it calls was), the banner click that continues a manual-advance loop (it needs the
+holder moved), and exports overlapping a scan of the next frame.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;
