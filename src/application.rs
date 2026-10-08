@@ -36,6 +36,9 @@ mod imp {
             let window = crate::window::Window::new(app.upcast_ref::<gtk::Application>());
             app.set_accels_for_action("win.undo", &["<Ctrl>z"]);
             app.set_accels_for_action("win.redo", &["<Ctrl>y", "<Ctrl><Shift>z"]);
+            app.set_accels_for_action("win.export", &["<Ctrl>e"]);
+            app.set_accels_for_action("win.scan-selected", &["<Ctrl>Return"]);
+            app.set_accels_for_action("win.scan-all", &["<Ctrl><Shift>Return"]);
             app.set_accels_for_action("win.zoom-in", &["<Ctrl>plus", "<Ctrl>equal", "<Ctrl>KP_Add"]);
             app.set_accels_for_action("win.zoom-out", &["<Ctrl>minus", "<Ctrl>KP_Subtract"]);
             app.set_accels_for_action("win.zoom-fit", &["<Ctrl>0", "<Ctrl>KP_0"]);
@@ -138,11 +141,21 @@ mod imp {
                     if let crate::window::imp::ScanUiState::Ready { device_name } =
                         &*win.imp().scan_state.borrow()
                     {
-                        worker.start_scan(device_name.clone(), win.final_scan_dpi(), false, win.frame_rect());
+                        worker.start_scan(device_name.clone(), win.final_scan_dpi(), false, win.scan_area());
                     }
                 }
             });
             app.add_action(&scan);
+
+            // cancel-scan: stop the acquisition in flight (the worker stops at its next read)
+            let cancel = gio::SimpleAction::new("cancel-scan", None);
+            let app_weak = app.downgrade();
+            cancel.connect_activate(move |_, _| {
+                if let Some(worker) = app_weak.upgrade().and_then(|a| a.imp().worker.get().map(|w| w.cancel())) {
+                    let _ = worker;
+                }
+            });
+            app.add_action(&cancel);
         }
 
         pub fn pump_events(&self) {

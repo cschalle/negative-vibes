@@ -12,3 +12,4 @@ tiff = "0.9"
 thiserror = "1"
 nv-image = { path = "../nv-image" }
 nv-process = { path = "../nv-process" }
+nv-export = { path = "../nv-export" }

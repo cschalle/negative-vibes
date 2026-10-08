@@ -2,6 +2,21 @@ use std::path::{Path, PathBuf};
 use crate::{model::Roll, Result};
 
 const ROLL_JSON: &str = "roll.json";
+const EXPORTS_JSON: &str = "exports.json";
+
+/// One finished export.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ExportRecord {
+    pub frame: u32,
+    /// Full path of the file written.
+    pub file: String,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: u64,
+    /// ISO 8601, UTC.
+    pub at: String,
+    pub settings: nv_export::ExportSettings,
+}
 
 /// Manages a roll folder on disk.
 pub struct RollStore {
@@ -48,6 +63,29 @@ impl RollStore {
         Ok(())
     }
 
+    /// Add an entry to `exports.json`: what was exported where, so a roll
+    /// remembers its output. The file is a JSON array, replaced atomically.
+    pub fn record_export(&self, record: &ExportRecord) -> Result<()> {
+        let path = self.root.join(EXPORTS_JSON);
+        let mut all: Vec<ExportRecord> = std::fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        all.push(record.clone());
+        let tmp = self.root.join(".exports.json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&all)?)?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    }
+
+    /// Everything exported so far, oldest first.
+    pub fn exports(&self) -> Vec<ExportRecord> {
+        std::fs::read(self.root.join(EXPORTS_JSON))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -86,4 +124,32 @@ fn sanitise(name: &str) -> String {
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' { c } else { '_' })
         .collect::<String>()
         .replace(' ', "_")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exports_are_remembered_in_order() {
+        let dir = std::env::temp_dir().join(format!("nv-store-exports-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = RollStore::create(&dir, "r").unwrap();
+        assert!(store.exports().is_empty());
+        let rec = |frame, file: &str| ExportRecord {
+            frame,
+            file: file.into(),
+            width: 10,
+            height: 5,
+            bytes: 99,
+            at: "2026-10-08T12:00:00Z".into(),
+            settings: nv_export::ExportSettings::default(),
+        };
+        store.record_export(&rec(1, "/out/a.tif")).unwrap();
+        store.record_export(&rec(2, "/out/b.tif")).unwrap();
+        let back = RollStore::open(store.root()).unwrap().exports();
+        assert_eq!(back.iter().map(|r| r.file.as_str()).collect::<Vec<_>>(), ["/out/a.tif", "/out/b.tif"]);
+        assert_eq!(back[1], rec(2, "/out/b.tif"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -62,7 +62,7 @@ impl Window {
 
     // ── Lookups ───────────────────────────────────────────────────────────────
 
-    fn raw_file(&self, name: &str) -> Option<PathBuf> {
+    pub(super) fn raw_file(&self, name: &str) -> Option<PathBuf> {
         let root = self.imp().roll_root.borrow().clone()?;
         Some(RollStore::from_parts(root, Roll::new("")).raw_path(name))
     }
@@ -104,6 +104,18 @@ impl Window {
             self.set_scan_controls_sensitive(false, false);
         } else {
             self.update_scan_controls();
+        }
+        // While the scanner works, Preview is Stop (DESIGN.md §8.3). An import
+        // is busy too, but has nothing to stop.
+        if let Some(b) = self.imp().preview_btn.borrow().as_ref() {
+            if !busy {
+                self.imp().acquiring.set(false);
+            }
+            let scanning = busy && self.imp().acquiring.get();
+            b.set_label(if scanning { "Stop" } else { "Preview" });
+            if scanning {
+                b.set_sensitive(true);
+            }
         }
     }
 
@@ -370,6 +382,7 @@ impl Window {
         self.load_params_for(Some(idx));
 
         let Some(buf) = self.imp().scan_buf.borrow().clone() else { return };
+        let size = [buf.width, buf.effective_height()];
         let Some(root) = self.imp().roll_root.borrow().clone() else { return };
         let path = RollStore::from_parts(root, Roll::new("")).preview_path(idx);
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -383,6 +396,7 @@ impl Window {
                 Ok(Ok(())) => {
                     if let Some(f) = win.imp().roll.borrow_mut().as_mut().and_then(|r| r.frame_mut(idx)) {
                         f.preview = Some(name);
+                        f.preview_size = Some(size);
                         if matches!(f.state, FrameState::Empty | FrameState::Previewed) {
                             f.state = FrameState::Previewed;
                         }
@@ -442,6 +456,7 @@ impl Window {
                 let next = roll.frames.iter().map(|f| f.index).max().unwrap_or(0) + 1;
                 let mut f = Frame::new(next);
                 f.preview = Some(preview.clone());
+                f.preview_size = Some([iw as u32, ih as u32]);
                 f.state = FrameState::Previewed;
                 f.geometry.crop = Some(crop_of(*r));
                 pos += 1;
@@ -599,6 +614,14 @@ impl Window {
             }
             win.spawn_thumbnails(win.all_frame_indices());
             win.schedule_autosave();
+
+            // Headless hook: NV_EXPORT_DIR=/some/dir exports every imported frame there.
+            if let Some(dir) = std::env::var_os("NV_EXPORT_DIR") {
+                if let Some(roll) = win.imp().roll.borrow_mut().as_mut() {
+                    roll.settings.export.folder = Some(PathBuf::from(dir));
+                }
+                win.queue_export(&win.all_frame_indices());
+            }
         });
     }
 

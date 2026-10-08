@@ -19,7 +19,7 @@ pub(super) fn base_params() -> ProcessParams {
 
 impl Window {
     /// Defaults, then the roll's settings, then the frame's own.
-    fn effective_params(&self, idx: u32) -> ProcessParams {
+    pub(super) fn effective_params(&self, idx: u32) -> ProcessParams {
         let mut p = base_params();
         if let Some(roll) = self.imp().roll.borrow().as_ref() {
             roll.settings.process.apply_to(&mut p);

@@ -805,12 +805,14 @@ dependencies = [
 name = "negative-vibes"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "gio",
  "glib",
  "gtk4",
  "libadwaita",
  "nv-acquire",
  "nv-device",
+ "nv-export",
  "nv-film",
  "nv-image",
  "nv-process",
@@ -933,6 +935,7 @@ dependencies = [
 name = "nv-store"
 version = "0.1.0"
 dependencies = [
+ "nv-export",
  "nv-image",
  "nv-process",
  "serde",

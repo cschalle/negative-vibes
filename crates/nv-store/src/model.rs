@@ -48,6 +48,11 @@ impl Roll {
         self.frames.last().unwrap()
     }
 
+    /// The frames "Scan All" scans: previewed, and not scanned yet.
+    pub fn frames_to_scan(&self) -> Vec<u32> {
+        self.frames.iter().filter(|f| f.preview.is_some() && f.raw.is_none()).map(|f| f.index).collect()
+    }
+
     pub fn frame(&self, index: u32) -> Option<&Frame> {
         self.frames.iter().find(|f| f.index == index)
     }
@@ -73,6 +78,7 @@ impl Roll {
         copy.label = src.label.clone();
         copy.geometry = src.geometry.clone();
         copy.preview = src.preview.clone();
+        copy.preview_size = src.preview_size;
         copy.overrides = src.overrides.clone();
         copy.state = if copy.preview.is_some() { FrameState::Previewed } else { FrameState::Empty };
         self.frames.insert(pos + 1, copy);
@@ -89,6 +95,9 @@ pub struct RollSettings {
     /// and what roll analysis fixed).
     #[serde(default)]
     pub process: nv_process::Settings,
+    /// How this roll's frames are exported (format, profile, folder, naming).
+    #[serde(default)]
+    pub export: nv_export::ExportSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,6 +120,10 @@ pub struct Frame {
     /// preview share it, each with its own crop.
     #[serde(default)]
     pub preview: Option<String>,
+    /// Pixel size `[w, h]` of that preview: `geometry.crop` is in its pixels,
+    /// so a frame can be scanned without loading the preview.
+    #[serde(default)]
+    pub preview_size: Option<[u32; 2]>,
     pub raw: Option<RawRef>,
     /// Processing settings this frame has set for itself; everything else
     /// follows the roll.
@@ -128,6 +141,7 @@ impl Frame {
             state: FrameState::Empty,
             geometry: Geometry::default(),
             preview: None,
+            preview_size: None,
             raw: None,
             overrides: nv_process::Settings::default(),
         }
@@ -232,6 +246,38 @@ mod tests {
         assert_eq!(copy.preview.as_deref(), Some("frame-01.prev.tif"));
         assert!(copy.raw.is_none());
         assert_eq!(copy.state, FrameState::Previewed);
+    }
+
+    #[test]
+    fn export_settings_survive_and_old_rolls_get_defaults() {
+        let mut roll = Roll::new("t");
+        roll.settings.export.format = nv_export::ExportFormat::Jpeg;
+        roll.settings.export.template = "{label}".into();
+        let back: Roll = serde_json::from_str(&serde_json::to_string(&roll).unwrap()).unwrap();
+        assert_eq!(back.settings.export.format, nv_export::ExportFormat::Jpeg);
+        assert_eq!(back.settings.export.template, "{label}");
+        // A roll written before export settings existed.
+        let old: Roll = serde_json::from_str(r#"{"schema":1,"id":"x","name":"n","created":"0","settings":{},"frames":[]}"#).unwrap();
+        assert_eq!(old.settings.export, nv_export::ExportSettings::default());
+    }
+
+    #[test]
+    fn scan_all_takes_previewed_frames_that_have_no_scan_yet() {
+        let mut roll = Roll::new("t");
+        for _ in 0..4 {
+            roll.add_frame();
+        }
+        roll.frame_mut(1).unwrap().preview = Some("p.tif".into());
+        roll.frame_mut(2).unwrap().preview = Some("p.tif".into());
+        roll.frame_mut(2).unwrap().raw = Some(RawRef {
+            filename: "frame-02.tif".into(),
+            scan: ScanSettings { resolution_dpi: 600, depth: 16, channels: 3, scanned_at: String::new() },
+            has_ir: false,
+            width_px: 1,
+            height_px: 1,
+        });
+        roll.frame_mut(4).unwrap().preview = Some("p.tif".into());
+        assert_eq!(roll.frames_to_scan(), [1, 4]);
     }
 
     #[test]

@@ -13,7 +13,7 @@ pub(crate) mod imp {
         pub toast_overlay: RefCell<Option<adw::ToastOverlay>>,
         pub header_title: RefCell<Option<adw::WindowTitle>>,
         pub preview_btn: RefCell<Option<gtk::Button>>,
-        pub scan_btn: RefCell<Option<gtk::Button>>,
+        pub scan_btn: RefCell<Option<adw::SplitButton>>,
         pub progress_bar: RefCell<Option<gtk::ProgressBar>>,
         pub advance_banner: RefCell<Option<adw::Banner>>,
 
@@ -36,6 +36,31 @@ pub(crate) mod imp {
         pub histories: RefCell<std::collections::HashMap<u32, super::history::History>>,
         pub history_key: Cell<u32>,
         pub analysing: Cell<bool>,
+        // ── Export ────────────────────────────────────────────────────────
+        pub export_queue: std::cell::OnceCell<crate::export_queue::ExportQueue>,
+        pub export_jobs: RefCell<Vec<super::export::JobInfo>>,
+        pub next_export_id: Cell<u64>,
+        pub queue_button: RefCell<Option<gtk::MenuButton>>,
+        pub queue_list: RefCell<Option<gtk::ListBox>>,
+        /// The scan in flight is for the raw file only: no export after it.
+        pub raw_only: Cell<bool>,
+        // ── Batch scanning ────────────────────────────────────────────────
+        /// The frame whose final scan is in flight, and the rectangle of the
+        /// scanner window it covers (`None`: all of it).
+        pub scan_target: Cell<Option<u32>>,
+        pub scan_area: Cell<Option<[f64; 4]>>,
+        /// Frames still to scan in this batch.
+        pub batch: RefCell<std::collections::VecDeque<u32>>,
+        pub batch_total: Cell<u32>,
+        pub batch_done: Cell<u32>,
+        /// Do not export what this batch scans.
+        pub batch_raw_only: Cell<bool>,
+        /// Manual-advance scanner: after each frame, preview and scan the next.
+        pub batch_loop: Cell<bool>,
+        /// The preview that is coming is to be scanned at once.
+        pub auto_scan_next: Cell<bool>,
+        /// The scanner (not an import) is what the window is busy with.
+        pub acquiring: Cell<bool>,
         /// Histogram of the picture entering the tone stage, for the levels.
         pub levels: RefCell<Option<[u32; 256]>>,
         pub levels_area: RefCell<Option<gtk::DrawingArea>>,
@@ -172,6 +197,9 @@ pub(crate) mod imp {
     impl AdwApplicationWindowImpl for Window {}
 }
 
+mod batch;
+mod export;
+mod export_dialog;
 mod frames;
 mod history;
 mod render;
@@ -225,12 +253,25 @@ impl Window {
             .sensitive(false)
             .build();
 
-        let scan_btn = gtk::Button::builder()
+        let scan_menu = gio::Menu::new();
+        scan_menu.append(Some("Scan Selected Frames"), Some("win.scan-selected"));
+        scan_menu.append(Some("Scan All Frames"), Some("win.scan-all"));
+        scan_menu.append(Some("Scan Raw Only"), Some("win.scan-raw-only"));
+        let scan_btn = adw::SplitButton::builder()
             .label("Scan")
             .css_classes(["suggested-action"])
             .tooltip_text("Scan the current frame (Ctrl+Return)")
+            .menu_model(&scan_menu)
+            .action_name("win.scan-selected")
             .sensitive(false)
             .build();
+
+        let export_btn = gtk::Button::builder()
+            .label("Export")
+            .action_name("win.export")
+            .tooltip_text("Export frames (Ctrl+E)")
+            .build();
+        let queue_btn = self.build_queue_button();
 
         let open_btn = gtk::Button::builder()
             .icon_name("folder-open-symbolic")
@@ -243,6 +284,8 @@ impl Window {
         header.pack_start(&preview_btn);
         header.set_title_widget(Some(&title_widget));
         header.pack_end(&scan_btn);
+        header.pack_end(&export_btn);
+        header.pack_end(&queue_btn);
         header.pack_end(&open_btn);
         header.pack_end(&inspector_btn);
 
@@ -542,12 +585,10 @@ impl Window {
 
         let win_weak = self.downgrade();
         preview_btn.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.start_preview(); }
-        });
-
-        let win_weak = self.downgrade();
-        scan_btn.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.start_final_scan(); }
+            if let Some(win) = win_weak.upgrade() {
+                // While the scanner is busy this button is Stop.
+                if win.imp().busy.get() { win.stop(); } else { win.start_preview(); }
+            }
         });
 
         let win_weak = self.downgrade();
@@ -575,6 +616,8 @@ impl Window {
             banner.set_revealed(false);
             if let Some(win) = win_weak.upgrade() {
                 win.imp().advance_pending.set(true);
+                // In a Scan All loop the next frame is scanned as soon as it is previewed.
+                if win.imp().batch_loop.get() { win.imp().auto_scan_next.set(true); }
                 win.start_preview();
             }
         });
@@ -594,6 +637,9 @@ impl Window {
         });
         self.add_action(&redo_action);
 
+        *self.imp().queue_button.borrow_mut() = Some(queue_btn.clone());
+        self.setup_export();
+        self.setup_batch();
         self.setup_frames(&frame_list);
         self.setup_zoom(&canvas_scroll);
 
@@ -1274,6 +1320,7 @@ impl Window {
     fn start_preview(&self) {
         self.imp().scan_kind.set(imp::ScanKind::Preview);
         self.imp().preview_ready.set(false);
+        self.imp().acquiring.set(true);
         self.set_busy(true);
         if let Some(app) = self.application() {
             app.activate_action("preview", None);
@@ -1290,7 +1337,8 @@ impl Window {
             .unwrap_or(1200)
     }
 
-    fn start_final_scan(&self) {
+    /// Scan the frame on the canvas, inside the rectangle drawn on it.
+    pub(super) fn start_final_scan(&self) {
         if !self.imp().preview_ready.get() {
             return;
         }
@@ -1300,12 +1348,28 @@ impl Window {
         self.store_frame_crop(frame_idx);
         self.schedule_autosave();
         self.flush_autosave();
+        // A raw-only batch keeps its choice for every frame; a single raw-only
+        // scan sets it for this frame alone (cleared when the scan is saved).
+        self.imp().raw_only.set(self.imp().batch_raw_only.get());
+        self.start_final_scan_of(frame_idx, self.frame_rect());
+    }
+
+    /// Start the final scan of frame `idx` over `area` of the scanner window.
+    pub(super) fn start_final_scan_of(&self, idx: u32, area: Option<[f64; 4]>) {
+        self.imp().scan_target.set(Some(idx));
+        self.imp().scan_area.set(area);
         self.imp().final_dpi.set(self.final_scan_dpi());
         self.imp().scan_kind.set(imp::ScanKind::Final);
+        self.imp().acquiring.set(true);
         self.set_busy(true);
         if let Some(app) = self.application() {
             app.activate_action("scan", None);
         }
+    }
+
+    /// The rectangle the scan in flight covers.
+    pub fn scan_area(&self) -> Option<[f64; 4]> {
+        self.imp().scan_area.get()
     }
 
     /// Make a roll folder on disk (in the user's Pictures folder) and make it
@@ -1475,6 +1539,7 @@ impl Window {
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(false);
                 }
+                self.end_batch();
                 self.abort_acquisition();
             }
 
@@ -1483,6 +1548,7 @@ impl Window {
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(false);
                 }
+                self.end_batch();
                 self.abort_acquisition();
             }
 
@@ -1512,7 +1578,7 @@ impl Window {
             return;
         };
         let dpi = self.imp().final_dpi.get();
-        let frame_idx = *self.imp().selected_frame.borrow();
+        let frame_idx = self.imp().scan_target.get();
         let root = self.imp().roll_root.borrow().clone();
         let (Some(frame_idx), Some(root)) = (frame_idx, root) else {
             self.show_toast("Scan finished but there is no roll to save it in");
@@ -1531,6 +1597,7 @@ impl Window {
             let write_path = path.clone();
             let result = gio::spawn_blocking(move || nv_store::RawWriter::write_scan(&buf, &write_path)).await;
             let Some(win) = win_weak.upgrade() else { return };
+            let mut saved = false;
             match result {
                 Ok(Ok(())) => {
                     win.record_scan(frame_idx, filename, dpi, depth, channels, w, h);
@@ -1538,12 +1605,22 @@ impl Window {
                     if win.imp().manual_advance.get() {
                         win.show_advance_banner();
                     }
+                    // Export while the next frame scans, unless this was a raw-only scan.
+                    let raw_only = win.imp().raw_only.get();
+                    if !raw_only && win.export_settings().after_scan {
+                        win.queue_export(&[frame_idx]);
+                    }
+                    saved = true;
                 }
                 Ok(Err(e)) => win.show_toast(&format!("Could not save scan: {e}")),
                 Err(_) => win.show_toast("Could not save scan: writer thread panicked"),
             }
             win.abort_acquisition();
             win.update_info_label();
+            // The scanner is free: on to the next frame of a batch.
+            if saved {
+                win.continue_batch();
+            }
         });
     }
 
@@ -1633,6 +1710,10 @@ impl Window {
     fn on_scan_done(&self) {
         self.adopt_preview();
         self.update_info_label();
+        // A Scan All loop on a manual-advance scanner: scan what was just previewed.
+        if self.imp().auto_scan_next.replace(false) {
+            self.start_final_scan();
+        }
     }
     fn save_roll(&self) -> Option<()> {
         let root = self.imp().roll_root.borrow().clone()?;

@@ -975,10 +975,25 @@ export to sRGB with our two profiles and lands on our sRGB export within 1.5 lev
 container is written here. Measured in release on a synthetic 7200 dpi frame (10368 × 7755):
 16-bit RGB TIFF with Deflate in 3.7 s and 8-bit uncompressed in 2.4 s, each adding about
 265 MB of memory on top of the 500 MB raw and proxy (`cargo test -p nv-export --release
---test export -- --ignored --nocapture`). Not yet: the export queue and its header button,
-the Export dialog (Ctrl+E), exporting after each scan, Scan All / Scan Raw Only and the
-manual-advance batch loop, size presets and resampling, geometry (rotate, flip) in the
-pipeline, XMP metadata (M7), and checks H7 to H9 on the scanner.
+--test export -- --ignored --nocapture`). **M4 status, second slice: the app side.** The window has an export queue (one worker
+thread; jobs run in order, equal names get " (2)", a failed job does not stop the rest, a
+queued job can be cancelled and a running one stops at the next band and leaves no file), a
+header button with a popover of jobs (progress, cancel, Show in Files, Clear Finished), the
+Export dialog (Ctrl+E: preset, format, depth, compression, quality, colour space, grey,
+profile, folder, name template with a live example, export after each scan, selected or
+all scanned frames), export settings stored in `roll.json`, and `exports.json` recording each
+file written. A finished export marks the frame Exported and the toast offers the folder.
+The Scan button is a split button: Scan Selected Frames, Scan All Frames, Scan Raw Only
+(no export afterwards); Preview becomes Stop while the scanner works. A scan is taken inside
+the frame's own rectangle, from the stored crop and the preview's size, so Scan All can
+scan frames cut from one preview without loading them; on a manual-advance scanner Scan All
+is a loop: scan, banner, preview and scan the next frame as soon as the holder is moved.
+Tested without a scanner: the queue, the model, the encoders, and a headless import that
+exports through the queue (`NV_IMPORT_FILES` with `NV_EXPORT_DIR`). **Not yet tested on the
+scanner:** Scan All, Scan Raw Only, Stop, the manual-advance loop, and export overlapping a
+scan. Not done: size presets and resampling, geometry (rotate, flip) in the pipeline, the
+Preferences dialog's output page, XMP metadata (M7), HDRi RAW (waits for IR, M5), and
+checks H7 to H9 on the scanner.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
