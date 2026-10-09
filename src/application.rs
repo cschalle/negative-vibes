@@ -29,7 +29,7 @@ mod imp {
         fn activate(&self) {
             self.parent_activate();
             let app = self.obj();
-            if let Some(win) = app.active_window() {
+            if let Some(win) = app.main_window() {
                 win.present();
                 return;
             }
@@ -136,14 +136,15 @@ mod imp {
             preview.connect_activate(move |_, _| {
                 if let Some(app) = app_weak.upgrade() {
                     let Some(worker) = app.imp().worker.get() else { return };
-                    let Some(win) = app.active_window()
-                        .and_downcast::<crate::window::Window>() else { return };
+                    let Some(win) = app.main_window() else { return };
 
                     // Get device name from window state.
                     if let crate::window::imp::ScanUiState::Ready { device_name } =
                         &*win.imp().scan_state.borrow()
                     {
                         worker.start_scan(device_name.clone(), win.preview_dpi(), false, None);
+                    } else {
+                        win.scanner_not_ready();
                     }
                 }
             });
@@ -155,13 +156,14 @@ mod imp {
             scan.connect_activate(move |_, _| {
                 if let Some(app) = app_weak.upgrade() {
                     let Some(worker) = app.imp().worker.get() else { return };
-                    let Some(win) = app.active_window()
-                        .and_downcast::<crate::window::Window>() else { return };
+                    let Some(win) = app.main_window() else { return };
 
                     if let crate::window::imp::ScanUiState::Ready { device_name } =
                         &*win.imp().scan_state.borrow()
                     {
                         worker.start_scan_with(device_name.clone(), win.final_scan_dpi(), win.scan_with_ir(), win.scan_area(), win.scan_passes());
+                    } else {
+                        win.scanner_not_ready();
                     }
                 }
             });
@@ -184,10 +186,7 @@ mod imp {
 
             glib::MainContext::default().spawn_local(async move {
                 while let Ok(event) = rx.recv().await {
-                    if let Some(win) = app
-                        .active_window()
-                        .and_downcast::<crate::window::Window>()
-                    {
+                    if let Some(win) = app.main_window() {
                         win.handle_scan_event(event);
                     }
                 }
@@ -206,6 +205,12 @@ glib::wrapper! {
 }
 
 impl Application {
+    /// The main window, whichever window has the focus: dialogs and the guide are
+    /// windows of the application too, and scanner events and actions are for the main one.
+    pub fn main_window(&self) -> Option<crate::window::Window> {
+        gtk::prelude::GtkApplicationExt::windows(self).into_iter().find_map(|w| glib::prelude::Cast::downcast::<crate::window::Window>(w).ok())
+    }
+
     fn new() -> Self {
         glib::Object::builder()
             .property("application-id", crate::config::APP_ID)

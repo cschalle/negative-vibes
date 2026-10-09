@@ -90,6 +90,8 @@ pub(crate) mod imp {
         pub acquiring: Cell<bool>,
         pub autoscan_started: Cell<bool>,
         pub auto_previewed: Cell<bool>,
+        /// When the scanner last did anything we heard of; a scan that stays silent is stuck.
+        pub last_scan_event: Cell<Option<std::time::Instant>>,
         pub autostop_done: Cell<bool>,
         pub stop_at: Cell<Option<std::time::Instant>>,
         pub autoscan_done: Cell<bool>,
@@ -1792,6 +1794,7 @@ impl Window {
     }
 
     fn start_preview(&self) {
+        self.imp().last_scan_event.set(Some(std::time::Instant::now()));
         self.imp().scan_kind.set(imp::ScanKind::Preview);
         self.imp().preview_ready.set(false);
         self.imp().acquiring.set(true);
@@ -1825,6 +1828,7 @@ impl Window {
 
     /// Start the final scan of frame `idx` over `area` of the scanner window.
     pub(super) fn start_final_scan_of(&self, idx: u32, area: Option<[f64; 4]>) {
+        self.imp().last_scan_event.set(Some(std::time::Instant::now()));
         self.imp().scan_target.set(Some(idx));
         self.imp().scan_area.set(area);
         self.imp().final_dpi.set(self.final_scan_dpi());
@@ -1934,6 +1938,7 @@ impl Window {
     pub fn handle_scan_event(&self, event: ScanEvent) {
         use imp::ScanUiState;
 
+        self.imp().last_scan_event.set(Some(std::time::Instant::now()));
         match event {
             ScanEvent::DeviceList(caps) => {
                 if caps.is_empty() {
@@ -2093,6 +2098,13 @@ impl Window {
 
             ScanEvent::DeviceReady { .. } => {}
         }
+    }
+
+    /// A scan was asked for but the application had no ready scanner to give it to:
+    /// do not leave the window waiting for something that was never started.
+    pub fn scanner_not_ready(&self) {
+        self.abort_acquisition();
+        self.show_toast("The scanner is not ready");
     }
 
     fn abort_acquisition(&self) {

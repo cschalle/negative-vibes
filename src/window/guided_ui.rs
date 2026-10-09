@@ -111,8 +111,12 @@ impl Window {
         let (p3, g3) = page("Preview the film", "Put the film in its holder, then preview. The frames are found for you.");
         let preview_btn = gtk::Button::builder().label("Preview Film").halign(gtk::Align::Start).css_classes(["suggested-action", "pill"]).build();
         let preview_status = gtk::Label::builder().wrap(true).xalign(0.0).css_classes(["dim-label"]).margin_top(8).build();
+        let preview_stop = gtk::Button::builder().label("Stop").halign(gtk::Align::Start).build();
         let b = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        b.append(&preview_btn);
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row.append(&preview_btn);
+        row.append(&preview_stop);
+        b.append(&row);
         b.append(&preview_status);
         g3.add(&b);
         // 4. Look
@@ -222,6 +226,14 @@ impl Window {
                     } else {
                         win.start_preview();
                     }
+                }
+            });
+        }
+        {
+            let weak = self.downgrade();
+            preview_stop.connect_clicked(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.stop();
                 }
             });
         }
@@ -338,7 +350,7 @@ impl Window {
                 let text = if !self.device_ready() {
                     "No scanner is ready. Connect and switch on the scanner.".to_owned()
                 } else if imp.busy.get() {
-                    "Previewing…".to_owned()
+                    format!("Previewing…{}", self.stuck_hint())
                 } else if imp.preview_ready.get() {
                     format!("Preview ready. {frames} frame(s) found. Check the frame rectangles on the picture, then press Next.")
                 } else {
@@ -363,6 +375,12 @@ impl Window {
                     if imp.busy.get() { " Scanning…" } else { "" },
                     if manual { "\nThis scanner takes one frame at a time: after each scan, move the film to the next frame and press Scan Next Frame in the banner." } else { "" }
                 ));
+                if imp.busy.get() {
+                    let hint = self.stuck_hint();
+                    if !hint.is_empty() {
+                        g.scan_status.set_label(&format!("{}{hint}", g.scan_status.label()));
+                    }
+                }
                 g.next.set_sensitive(scanned > 0 && !imp.busy.get());
             }
             5 => {
@@ -372,6 +390,16 @@ impl Window {
             _ => {
                 g.next.set_sensitive(true);
             }
+        }
+    }
+
+    /// What to say when the scanner has gone quiet in the middle of a job.
+    fn stuck_hint(&self) -> &'static str {
+        let silent = self.imp().last_scan_event.get().is_some_and(|t| t.elapsed() > std::time::Duration::from_secs(30));
+        if silent {
+            "\nThe scanner has not answered for 30 seconds. Press Stop, switch the scanner off and on again, and try again."
+        } else {
+            ""
         }
     }
 
