@@ -1342,6 +1342,14 @@ no crop when there is almost no surround, or when the result would be a sliver. 
 scan the crop is 812 × 554 of 864 × 645. The pixels outside it are still in the file, so a
 developer can widen it. Checked with exiv2 on every tag and on the crop.
 
+**After a scan, the scan is shown.** A frame that has been scanned now shows its scan on the canvas
+instead of the preview it was framed on: when a scan is saved (or a batch ends) the frame is
+loaded again from its raw file, working-size copy only, and its thumbnail follows. The frame's
+menu has *Show Preview or Scan* to swap back, to frame it again; a frame with no scan, or no
+preview, says so. Checked headless on the scanner: after the final scan the canvas loads
+`raw/frame-01.tif`. Scanning again from a displayed scan needs the preview, which is what the
+swap or a new Preview gives.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

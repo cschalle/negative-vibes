@@ -79,11 +79,19 @@ impl Window {
         let roll = self.imp().roll.borrow();
         let frame = roll.as_ref()?.frame(idx)?;
         let orient = nv_process::Orientation { rotation: frame.geometry.rotation % 4, flip_h: frame.geometry.flip_h, flip_v: frame.geometry.flip_v };
-        if let Some(prev) = &frame.preview {
-            Some(Source { path: self.raw_file(prev)?, is_preview: true, crop: frame.geometry.crop, orientation: orient, angle: frame.geometry.angle })
+        let preview = frame.preview.as_ref().and_then(|p| Some(Source { path: self.raw_file(p)?, is_preview: true, crop: frame.geometry.crop, orientation: orient, angle: frame.geometry.angle }));
+        // A scanned frame shows its scan (the preview is for framing); the person can ask
+        // for the preview instead, to frame it again.
+        let scan = frame
+            .raw
+            .as_ref()
+            .and_then(|r| self.raw_file(&r.filename))
+            .filter(|p| p.exists())
+            .map(|path| Source { path, is_preview: false, crop: None, orientation: orient, angle: frame.geometry.angle });
+        if self.imp().preview_view.borrow().contains(&idx) && preview.is_some() {
+            preview
         } else {
-            let raw = frame.raw.as_ref()?;
-            Some(Source { path: self.raw_file(&raw.filename)?, is_preview: false, crop: None, orientation: orient, angle: frame.geometry.angle })
+            scan.or(preview)
         }
     }
 
@@ -91,7 +99,7 @@ impl Window {
         self.imp().roll.borrow().as_ref()?.frames.get(position).map(|f| f.index)
     }
 
-    fn selected(&self) -> Option<u32> {
+    pub(super) fn selected(&self) -> Option<u32> {
         *self.imp().selected_frame.borrow()
     }
 
@@ -318,7 +326,8 @@ impl Window {
             }
         });
 
-        let actions: [(&str, fn(&Window)); 8] = [
+        let actions: [(&str, fn(&Window)); 9] = [
+            ("toggle-view", |w| w.toggle_preview_view()),
             ("detect-frames", |w| w.detect_frames()),
             ("delete-frame", |w| w.delete_frame()),
             ("duplicate-frame", |w| w.duplicate_frame()),
@@ -340,6 +349,23 @@ impl Window {
             });
             self.add_action(&action);
         }
+    }
+
+    /// Swap the frame on screen between its scan and the preview it was framed on.
+    fn toggle_preview_view(&self) {
+        let Some(idx) = self.selected() else { return };
+        let (has_scan, has_preview) = self.imp().roll.borrow().as_ref().and_then(|r| r.frame(idx)).map_or((false, false), |f| (f.raw.is_some(), f.preview.is_some()));
+        if !(has_scan && has_preview) {
+            self.show_toast(if has_scan { "This frame has no preview" } else { "This frame has not been scanned" });
+            return;
+        }
+        {
+            let mut set = self.imp().preview_view.borrow_mut();
+            if !set.remove(&idx) {
+                set.insert(idx);
+            }
+        }
+        self.select_frame(idx);
     }
 
     // ── Thumbnails ────────────────────────────────────────────────────────────

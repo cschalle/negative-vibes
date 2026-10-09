@@ -84,6 +84,8 @@ pub(crate) mod imp {
         pub batch_raw_only: Cell<bool>,
         /// Manual-advance scanner: after each frame, preview and scan the next.
         pub batch_loop: Cell<bool>,
+        /// Frames the person asked to see the preview of, though they have a scan.
+        pub preview_view: RefCell<std::collections::HashSet<u32>>,
         /// The preview that is coming is to be scanned at once.
         pub auto_scan_next: Cell<bool>,
         /// The scanner (not an import) is what the window is busy with.
@@ -644,6 +646,7 @@ impl Window {
             .build();
 
         let frame_menu = gio::Menu::new();
+        frame_menu.append(Some("Show Preview or Scan"), Some("win.toggle-view"));
         frame_menu.append(Some("Duplicate Frame"), Some("win.duplicate-frame"));
         frame_menu.append(Some("Keep Frame"), Some("win.toggle-keep"));
         frame_menu.append(Some("Reject Frame"), Some("win.toggle-reject"));
@@ -2191,6 +2194,14 @@ impl Window {
             }
             win.abort_acquisition();
             win.update_info_label();
+            // Show what was just scanned instead of the preview it was framed on. A batch
+            // shows its last frame when it is over, and the next frame of one scans first.
+            if saved && win.imp().batch.borrow().is_empty() {
+                win.imp().preview_view.borrow_mut().remove(&frame_idx);
+                if win.selected() == Some(frame_idx) {
+                    win.select_frame(frame_idx);
+                }
+            }
             // The scanner is free: on to the next frame of a batch.
             if saved {
                 win.continue_batch();
