@@ -1,0 +1,41 @@
+{
+  "app-id": "io.github.cschalle.NegativeVibes.Devel",
+  "runtime": "org.gnome.Sdk",
+  "runtime-version": "master",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.rust-stable"
+  ],
+  "command": "negative-vibes",
+  "finish-args": [
+    "--share=ipc",
+    "--share=network",
+    "--socket=fallback-x11",
+    "--socket=wayland",
+    "--device=all",
+    "--filesystem=home",
+    "--talk-name=org.freedesktop.portal.Desktop"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin",
+    "env": {
+      "CARGO_HOME": "/run/build/negative-vibes/cargo-home",
+      "RUST_BACKTRACE": "1"
+    }
+  },
+  "modules": [
+    {
+      "name": "negative-vibes",
+      "buildsystem": "meson",
+      "config-opts": [
+        "-Dprofile=development"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": ".."
+        }
+      ]
+    }
+  ]
+}

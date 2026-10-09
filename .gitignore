@@ -2,6 +2,7 @@
 _build/
 build/
 build-*/
+!build-aux/
 
 # Cargo build artifacts
 target/
