@@ -357,7 +357,8 @@ impl Window {
                     "Press Preview Film.".to_owned()
                 };
                 g.preview_status.set_label(&text);
-                g.next.set_sensitive(imp.preview_ready.get() && !imp.busy.get());
+                // Always clickable: leaving explains what is missing, rather than a greyed button that says nothing.
+                g.next.set_sensitive(true);
             }
             3 => {
                 if g.look_box.first_child().is_none() {
@@ -381,7 +382,7 @@ impl Window {
                         g.scan_status.set_label(&format!("{}{hint}", g.scan_status.label()));
                     }
                 }
-                g.next.set_sensitive(scanned > 0 && !imp.busy.get());
+                g.next.set_sensitive(true);
             }
             5 => {
                 let dir = self.export_folder(&self.export_settings());

@@ -490,10 +490,10 @@ impl Window {
             tool_buttons.push((tool, b));
         }
         bottom_bar.append(&tool_box);
-        bottom_bar.append(&progress_bar);
-        let spacer = gtk::Box::builder().hexpand(true).build();
-        bottom_bar.append(&spacer);
-        bottom_bar.append(&info_label);
+        // Progress and the picture's details get a row of their own above the controls:
+        // the controls scroll when the window is narrow, and these must not scroll away.
+        info_label.set_visible(false);
+        info_label.connect_label_notify(|l| l.set_visible(!l.label().is_empty()));
 
         // ── Canvas stack ──────────────────────────────────────────────────
         let no_scanner = adw::StatusPage::new();
@@ -595,7 +595,13 @@ impl Window {
             .propagate_natural_height(true)
             .child(&bottom_bar)
             .build();
-        toolbar_view.add_bottom_bar(&bottom_scroll);
+        let status_row = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).spacing(12).margin_start(12).margin_end(12).margin_top(3).build();
+        status_row.append(&progress_bar);
+        status_row.append(&info_label);
+        let bottom_stack = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        bottom_stack.append(&status_row);
+        bottom_stack.append(&bottom_scroll);
+        toolbar_view.add_bottom_bar(&bottom_stack);
 
         let toast_overlay = adw::ToastOverlay::new();
         toast_overlay.set_child(Some(&toolbar_view));
