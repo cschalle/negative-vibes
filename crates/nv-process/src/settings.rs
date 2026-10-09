@@ -41,6 +41,7 @@ pub struct Settings {
     pub saturation: Option<f32>,
     pub acr: Option<f32>,
     pub wheel: Option<[[f32; 2]; 3]>,
+    pub selective: Option<[[f32; 3]; 6]>,
     pub grey_enabled: Option<bool>,
     pub grey_weights: Option<[f32; 3]>,
     pub input: Option<crate::input::InputProfile>,
@@ -48,7 +49,7 @@ pub struct Settings {
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast, saturation, acr, wheel, grey_enabled, grey_weights, input)
+        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast, saturation, acr, wheel, selective, grey_enabled, grey_weights, input)
     };
 }
 
@@ -91,6 +92,7 @@ impl Settings {
         if let Some(v) = self.saturation { p.colour.saturation = v; }
         if let Some(v) = self.acr { p.colour.acr = v; }
         if let Some(v) = self.wheel { p.colour.wheel = v; }
+        if let Some(v) = self.selective { p.colour.selective = v; }
         if let Some(v) = self.grey_enabled { p.colour.grey.enabled = v; }
         if let Some(v) = self.grey_weights { p.colour.grey.weights = v; }
         if let Some(v) = &self.input { p.input = Some(v.clone()); }
@@ -141,6 +143,7 @@ impl Settings {
             saturation: chf(old.colour.saturation, new.colour.saturation),
             acr: chf(old.colour.acr, new.colour.acr),
             wheel: ch(old.colour.wheel, new.colour.wheel),
+            selective: ch(old.colour.selective, new.colour.selective),
             grey_enabled: ch(old.colour.grey.enabled, new.colour.grey.enabled),
             grey_weights: ch3(old.colour.grey.weights, new.colour.grey.weights),
             input: (old.input != new.input).then(|| new.input.clone()).flatten(),
@@ -281,6 +284,7 @@ mod tests {
         edited.colour.saturation = 0.3;
         edited.colour.acr = 40.0;
         edited.colour.wheel[2] = [0.2, -0.4];
+        edited.colour.selective[4] = [0.1, -0.3, 0.5];
         edited.colour.grey.enabled = true;
         edited.colour.grey.weights = crate::GREY_PRESETS[1].1;
         let s = Settings::diff(&base, &edited);

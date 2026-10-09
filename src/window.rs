@@ -54,6 +54,7 @@ pub(crate) mod imp {
         pub usm_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow, adw::SpinRow, adw::SpinRow)>>,
         pub noise_row: RefCell<Option<adw::ComboRow>>,
         pub local_contrast_row: RefCell<Option<adw::SpinRow>>,
+        pub selective_rows: RefCell<Option<(adw::ComboRow, [adw::SpinRow; 3])>>,
         pub colour_rows: RefCell<Option<(adw::SpinRow, adw::SpinRow, adw::ComboRow)>>,
         /// Where inspector edits go: the roll's defaults or this frame.
         pub scope: Cell<Scope>,
@@ -1169,6 +1170,52 @@ impl Window {
         *self.imp().colour_rows.borrow_mut() = Some((saturation_row, acr_row, grey_row));
         self.refresh_profile_list();
         detail_page.add(&colour_group);
+        let sel_group = adw::PreferencesGroup::builder().title("Selective Colour").description("Change one colour range without touching the others").build();
+        let names: Vec<&str> = nv_process::colour::RANGES.iter().map(|r| r.0).collect();
+        let range_row = adw::ComboRow::builder().title("Colour Range").model(&gtk::StringList::new(&names)).build();
+        let mk = |title: &str, sub: &str| adw::SpinRow::builder().title(title).subtitle(sub).adjustment(&gtk::Adjustment::new(0.0, -100.0, 100.0, 5.0, 20.0, 0.0)).build();
+        let hue_row = mk("Hue", "Towards the neighbouring colours");
+        let sat_row = mk("Saturation", "How colourful");
+        let light_row = mk("Lightness", "How light");
+        let mut pn: Vec<&str> = vec!["Custom"];
+        pn.extend(nv_process::colour::SELECTIVE_PRESETS.iter().map(|p| p.0));
+        let preset_row = adw::ComboRow::builder().title("Preset").model(&gtk::StringList::new(&pn)).build();
+        let reset_sel = gtk::Button::builder().label("Reset Selective Colour").halign(gtk::Align::End).margin_top(6).build();
+        for r in [range_row.upcast_ref::<gtk::Widget>(), hue_row.upcast_ref(), sat_row.upcast_ref(), light_row.upcast_ref(), preset_row.upcast_ref()] {
+            sel_group.add(r);
+        }
+        sel_group.add(&reset_sel);
+        for r in [&hue_row, &sat_row, &light_row] {
+            let weak = self.downgrade();
+            r.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        }
+        {
+            let weak = self.downgrade();
+            range_row.connect_selected_notify(move |_| {
+                if let Some(win) = weak.upgrade() { win.show_selective_range(); }
+            });
+            let weak = self.downgrade();
+            preset_row.connect_selected_notify(move |r| {
+                let (Some(win), Some(i)) = (weak.upgrade(), (r.selected() as usize).checked_sub(1)) else { return };
+                if win.imp().updating_ui.get() { return; }
+                let set = nv_process::colour::SELECTIVE_PRESETS[i].1;
+                win.begin_live_edit();
+                win.update_live(|p| p.colour.selective = set);
+                win.end_live_edit();
+                win.show_selective_range();
+            });
+            let weak = self.downgrade();
+            reset_sel.connect_clicked(move |_| {
+                let Some(win) = weak.upgrade() else { return };
+                win.begin_live_edit();
+                win.update_live(|p| p.colour.selective = [[0.0; 3]; 6]);
+                win.end_live_edit();
+                win.show_selective_range();
+            });
+        }
+        *self.imp().selective_rows.borrow_mut() = Some((range_row, [hue_row, sat_row, light_row]));
+        detail_page.add(&sel_group);
+
         let wheel_group = adw::PreferencesGroup::builder().title("Colour Balance").description("For shadows, midtones and highlights separately").build();
         wheel_group.add(&self.build_colour_wheel());
         detail_page.add(&wheel_group);
@@ -1362,6 +1409,10 @@ impl Window {
         p.detail.usm = nv_process::UsmParams { enabled: usm_enabled, amount: usm_amount, radius: usm_radius, threshold: usm_threshold };
         p.detail.noise = noise;
         p.detail.local_contrast = self.imp().local_contrast_row.borrow().as_ref()?.value() as f32;
+        if let Some((range, rows)) = self.imp().selective_rows.borrow().as_ref() {
+            let i = (range.selected() as usize).min(5);
+            p.colour.selective[i] = [rows[0].value() as f32 / 100.0, rows[1].value() as f32 / 100.0, rows[2].value() as f32 / 100.0];
+        }
         if let Some(row) = self.imp().scanner_profile_row.borrow().as_ref() {
             let chosen = row.selected_item().and_downcast::<gtk::StringObject>().map(|s| s.string().to_string()).filter(|n| n != "None");
             p.input = match chosen {
@@ -1437,6 +1488,7 @@ impl Window {
             t.set_value(params.detail.usm.threshold as f64);
         }
         if let Some(r) = self.imp().local_contrast_row.borrow().as_ref() { r.set_value(params.detail.local_contrast as f64); }
+        self.fill_selective_rows(&params.colour.selective);
         if let Some(row) = self.imp().scanner_profile_row.borrow().as_ref() {
             let names: Vec<String> = (0..row.model().map_or(0, |m| m.n_items())).filter_map(|i| row.model()?.item(i).and_downcast::<gtk::StringObject>().map(|s| s.string().to_string())).collect();
             row.set_selected(params.input.as_ref().and_then(|i| names.iter().position(|n| *n == i.name)).unwrap_or(0) as u32);

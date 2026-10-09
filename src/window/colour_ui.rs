@@ -21,6 +21,25 @@ fn hue_rgb(angle: f64) -> (f64, f64, f64) {
 }
 
 impl Window {
+    /// Put the selected range's three values in the rows.
+    pub(super) fn fill_selective_rows(&self, set: &[[f32; 3]; 6]) {
+        let imp = self.imp();
+        let guard = imp.updating_ui.replace(true);
+        if let Some((range, rows)) = imp.selective_rows.borrow().as_ref() {
+            let v = set[(range.selected() as usize).min(5)];
+            for (r, x) in rows.iter().zip(v) {
+                r.set_value(x as f64 * 100.0);
+            }
+        }
+        imp.updating_ui.set(guard);
+    }
+
+    /// The range chosen changed, or the settings did: show the range's values.
+    pub(super) fn show_selective_range(&self) {
+        let set = self.imp().proc_params.borrow().as_ref().map(|p| p.colour.selective).unwrap_or([[0.0; 3]; 6]);
+        self.fill_selective_rows(&set);
+    }
+
     pub(super) fn build_colour_wheel(&self) -> gtk::Box {
         let root = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).build();
 

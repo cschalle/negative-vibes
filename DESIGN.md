@@ -1260,6 +1260,21 @@ two dozen GTK allocation warnings (negative sizes); the cause was the bottom bar
 grown wider than a narrow window and left the side panels no room. It now scrolls, and
 starting the app prints no warnings.
 
+**M7 status, fourth slice: selective colour.** Six ranges (red, yellow, green, cyan, blue,
+magenta), each with hue, saturation and lightness from -100 to +100 (F§5.6), in the colour stage
+after the wheel and before the global saturation. A pixel's hue belongs to the ranges by smooth
+triangles of 60 degrees either side of each centre, which always add up to one, so neighbouring
+ranges blend and nothing falls between them; the effect eases in with the pixel's colour, so
+greys are untouched. Hue turns by up to 30 degrees, lightness moves by up to a quarter of the
+range (less at the extremes), saturation grows towards full or shrinks towards grey. Five
+presets (Deeper skies, Fresh foliage, Warmer skin, Autumn, Muted) fill the six ranges. In the
+Detail page: a range selector, three rows, the preset row, and a reset; the values are
+saved with the roll and frame settings and can be undone like any other edit. Tested: weights
+sum to one at every hue, HSL round trip, a range moves only its own colours, hue turns the
+right way, lightness keeps the hue, every preset does something and stays in range, settings
+round trip. The look has been judged by numbers only, not by eye on pictures. Also fixed
+before this: the startup GTK warnings (the bottom bar now scrolls).
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;
