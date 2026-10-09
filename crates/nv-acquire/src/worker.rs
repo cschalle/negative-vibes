@@ -8,6 +8,7 @@ use nv_sane::{parameters::FrameFormat, Session};
 
 use crate::event::{ScanEvent, WorkerCmd};
 use crate::frame::FrameMeta;
+use crate::passes::{self, Accumulator, Layout, PassPlan};
 
 const READ_BUF: usize = 65536;
 
@@ -44,11 +45,24 @@ impl AcquireWorker {
         with_ir: bool,
         area: Option<[f64; 4]>,
     ) {
+        self.start_scan_with(device_name, resolution_dpi, with_ir, area, PassPlan::SINGLE);
+    }
+
+    /// [`start_scan`](Self::start_scan) with several passes over the frame.
+    pub fn start_scan_with(
+        &self,
+        device_name: String,
+        resolution_dpi: u32,
+        with_ir: bool,
+        area: Option<[f64; 4]>,
+        passes: PassPlan,
+    ) {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::StartScan {
             device_name,
             resolution_dpi,
             with_ir,
             area,
+            passes,
         });
     }
 
@@ -93,7 +107,7 @@ fn run_worker(
                 do_probe(&session, &quirks, &evt_tx);
             }
 
-            WorkerCmd::StartScan { device_name, resolution_dpi, with_ir, area } => {
+            WorkerCmd::StartScan { device_name, resolution_dpi, with_ir, area, passes } => {
                 cancelled.store(false, Ordering::SeqCst);
                 do_scan(
                     &session,
@@ -105,6 +119,7 @@ fn run_worker(
                     resolution_dpi,
                     with_ir,
                     area,
+                    passes,
                 );
             }
 
@@ -170,6 +185,7 @@ fn do_scan(
     resolution_dpi: u32,
     with_ir: bool,
     area: Option<[f64; 4]>,
+    passes: PassPlan,
 ) {
     // Drain any stray Cancel commands before we start.
     while cmd_rx.try_recv().is_ok() {}
@@ -222,6 +238,17 @@ fn do_scan(
 
     let ir_follows = with_ir
         && matches!(caps.ir, IrStyle::MultiFrame | IrStyle::Rgbi | IrStyle::SeparateScan);
+
+    let passes = passes.normalised();
+    if !passes.is_single() {
+        let exposure = caps.exposure_option.clone().filter(|n| n.starts_with("exposure"));
+        if passes.long_exposure.is_some() && exposure.is_none() {
+            let _ = evt_tx.send_blocking(ScanEvent::Error("This scanner has no exposure control, so a long exposure cannot be added. Use several samples instead.".into()));
+            return;
+        }
+        do_multi_pass(&handle, &MultiCtx { evt_tx, cmd_rx, cancelled: cancelled.clone(), ir_follows, exposure_option: exposure, passes });
+        return;
+    }
 
     // Scan all frames.
     let mut frame_index = 0u32;
@@ -280,12 +307,20 @@ fn do_scan(
         }
 
         // Read the frame.
+        let mut sink = |offset: usize, data: &[u8]| {
+            let _ = evt_tx.send_blocking(ScanEvent::DataChunk { offset, data: data.to_vec() });
+        };
+        let mut progress = |f: f32| {
+            let _ = evt_tx.send_blocking(ScanEvent::Progress(f));
+        };
         if let Err(cancelled_flag) = read_frame(
             &handle,
             &meta,
             evt_tx,
             cmd_rx,
             cancelled.clone(),
+            &mut sink,
+            &mut progress,
         ) {
             if cancelled_flag {
                 let _ = evt_tx.send_blocking(ScanEvent::Cancelled);
@@ -317,7 +352,8 @@ fn do_scan(
     let _ = evt_tx.send_blocking(ScanEvent::ScanDone);
 }
 
-/// Read a single SANE frame and stream it as DataChunk events.
+/// Read a single SANE frame, handing each chunk (with its byte offset) to
+/// `sink` and the fraction done to `progress`.
 /// Returns Err(true) if cancelled, Err(false) on SANE error.
 fn read_frame(
     handle: &nv_sane::Handle,
@@ -325,6 +361,8 @@ fn read_frame(
     evt_tx: &Sender<ScanEvent>,
     cmd_rx: &Receiver<WorkerCmd>,
     cancelled: Arc<AtomicBool>,
+    sink: &mut dyn FnMut(usize, &[u8]),
+    progress: &mut dyn FnMut(f32),
 ) -> Result<(), bool> {
     let mut buf = vec![0u8; READ_BUF];
     let mut offset = 0usize;
@@ -358,21 +396,210 @@ fn read_frame(
             }
         };
 
-        let _ = evt_tx.send_blocking(ScanEvent::DataChunk {
-            offset,
-            data: buf[..n].to_vec(),
-        });
-
+        sink(offset, &buf[..n]);
         offset += n;
 
         if let Some(total) = total {
             if total > 0 {
-                let _ = evt_tx.send_blocking(ScanEvent::Progress(offset as f32 / total as f32));
+                progress(offset as f32 / total as f32);
             }
         }
     }
 
     Ok(())
+}
+
+// ── Several passes over one frame ─────────────────────────────────────────────
+
+struct MultiCtx<'a> {
+    evt_tx: &'a Sender<ScanEvent>,
+    cmd_rx: &'a Receiver<WorkerCmd>,
+    cancelled: Arc<AtomicBool>,
+    ir_follows: bool,
+    exposure_option: Option<String>,
+    passes: PassPlan,
+}
+
+/// What one pass delivered.
+struct PassData {
+    colour: Vec<u8>,
+    colour_layout: Layout,
+    ir: Option<(Vec<u8>, Layout)>,
+}
+
+/// Scan the frame once, keeping the bytes instead of streaming them.
+/// `fraction` maps the pass's own progress into the whole job's.
+fn collect_pass(handle: &nv_sane::Handle, ctx: &MultiCtx, fraction: &dyn Fn(f32) -> f32) -> Result<PassData, bool> {
+    let mut colour: Option<(Vec<u8>, Layout)> = None;
+    let mut ir: Option<(Vec<u8>, Layout)> = None;
+    let mut frame_index = 0;
+    loop {
+        if ctx.cancelled.load(Ordering::SeqCst) {
+            handle.cancel();
+            return Err(true);
+        }
+        if let Err(e) = handle.start() {
+            let _ = ctx.evt_tx.send_blocking(ScanEvent::Error(format!("Could not start scan: {e}\nCheck that the scanner lid is closed and film is loaded.")));
+            return Err(false);
+        }
+        let params = match handle.get_parameters() {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = ctx.evt_tx.send_blocking(ScanEvent::Error(format!("sane_get_parameters: {e}")));
+                return Err(false);
+            }
+        };
+        let (Some(h), channels) = (params.lines, params.format.channels()) else {
+            let _ = ctx.evt_tx.send_blocking(ScanEvent::Error("Several passes need a scanner that reports the frame height up front.".into()));
+            return Err(false);
+        };
+        let meta = FrameMeta {
+            format: params.format.clone(),
+            width_px: params.pixels_per_line as u32,
+            height_px: Some(h as u32),
+            bytes_per_line: params.bytes_per_line,
+            depth: params.depth,
+            is_last: params.last_frame,
+        };
+        let layout = Layout { width: meta.width_px as usize, height: h as usize, channels: channels as usize, depth: meta.depth, bytes_per_line: meta.bytes_per_line };
+        let mut data = vec![0u8; meta.bytes_per_line * h as usize];
+        let mut sink = |offset: usize, chunk: &[u8]| {
+            let end = (offset + chunk.len()).min(data.len());
+            if offset < end {
+                data[offset..end].copy_from_slice(&chunk[..end - offset]);
+            }
+        };
+        let mut progress = |f: f32| {
+            let _ = ctx.evt_tx.send_blocking(ScanEvent::Progress(fraction(f)));
+        };
+        read_frame(handle, &meta, ctx.evt_tx, ctx.cmd_rx, ctx.cancelled.clone(), &mut sink, &mut progress)?;
+        if frame_index > 0 && ctx.ir_follows && matches!(meta.format, FrameFormat::Gray) {
+            ir = Some((data, layout));
+        } else if colour.is_none() {
+            colour = Some((data, layout));
+        }
+        if params.last_frame {
+            // The scan is over: options can only be changed once the handle is idle again.
+            handle.cancel();
+            break;
+        }
+        frame_index += 1;
+    }
+    let Some((colour, colour_layout)) = colour else {
+        let _ = ctx.evt_tx.send_blocking(ScanEvent::Error("The scanner delivered no picture.".into()));
+        return Err(false);
+    };
+    Ok(PassData { colour, colour_layout, ir })
+}
+
+/// N samples at the normal exposure, and the same at a long one if asked;
+/// lined up, averaged, merged, and sent on as if it were one scan.
+fn do_multi_pass(handle: &nv_sane::Handle, ctx: &MultiCtx) {
+    use nv_sane::OptionValue;
+    let plan = ctx.passes;
+    let total = plan.total_scans();
+    let samples = plan.samples as u32;
+    let set_exposure = |e: f32| -> Result<(), String> {
+        match &ctx.exposure_option {
+            Some(name) => handle.set_option_by_name(name, &OptionValue::Fixed(e as f64)).map(|_| ()).map_err(|e| format!("{name}: {e}")),
+            None => Ok(()),
+        }
+    };
+
+    let mut short: Option<Accumulator> = None;
+    let mut long: Option<Accumulator> = None;
+    let mut ir_acc: Option<Accumulator> = None;
+    let mut first_layout: Option<Layout> = None;
+
+    for index in 0..total {
+        let is_long = index >= samples;
+        let exposure = if is_long { plan.long_exposure.unwrap_or(1.0) } else { 1.0 };
+        if index == 0 || index == samples {
+            if let Err(e) = set_exposure(exposure) {
+                let _ = ctx.evt_tx.send_blocking(ScanEvent::Error(format!("exposure: {e}")));
+                return;
+            }
+        }
+        let _ = ctx.evt_tx.send_blocking(ScanEvent::PassStarted { index, total, exposure });
+        let fraction = move |f: f32| (index as f32 + f) / total as f32 * 0.95;
+        let pass = match collect_pass(handle, ctx, &fraction) {
+            Ok(p) => p,
+            Err(was_cancelled) => {
+                if was_cancelled {
+                    let _ = ctx.evt_tx.send_blocking(ScanEvent::Cancelled);
+                }
+                return;
+            }
+        };
+        let layout = *first_layout.get_or_insert(pass.colour_layout);
+        if pass.colour_layout != layout {
+            let _ = ctx.evt_tx.send_blocking(ScanEvent::Error("The passes came out different sizes; try again.".into()));
+            return;
+        }
+        let shift = if is_long {
+            let acc = long.get_or_insert_with(|| short.as_ref().map(|s| s.linked(plan.max_offset)).unwrap_or_else(|| Accumulator::new(layout, plan.max_offset)));
+            acc.add(&pass.colour)
+        } else {
+            let acc = short.get_or_insert_with(|| Accumulator::new(layout, plan.max_offset));
+            let shift = acc.add(&pass.colour);
+            // The infrared plane comes with the colour it was scanned with and moves with it.
+            if let Some((data, l)) = &pass.ir {
+                ir_acc.get_or_insert_with(|| Accumulator::new(*l, 0)).add_shifted(data, shift);
+            }
+            shift
+        };
+        eprintln!("nv-acquire: pass {} of {total} (exposure {exposure}) moved by ({:.2}, {:.2})", index + 1, shift.0, shift.1);
+    }
+
+    let _ = ctx.evt_tx.send_blocking(ScanEvent::Merging);
+    let (Some(layout), Some(short)) = (first_layout, short) else { return };
+    let mut flat = short.mean();
+    if let Some(dir) = std::env::var_os("NV_DEBUG_PASSES") {
+        let dir = std::path::PathBuf::from(dir);
+        let dump = |name: &str, v: &[u32]| {
+            let mut out = format!("P6\n{} {}\n65535\n", layout.width, layout.height).into_bytes();
+            for s in v {
+                out.extend((*s as u16).to_be_bytes());
+            }
+            let _ = std::fs::write(dir.join(name), out);
+        };
+        dump("dbg-short.pnm", &flat);
+        if let Some(l) = &long {
+            dump("dbg-long.pnm", &l.mean());
+        }
+    }
+    if let (Some(long), Some(e)) = (&long, plan.long_exposure) {
+        flat = passes::merge_exposures(&flat, &long.mean(), layout.channels, e, layout.max_value());
+    }
+    let bytes = layout.from_flat(&flat);
+
+    let _ = ctx.evt_tx.send_blocking(ScanEvent::ScanStarted {
+        width_px: layout.width as u32,
+        height_px: Some(layout.height as u32),
+        bytes_per_line: layout.bytes_per_line,
+        depth: layout.depth,
+        channels: layout.channels as u8,
+    });
+    for (i, chunk) in bytes.chunks(READ_BUF * 4).enumerate() {
+        let _ = ctx.evt_tx.send_blocking(ScanEvent::DataChunk { offset: i * READ_BUF * 4, data: chunk.to_vec() });
+    }
+    if let Some(ir) = ir_acc {
+        // The plane has its own size and depth: take them from what was collected.
+        let l = ir.layout();
+        let ir_bytes = l.from_flat(&ir.mean());
+        let _ = ctx.evt_tx.send_blocking(ScanEvent::ColorFrameDone);
+        let _ = ctx.evt_tx.send_blocking(ScanEvent::IrFrameStarted { width_px: l.width as u32, height_px: Some(l.height as u32), bytes_per_line: l.bytes_per_line, depth: l.depth });
+        for (i, chunk) in ir_bytes.chunks(READ_BUF * 4).enumerate() {
+            let _ = ctx.evt_tx.send_blocking(ScanEvent::DataChunk { offset: i * READ_BUF * 4, data: chunk.to_vec() });
+        }
+        let _ = ctx.evt_tx.send_blocking(ScanEvent::IrFrameDone);
+    }
+    // Leave the scanner as it was found.
+    if ctx.exposure_option.is_some() {
+        let _ = set_exposure(1.0);
+    }
+    let _ = ctx.evt_tx.send_blocking(ScanEvent::Progress(1.0));
+    let _ = ctx.evt_tx.send_blocking(ScanEvent::ScanDone);
 }
 
 /// Map a fractional sub-area onto a device's `[min, max]` ranges.

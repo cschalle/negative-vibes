@@ -8,5 +8,6 @@ description = "SANE acquisition worker thread"
 [dependencies]
 nv-sane   = { path = "../nv-sane" }
 nv-device = { path = "../nv-device" }
+nv-process = { path = "../nv-process" }
 async-channel = "2"
 thiserror = "1"

@@ -838,6 +838,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "nv-device",
+ "nv-process",
  "nv-sane",
  "thiserror",
 ]

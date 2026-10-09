@@ -90,6 +90,12 @@ impl Roll {
 pub struct RollSettings {
     pub resolution_dpi: Option<u32>,
     pub with_ir: Option<bool>,
+    /// Passes averaged for each exposure (F§2 multi-sample), and a longer
+    /// exposure merged in (multi-exposure). Absent: one pass.
+    #[serde(default)]
+    pub samples: Option<u8>,
+    #[serde(default)]
+    pub long_exposure: Option<f32>,
     pub image_type: Option<ImageType>,
     /// Processing defaults for every frame of the roll (conversion, tone,
     /// and what roll analysis fixed).

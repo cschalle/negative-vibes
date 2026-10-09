@@ -25,6 +25,14 @@ pub struct ScanArgs {
     #[arg(long, value_parser = parse_area)]
     area: Option<[f64; 4]>,
 
+    /// Passes to average at each exposure (1 to 8).
+    #[arg(long, default_value_t = 1)]
+    samples: u8,
+
+    /// Add a longer exposure (a factor, 1.2 to 4) and merge it in.
+    #[arg(long)]
+    long_exposure: Option<f32>,
+
     /// Output file path (.pnm for raw data).
     #[arg(long, short, default_value = "scan.pnm")]
     output: PathBuf,
@@ -54,7 +62,11 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
     let device_name = wait_for_device(&worker.evt_rx, args.device.as_deref())?;
     println!("Scanning on {device_name} @ {} dpi (ir={})…", args.dpi, args.ir);
 
-    worker.start_scan(device_name, args.dpi, args.ir, args.area);
+    let passes = nv_acquire::passes::PassPlan { samples: args.samples, long_exposure: args.long_exposure, max_offset: 20 }.normalised();
+    if !passes.is_single() {
+        println!("{} passes: {} sample(s){}", passes.total_scans(), passes.samples, passes.long_exposure.map_or(String::new(), |e| format!(" at each of exposure 1 and {e}")));
+    }
+    worker.start_scan_with(device_name, args.dpi, args.ir, args.area, passes);
 
     let buf = collect_scan(&worker.evt_rx, &args.output)?;
 

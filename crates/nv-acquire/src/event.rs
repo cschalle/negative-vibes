@@ -13,6 +13,8 @@ pub enum WorkerCmd {
         /// Sub-area to scan as fractions `[x0, y0, x1, y1]` of the device's
         /// full scan window, or `None` for the whole window.
         area: Option<[f64; 4]>,
+        /// How many passes, and at which exposures (see [`crate::passes`]).
+        passes: crate::passes::PassPlan,
     },
     /// Ask the current scan to stop cleanly.
     Cancel,
@@ -60,6 +62,17 @@ pub enum ScanEvent {
         bytes_per_line: usize,
         depth: u8,
     },
+
+    /// A pass of a multi-pass acquisition begins (`index` counts from 0).
+    PassStarted {
+        index: u32,
+        total: u32,
+        /// The exposure factor of this pass.
+        exposure: f32,
+    },
+
+    /// The passes are being lined up and merged.
+    Merging,
 
     /// The colour frame finished; IR data follows (multi-frame acquisition).
     ColorFrameDone,

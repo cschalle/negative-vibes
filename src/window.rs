@@ -153,6 +153,10 @@ pub(crate) mod imp {
         /// Session default for capturing infrared when a roll has no setting.
         pub with_ir: Cell<bool>,
         pub ir_row: RefCell<Option<adw::SwitchRow>>,
+        pub samples: Cell<u8>,
+        pub long_exposure: Cell<Option<f32>>,
+        pub device_exposure: Cell<bool>,
+        pub passes_rows: RefCell<Option<(adw::SpinRow, adw::SwitchRow, adw::SpinRow)>>,
         /// Resolution of the final scan in flight, for the roll metadata.
         pub final_dpi: Cell<u32>,
         /// True once a preview has completed, which is what enables Scan.
@@ -1933,6 +1937,8 @@ impl Window {
                     self.imp().film_window_mm.set(first.film_window_mm);
                     self.imp().device_ir.set(matches!(first.ir, nv_device::IrStyle::MultiFrame | nv_device::IrStyle::Rgbi));
                     if let Some(r) = self.imp().ir_row.borrow().as_ref() { r.set_visible(self.imp().device_ir.get()); }
+                    self.imp().device_exposure.set(first.exposure_option.as_deref().is_some_and(|n| n.starts_with("exposure")));
+                    self.update_passes_rows();
                     self.fill_resolutions();
                     let manual = first.holder == nv_device::HolderKind::ManualAdvance;
                     self.imp().manual_advance.set(manual);
@@ -2051,6 +2057,21 @@ impl Window {
                 if self.imp().scan_kind.get() == imp::ScanKind::Final {
                     *self.imp().final_ir.borrow_mut() = Some(FrameBuf::with_stride(width_px, height_px, depth, 1, bytes_per_line));
                     self.imp().receiving_ir.set(true);
+                }
+            }
+
+            ScanEvent::PassStarted { index, total, exposure } => {
+                if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
+                    pb.set_visible(true);
+                    pb.set_show_text(true);
+                    pb.set_text(Some(&if exposure > 1.0 { format!("Pass {} of {total} (long exposure)", index + 1) } else { format!("Pass {} of {total}", index + 1) }));
+                }
+            }
+
+            ScanEvent::Merging => {
+                if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
+                    pb.set_show_text(true);
+                    pb.set_text(Some("Merging the passes…"));
                 }
             }
 

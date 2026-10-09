@@ -1275,6 +1275,37 @@ right way, lightness keeps the hue, every preset does something and stays in ran
 round trip. The look has been judged by numbers only, not by eye on pictures. Also fixed
 before this: the startup GTK warnings (the bottom bar now scrolls).
 
+**M7 status, fifth slice: multi-sample and multi-exposure.** The acquisition worker can scan
+a frame several times and hand the UI one merged result as if it were a single scan
+(`nv-acquire::passes`, `do_multi_pass`). *Multi-sample* (1 to 8) averages identical passes after
+lining each up with the first: the offset is measured by edge correlation on a full-resolution
+crop of the middle, to a fraction of a pixel, and applied by bilinear resampling (the scanner's
+position jitters by up to about 1.8 pixels from pass to pass at 1200 dpi, so this matters);
+the infrared plane moves with the colour it came with. *Multi-exposure* adds the same number of
+passes at a longer exposure (1.2 to 4 times, through the backend's `exposure` option, which the
+8200i has) and merges them. Measured on the 8200i at 600 dpi: **four samples halve the noise
+exactly** (121 to 61 counts rms, 0.503 against the 0.5 expected). **Multi-exposure** gave noise
+in the darkest tenth of 58 against 103 for a single scan (0.55), 91 against 127 in the
+midtones and 133 against 151 in the brightest, measured from pairs of identical scans so that
+mis-registration between runs does not count. The long pass is not a clean multiple of the
+normal one, which the merge has to know: the exposure factor 2.5 measured 2.56 to 2.62 and
+varied by channel, with an offset near -270 counts, so a quadratic curve from the long
+sample to the normal one is fitted per channel from the picture itself; the long pass is
+blurrier than the normal one (mean gradient 14% lower) and noisier than shot-noise theory
+(85 counts against 68 in the normal pass's units at about 7500), so a long sample is worth
+0.62 per unit of the exposure factor instead of the theoretical 1; and it counts for nothing
+as it nears clipping. A straight line or a single factor biased the shadows by up to
+390 counts and was rejected. For noise alone, four samples cost about the same time as one
+multi-exposure and do better in the highlights; multi-exposure earns its keep in dense
+shadows. In the app: Samples, Multi-Exposure and Long Exposure rows on the Scan page (the
+latter two only on a scanner with an exposure option; the roll remembers them), and the
+progress bar says which pass is running. Passes are limited to 3600 dpi and below because the
+sums need memory (about 1.3 GB at 3600 dpi). `nv-cli scan --samples N --long-exposure E` does
+it headless, `NV_SAMPLES` and `NV_LONG_EXPOSURE` do for the app's autoscan hook, and
+`NV_DEBUG_PASSES=dir` writes the two merged-from means for study. Not done: a long pass whose
+exposure is clamped by the backend's range is not reported, and the per-pass shifts are only
+logged.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

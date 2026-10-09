@@ -11,6 +11,9 @@ use super::Window;
 use crate::prefs::Prefs;
 
 /// Resolutions offered when the scanner has not said what it can do.
+/// Above this, the memory several passes need is more than a typical machine has.
+const MAX_PASSES_DPI: u32 = 3600;
+
 const FALLBACK_DPI: [u32; 6] = [300, 600, 1200, 2400, 3600, 7200];
 
 fn dpi_label(dpi: u32) -> String {
@@ -47,6 +50,61 @@ impl Window {
         self.imp().device_ir.get() && self.imp().roll.borrow().as_ref().and_then(|r| r.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get())
     }
 
+    /// How the next final scan is made up of passes: the roll's choice, else the
+    /// session's. Passes need memory for the sums, so very high resolutions scan once.
+    pub fn scan_passes(&self) -> nv_acquire::passes::PassPlan {
+        let imp = self.imp();
+        let (samples, long) = {
+            let roll = imp.roll.borrow();
+            let s = roll.as_ref().and_then(|r| r.settings.samples).unwrap_or_else(|| imp.samples.get());
+            let l = match roll.as_ref() {
+                Some(r) => r.settings.long_exposure,
+                None => imp.long_exposure.get(),
+            };
+            (s, l)
+        };
+        // Headless hooks for the hardware checks, like NV_AUTOSCAN.
+        let samples = std::env::var("NV_SAMPLES").ok().and_then(|v| v.parse().ok()).unwrap_or(samples);
+        let long = std::env::var("NV_LONG_EXPOSURE").ok().and_then(|v| v.parse().ok()).or(long);
+        let plan = nv_acquire::passes::PassPlan { samples, long_exposure: long.filter(|_| imp.device_exposure.get()), max_offset: 20 }.normalised();
+        if self.scan_dpi() > MAX_PASSES_DPI {
+            return nv_acquire::passes::PassPlan::SINGLE;
+        }
+        plan
+    }
+
+    /// The Samples and Multi-Exposure rows follow the roll and the scanner.
+    pub(super) fn update_passes_rows(&self) {
+        let imp = self.imp();
+        let Some((samples, me, long)) = imp.passes_rows.borrow().clone() else { return };
+        let plan = self.scan_passes();
+        imp.updating_ui.set(true);
+        let roll = imp.roll.borrow();
+        samples.set_value(roll.as_ref().and_then(|r| r.settings.samples).unwrap_or_else(|| imp.samples.get()) as f64);
+        let l = match roll.as_ref() {
+            Some(r) => r.settings.long_exposure,
+            None => imp.long_exposure.get(),
+        };
+        me.set_active(l.is_some());
+        if let Some(l) = l {
+            long.set_value(l as f64);
+        }
+        drop(roll);
+        imp.updating_ui.set(false);
+        me.set_visible(imp.device_exposure.get());
+        long.set_visible(imp.device_exposure.get() && me.is_active());
+        let too_big = self.scan_dpi() > MAX_PASSES_DPI;
+        samples.set_sensitive(!too_big);
+        me.set_sensitive(!too_big);
+        samples.set_subtitle(&if too_big {
+            format!("Several passes are limited to {MAX_PASSES_DPI} dpi and below; this resolution scans once")
+        } else if plan.total_scans() > 1 {
+            format!("{} scans of the frame in all, lined up and merged", plan.total_scans())
+        } else {
+            "Scans averaged to lower the noise (4 samples halve it); each is a full scan".to_owned()
+        });
+    }
+
     pub(super) fn resolutions(&self) -> Vec<u32> {
         let r = self.imp().device_resolutions.borrow().clone();
         if r.is_empty() { FALLBACK_DPI.to_vec() } else { r }
@@ -67,6 +125,37 @@ impl Window {
             .visible(false)
             .build();
         group.add(&ir);
+        let samples = adw::SpinRow::builder().title("Samples").adjustment(&gtk::Adjustment::new(1.0, 1.0, nv_acquire::passes::MAX_SAMPLES as f64, 1.0, 1.0, 0.0)).build();
+        let me = adw::SwitchRow::builder().title("Multi-Exposure").subtitle("Adds a longer exposure for cleaner shadows in dense film").visible(false).build();
+        let long = adw::SpinRow::builder().title("Long Exposure").subtitle("Times the normal exposure").digits(1).visible(false).adjustment(&gtk::Adjustment::new(2.5, 1.5, 4.0, 0.1, 0.5, 0.0)).build();
+        group.add(&samples);
+        group.add(&me);
+        group.add(&long);
+        *self.imp().passes_rows.borrow_mut() = Some((samples.clone(), me.clone(), long.clone()));
+        {
+            let weak = self.downgrade();
+            let apply = move || {
+                let Some(win) = weak.upgrade() else { return };
+                let imp = win.imp();
+                if imp.updating_ui.get() { return; }
+                let Some((samples, me, long)) = imp.passes_rows.borrow().clone() else { return };
+                let (s, l) = (samples.value() as u8, me.is_active().then(|| long.value() as f32));
+                if let Some(roll) = imp.roll.borrow_mut().as_mut() {
+                    roll.settings.samples = Some(s);
+                    roll.settings.long_exposure = l;
+                }
+                imp.samples.set(s);
+                imp.long_exposure.set(l);
+                win.schedule_autosave();
+                win.update_passes_rows();
+                win.update_scan_size();
+            };
+            let a = apply.clone();
+            samples.connect_value_notify(move |_| a());
+            let a = apply.clone();
+            me.connect_active_notify(move |_| a());
+            long.connect_value_notify(move |_| apply());
+        }
         group.add(&size);
         page.add(&group);
         *self.imp().ir_row.borrow_mut() = Some(ir.clone());
@@ -129,6 +218,7 @@ impl Window {
 
     /// "1714 × 1150 px, 11.3 MB at 16 bit" for the rectangle on the preview.
     pub(super) fn update_scan_size(&self) {
+        self.update_passes_rows();
         if let Some(r) = self.imp().ir_row.borrow().as_ref() {
             self.imp().updating_ui.set(true);
             r.set_active(self.imp().roll.borrow().as_ref().and_then(|x| x.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get()));
