@@ -89,6 +89,7 @@ pub(crate) mod imp {
         /// The scanner (not an import) is what the window is busy with.
         pub acquiring: Cell<bool>,
         pub autoscan_started: Cell<bool>,
+        pub auto_previewed: Cell<bool>,
         pub autostop_done: Cell<bool>,
         pub stop_at: Cell<Option<std::time::Instant>>,
         pub autoscan_done: Cell<bool>,
@@ -288,6 +289,7 @@ mod metadata_ui;
 mod navigator;
 mod mask;
 mod orient;
+mod preferences_ui;
 mod render;
 mod scan_settings;
 mod settings;
@@ -1859,8 +1861,15 @@ impl Window {
             Ok(mut store) => {
                 // A new roll starts with the preferences.
                 {
-                    store.roll.settings.export = self.imp().prefs.borrow().export.clone();
+                    let prefs = self.imp().prefs.borrow();
+                    store.roll.settings.export = prefs.export.clone();
                     store.roll.settings.resolution_dpi = Some(self.imp().scan_dpi.get());
+                    store.roll.settings.with_ir = Some(prefs.scan_ir);
+                    store.roll.settings.samples = Some(prefs.samples);
+                    store.roll.settings.long_exposure = prefs.long_exposure;
+                    if let Some(profile) = prefs.scanner_profile.as_deref().and_then(|n| nv_calibrate::load_profile(n).ok()) {
+                        store.roll.settings.process.input = Some(profile);
+                    }
                 }
                 if let Some(old) = existing {
                     store.roll.frames = old.frames;
@@ -1956,6 +1965,9 @@ impl Window {
                     self.update_scan_controls();
                     // Headless hook: NV_AUTOSCAN=raw|scan|all previews as soon as the scanner is ready,
                     // then scans as named (see on_scan_done).
+                    if self.imp().prefs.borrow().auto_preview && std::env::var_os("NV_AUTOSCAN").is_none() && !self.imp().busy.get() && !self.imp().auto_previewed.replace(true) {
+                        self.start_preview();
+                    }
                     if std::env::var_os("NV_AUTOSCAN").is_some() && !self.imp().autoscan_started.replace(true) {
                         eprintln!("nv: NV_AUTOSCAN: previewing");
                         self.start_preview();
@@ -2100,6 +2112,12 @@ impl Window {
     /// Write the finished final scan into the roll's raw folder, off the UI
     /// thread (a 1200 dpi 16-bit frame is hundreds of megabytes).
     fn finish_final_scan(&self) {
+        // A sound for the end of a scan, or of a whole batch.
+        if self.imp().prefs.borrow().completion_sound && self.imp().batch.borrow().is_empty() {
+            if let Some(display) = gdk::Display::default() {
+                display.beep();
+            }
+        }
         let Some(buf) = self.imp().final_buf.borrow_mut().take() else {
             self.abort_acquisition();
             return;

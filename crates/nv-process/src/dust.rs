@@ -169,6 +169,10 @@ pub struct DustParams {
     /// (so every tile uses the same one). `None` measures it.
     #[serde(default)]
     pub ir_shift: Option<[f32; 2]>,
+    /// The farthest the infrared may be out of line, in scan pixels (a
+    /// preference, F§14; not part of a frame's look).
+    #[serde(default = "default_align_limit")]
+    pub align_limit: u32,
     #[serde(default)]
     pub exclude: Vec<Stroke>,
     /// Where it must repair, whether or not anything was detected.
@@ -182,6 +186,10 @@ pub struct DustParams {
     pub max_area: Option<usize>,
 }
 
+fn default_align_limit() -> u32 {
+    MAX_SHIFT as u32
+}
+
 fn default_true() -> bool {
     true
 }
@@ -192,7 +200,7 @@ fn default_mark() -> [f32; 3] {
 
 impl Default for DustParams {
     fn default() -> Self {
-        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), align: true, ir_shift: None, exclude: Vec::new(), include: Vec::new(), detection: 12, max_area: None }
+        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), align: true, ir_shift: None, align_limit: MAX_SHIFT as u32, exclude: Vec::new(), include: Vec::new(), detection: 12, max_area: None }
     }
 }
 
@@ -306,10 +314,15 @@ fn shifted_ncc(a: &[f32], b: &[f32], w: usize, h: usize, dx: isize, dy: isize, m
 /// through the best offset and its neighbours. `None` when there is too
 /// little structure to tell, or nothing correlates.
 pub fn estimate_shift(pixels: &[f32], ir: &[f32], w: usize, h: usize, factor: usize) -> Option<[f32; 2]> {
+    estimate_shift_within(pixels, ir, w, h, factor, MAX_SHIFT)
+}
+
+/// [`estimate_shift`] looking no farther than `limit` scan pixels.
+pub fn estimate_shift_within(pixels: &[f32], ir: &[f32], w: usize, h: usize, factor: usize, limit: usize) -> Option<[f32; 2]> {
     if w < 48 || h < 48 || pixels.len() < w * h * 3 || ir.len() < w * h {
         return None;
     }
-    let max = (MAX_SHIFT / factor.max(1)).max(2);
+    let max = (limit / factor.max(1)).max(2);
     let ln_c: Vec<f32> = (0..w * h).map(|i| pixels[i * 3].max(1e-4).ln()).collect();
     let ln_i: Vec<f32> = ir.iter().map(|v| v.max(1e-4).ln()).collect();
     let (ec, ei) = (edges(&ln_c, w, h), edges(&ln_i, w, h));
@@ -352,7 +365,10 @@ pub fn estimate_shift(pixels: &[f32], ir: &[f32], w: usize, h: usize, factor: us
         if d.abs() < 1e-9 { 0.0 } else { (0.5 * (m1 - p1) / d).clamp(-0.5, 0.5) }
     };
     let (sx, sy) = (sub(at(fine.1 - 1, fine.2), fine.0, at(fine.1 + 1, fine.2)), sub(at(fine.1, fine.2 - 1), fine.0, at(fine.1, fine.2 + 1)));
-    Some([fine.1 as f32 + sx, fine.2 as f32 + sy])
+    let found = [fine.1 as f32 + sx, fine.2 as f32 + sy];
+    // The search is a little wider than asked, to find the peak's flank; the answer is not.
+    let reach = (limit / factor.max(1)) as f32 + 0.5;
+    (found[0].abs() <= reach && found[1].abs() <= reach).then_some(found)
 }
 
 /// The infrared resampled so it lines up with the colour: `out(x, y) =
@@ -381,7 +397,7 @@ fn registration(pixels: &[f32], ir: &[f32], w: usize, h: usize, params: &DustPar
     }
     let s = match params.ir_shift {
         Some(s) => [s[0] / factor as f32, s[1] / factor as f32],
-        None => estimate_shift(pixels, ir, w, h, factor)?,
+        None => estimate_shift_within(pixels, ir, w, h, factor, params.align_limit as usize)?,
     };
     (s[0].abs() >= 0.25 || s[1].abs() >= 0.25).then_some(s)
 }
@@ -1397,6 +1413,20 @@ mod tests {
             let got = estimate_shift(&px, &ir, 192, 144, 1).expect("a shift");
             assert!((got[0] - sx).abs() < 0.4 && (got[1] - sy).abs() < 0.4, "wanted ({sx}, {sy}) got {got:?}");
         }
+    }
+
+    #[test]
+    fn the_alignment_limit_is_respected() {
+        let (px, ir) = textured(12.0, 9.0);
+        let near = estimate_shift_within(&px, &ir, 192, 144, 1, 20).expect("within 20");
+        assert!((near[0] - 12.0).abs() < 0.5 && (near[1] - 9.0).abs() < 0.5, "{near:?}");
+        // With a 5-pixel limit the answer cannot be 12 pixels away.
+        assert!(estimate_shift_within(&px, &ir, 192, 144, 1, 5).is_none(), "an offset beyond the limit must not be reported");
+        assert_eq!(DustParams::default().align_limit, 20);
+        let mut v = serde_json::to_value(DustParams::default()).unwrap();
+        v.as_object_mut().unwrap().remove("align_limit");
+        let old: DustParams = serde_json::from_value(v).unwrap();
+        assert_eq!(old.align_limit, 20);
     }
 
     #[test]

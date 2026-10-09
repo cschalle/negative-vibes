@@ -53,6 +53,18 @@ mod imp {
             app.set_accels_for_action("win.delete-frame", &["Delete"]);
             app.set_accels_for_action("win.duplicate-frame", &["<Ctrl>d"]);
             window.present();
+            // Headless check that the dialogs build without GTK complaints: NV_OPEN_DIALOGS=1.
+            if std::env::var_os("NV_OPEN_DIALOGS").is_some() {
+                let w = window.clone();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
+                    for name in ["preferences", "guided", "metadata", "film-create", "calibrate"] {
+                        gio::prelude::ActionGroupExt::activate_action(&w, name, None);
+                    }
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+                        if let Some(a) = gtk::prelude::GtkWindowExt::application(&w) { gio::prelude::ApplicationExt::quit(&a); }
+                    });
+                });
+            }
             if window.should_show_guide() {
                 let w = window.clone();
                 glib::idle_add_local_once(move || gio::prelude::ActionGroupExt::activate_action(&w, "guided", None));
@@ -131,7 +143,7 @@ mod imp {
                     if let crate::window::imp::ScanUiState::Ready { device_name } =
                         &*win.imp().scan_state.borrow()
                     {
-                        worker.start_scan(device_name.clone(), 300, false, None);
+                        worker.start_scan(device_name.clone(), win.preview_dpi(), false, None);
                     }
                 }
             });

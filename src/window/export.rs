@@ -298,6 +298,14 @@ impl Window {
             self.application().map(|a| a.quit());
         }
 
+        if self.imp().prefs.borrow().open_after_export && std::env::var_os("NV_AUTOSCAN").is_none() {
+            gtk::FileLauncher::new(Some(&gio::File::for_path(&report.path))).launch(Some(self), None::<&gio::Cancellable>, |r| {
+                if let Err(e) = r {
+                    eprintln!("nv: could not open the exported picture: {e}");
+                }
+            });
+        }
+
         let name = report.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let toast = adw::Toast::new(&format!("Exported {name}"));
         toast.set_button_label(Some("Show in Files"));

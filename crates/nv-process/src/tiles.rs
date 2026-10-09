@@ -44,7 +44,7 @@ pub fn freeze(proxy: &Proxy, params: &ProcessParams) -> ProcessParams {
     if p.dust.mode != DustMode::Off && p.dust.align && p.dust.ir_shift.is_none() {
         if let Some(ir) = &proxy.ir {
             let f = proxy.factor as f32;
-            let s = crate::dust::estimate_shift(&proxy.pixels, ir, proxy.width, proxy.height, proxy.factor).unwrap_or([0.0, 0.0]);
+            let s = crate::dust::estimate_shift_within(&proxy.pixels, ir, proxy.width, proxy.height, proxy.factor, p.dust.align_limit as usize).unwrap_or([0.0, 0.0]);
             p.dust.ir_shift = Some([s[0] * f, s[1] * f]);
         }
     }

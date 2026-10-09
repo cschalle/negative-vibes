@@ -1306,6 +1306,27 @@ it headless, `NV_SAMPLES` and `NV_LONG_EXPOSURE` do for the app's autoscan hook,
 exposure is clamped by the backend's range is not reported, and the per-pass shifts are only
 logged.
 
+**M7 status, sixth slice: Preferences.** The Preferences window (Ctrl+,) now has five pages, every
+control saved as it changes and every one wired to something: **General** (the Scan a Roll
+guide at start; preview when the scanner is ready; export after each scan; open the exported
+picture in the default application; a sound when a scan or a whole batch ends, the system
+alert; the Mark colour for dust; Restore Default Preferences, after a confirmation),
+**Scanning** (preview resolution, scan resolution, infrared on by default, samples,
+multi-exposure and its factor, and two alignment limits in pixels: the infrared against the
+colour, now a parameter of the dust stage, and separate passes against each other),
+**Output** (format including DNG, file name template with validation, folder, colour space,
+embed colour profile, embed metadata), **Colour** (the scanner profile new rolls start with,
+and a shortcut to the IT8 calibration), and **Film Profiles** (your profiles with export and
+delete, import, create). A new roll starts with the preferences; old preference files get the
+new defaults and out-of-range values are brought back into range. Three things in the spec were
+left out because nothing real stands behind them: units of measure (no length is shown),
+a colour management switch (the profile and colour space choices are the whole of it), and the
+performance page (memory limit, cache folder, high-resolution histograms: the working copy
+size must be the same for the editor and the exporter, and there is no cache). Also fixed: a
+markup warning from a folder subtitle containing `<roll>`, and paths with `&` in subtitles. A
+`NV_OPEN_DIALOGS=1` hook opens the dialogs headlessly to check they build without GTK
+complaints; they do. The dialogs have not been clicked through.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

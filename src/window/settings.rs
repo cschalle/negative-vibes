@@ -28,6 +28,7 @@ impl Window {
             }
         }
         // How marks are painted is a preference, not part of a frame's look.
+        p.dust.align_limit = self.imp().prefs.borrow().ir_align_limit;
         let m = self.imp().prefs.borrow().mark_colour;
         p.dust.mark = [0, 1, 2].map(|c| nv_export::ColourSpace::Srgb.decode(m[c]));
         p

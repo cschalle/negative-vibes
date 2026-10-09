@@ -28,9 +28,9 @@ impl Window {
         let reference: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         let chart: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(nv_calibrate::default_chart()));
 
-        let (scan_row, scan_btn) = file_row("Scan of the Target", &scan.borrow().as_ref().map_or("Choose the raw scan".into(), |p| p.display().to_string()));
+        let (scan_row, scan_btn) = file_row("Scan of the Target", &scan.borrow().as_ref().map_or("Choose the raw scan".into(), |p| glib::markup_escape_text(&p.display().to_string()).to_string()));
         let (ref_row, ref_btn) = file_row("Target Data", "The measured values file that came with the target");
-        let (chart_row, chart_btn) = file_row("Chart Layout", &chart.borrow().as_ref().map_or("Choose a .cht file".into(), |p| p.display().to_string()));
+        let (chart_row, chart_btn) = file_row("Chart Layout", &chart.borrow().as_ref().map_or("Choose a .cht file".into(), |p| glib::markup_escape_text(&p.display().to_string()).to_string()));
         let name = adw::EntryRow::builder().title("Profile Name").text("scanner-it8").build();
         let status = gtk::Label::builder().wrap(true).xalign(0.0).css_classes(["dim-label"]).margin_top(6).build();
 
@@ -40,7 +40,7 @@ impl Window {
                 let (row, slot) = (row.clone(), slot.clone());
                 gtk::FileDialog::builder().title(title).modal(true).build().open(Some(&dialog), None::<&gio::Cancellable>, move |r| {
                     if let Some(p) = r.ok().and_then(|f| f.path()) {
-                        row.set_subtitle(&p.display().to_string());
+                        row.set_subtitle(&glib::markup_escape_text(&p.display().to_string()));
                         *slot.borrow_mut() = Some(p);
                     }
                 });

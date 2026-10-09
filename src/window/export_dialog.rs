@@ -144,7 +144,7 @@ impl Window {
                     }
                 }
                 let shown = win.export_folder(&s);
-                folder_row.set_subtitle(&format!("{}{}", shown.display(), if folder.borrow().is_none() { " (default)" } else { "" }));
+                folder_row.set_subtitle(&format!("{}{}", glib::markup_escape_text(&shown.display().to_string()), if folder.borrow().is_none() { " (default)" } else { "" }));
             })
         };
         refresh();

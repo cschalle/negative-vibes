@@ -161,7 +161,7 @@ impl Accumulator {
     fn offset_of(&self, data: &[u8]) -> (f32, f32) {
         let Some(r) = &self.reference else { return (0.0, 0.0) };
         let cand = crop_f32(&self.layout, data, r.x0, r.y0, r.w, r.h, false);
-        nv_process::dust::estimate_shift(&r.rgb, &cand, r.w, r.h, 1).map_or((0.0, 0.0), |s| (s[0], s[1]))
+        nv_process::dust::estimate_shift_within(&r.rgb, &cand, r.w, r.h, 1, self.max_offset as usize).map_or((0.0, 0.0), |s| (s[0], s[1]))
     }
 
     /// An accumulator for another exposure of the same frame, lined up with
