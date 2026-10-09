@@ -22,6 +22,14 @@ mod imp {
     impl ApplicationImpl for Application {
         fn startup(&self) {
             self.parent_startup();
+            // The icon: found in the theme once installed; from the source tree when run with cargo.
+            if let Some(display) = gtk::gdk::Display::default() {
+                let dir = std::path::Path::new(crate::config::PKGDATADIR).join("icons");
+                if dir.is_dir() {
+                    gtk::IconTheme::for_display(&display).add_search_path(dir);
+                }
+                gtk::Window::set_default_icon_name(crate::config::APP_ID);
+            }
             self.start_sane_worker();
             self.setup_actions();
         }

@@ -42,3 +42,12 @@ install_data(
   'devices.toml',
   install_dir: pkgdatadir,
 )
+
+# The application icon, at the sizes the icon theme looks for
+foreach size : ['16', '32', '48', '64', '128', '256', '512']
+  install_data(
+    'icons/hicolor/@0@x@0@/apps/io.github.cschalle.NegativeVibes.png'.format(size),
+    install_dir: get_option('datadir') / 'icons/hicolor/@0@x@0@/apps'.format(size),
+    rename: '@0@.png'.format(application_id),
+  )
+endforeach

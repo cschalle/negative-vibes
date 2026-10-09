@@ -1376,6 +1376,15 @@ website and issue links are the placeholders from the metadata file). Not done: 
 light styles, high contrast and large text were not looked at (no way to see them here), and
 the screen reader pass.
 
+**The icon.** A 1024 px picture of a film roll with a strip of three frames, a tulip as an orange negative
+turning into a red positive, on a violet tile. The original is kept in `data/icons/source/`; the tile
+was given transparent rounded corners (corner radius 200 px measured from the original) and a margin
+of 5% with a soft shadow, the GNOME arrangement, and written out at 16, 32, 48, 64, 128, 256 and 512 px
+in `data/icons/hicolor/`. Meson installs them under the application's ID, the desktop file and About
+use that name, and a cargo run finds them in the source tree. It reads well down to 32 px; at 16 px it is
+a purple tile with a hint of film. There is no SVG: Flathub accepts a 128 px or larger PNG, and a
+vector version would need to be drawn or traced from this picture.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;
