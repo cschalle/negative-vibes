@@ -15,6 +15,10 @@ pub(crate) mod imp {
         pub preview_btn: RefCell<Option<gtk::Button>>,
         pub scan_btn: RefCell<Option<adw::SplitButton>>,
         pub progress_bar: RefCell<Option<gtk::ProgressBar>>,
+        /// Small text above the progress bar saying what the scanner is doing.
+        pub progress_label: RefCell<Option<gtk::Label>>,
+        /// "pass 2 of 3" while a multi-pass acquisition runs; empty otherwise.
+        pub pass_text: RefCell<String>,
         pub advance_banner: RefCell<Option<adw::Banner>>,
 
         // ── Inspector widget handles ───────────────────────────────────────
@@ -407,7 +411,12 @@ impl Window {
         let zoom_100 = gtk::Button::builder().label("1:1").action_name("win.zoom-100").tooltip_text("Actual Pixels (Ctrl+1)").css_classes(["flat"]).build();
         let info_label = gtk::Label::builder().css_classes(["dim-label", "numeric"]).build();
 
-        let progress_bar = gtk::ProgressBar::builder().hexpand(true).visible(false).build();
+        let progress_bar = gtk::ProgressBar::builder().hexpand(true).valign(gtk::Align::Center).visible(false).build();
+        let progress_label = gtk::Label::builder().xalign(0.0).ellipsize(gtk::pango::EllipsizeMode::End).css_classes(["caption", "dim-label"]).visible(false).build();
+        progress_bar.bind_property("visible", &progress_label, "visible").sync_create().build();
+        let progress_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).hexpand(true).valign(gtk::Align::Center).build();
+        progress_box.append(&progress_label);
+        progress_box.append(&progress_bar);
 
         let bottom_bar = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).spacing(6).margin_start(6).margin_end(6).margin_top(3).margin_bottom(3).build();
         bottom_bar.append(&zoom_out);
@@ -548,7 +557,7 @@ impl Window {
             .child(&bottom_bar)
             .build();
         let status_row = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).spacing(12).margin_start(12).margin_end(12).margin_top(3).build();
-        status_row.append(&progress_bar);
+        status_row.append(&progress_box);
         status_row.append(&info_label);
         let bottom_stack = gtk::Box::new(gtk::Orientation::Vertical, 0);
         bottom_stack.append(&status_row);
@@ -663,6 +672,7 @@ impl Window {
         *self.imp().preview_btn.borrow_mut() = Some(preview_btn.clone());
         *self.imp().scan_btn.borrow_mut() = Some(scan_btn.clone());
         *self.imp().progress_bar.borrow_mut() = Some(progress_bar);
+        *self.imp().progress_label.borrow_mut() = Some(progress_label);
         *self.imp().advance_banner.borrow_mut() = Some(advance_banner.clone());
 
         // Initialise default processing params (generic colour negative).
@@ -2100,6 +2110,8 @@ impl Window {
                     pb.set_visible(true);
                     pb.set_fraction(0.0);
                 }
+                let what = if self.imp().scan_kind.get() == imp::ScanKind::Final { "Colour scan running" } else { "Preview running" };
+                self.set_progress_label(what);
             }
 
             ScanEvent::DataChunk { data, .. } => {
@@ -2133,6 +2145,7 @@ impl Window {
             }
 
             ScanEvent::ScanDone if self.imp().scan_kind.get() == imp::ScanKind::Final => {
+                self.imp().pass_text.borrow_mut().clear();
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(false);
                 }
@@ -2140,6 +2153,7 @@ impl Window {
             }
 
             ScanEvent::ScanDone => {
+                self.imp().pass_text.borrow_mut().clear();
                 self.rebuild_proxy();
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(false);
@@ -2175,21 +2189,24 @@ impl Window {
                     *self.imp().final_ir.borrow_mut() = Some(FrameBuf::with_stride(width_px, height_px, depth, 1, bytes_per_line));
                     self.imp().receiving_ir.set(true);
                 }
+                if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
+                    pb.set_fraction(0.0);
+                }
+                self.set_progress_label("IR scan running");
             }
 
             ScanEvent::PassStarted { index, total, exposure } => {
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(true);
-                    pb.set_show_text(true);
-                    pb.set_text(Some(&if exposure > 1.0 { format!("Pass {} of {total} (long exposure)", index + 1) } else { format!("Pass {} of {total}", index + 1) }));
                 }
+                *self.imp().pass_text.borrow_mut() =
+                    if exposure > 1.0 { format!("pass {} of {total}, long exposure", index + 1) } else { format!("pass {} of {total}", index + 1) };
+                self.set_progress_label("Scan starting");
             }
 
             ScanEvent::Merging => {
-                if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
-                    pb.set_show_text(true);
-                    pb.set_text(Some("Merging the passes…"));
-                }
+                self.imp().pass_text.borrow_mut().clear();
+                self.set_progress_label("Merging the passes…");
             }
 
             ScanEvent::ColorFrameDone | ScanEvent::IrFrameDone => {
@@ -2197,6 +2214,15 @@ impl Window {
             }
 
             ScanEvent::DeviceReady { .. } => {}
+        }
+    }
+
+    /// Say what the scanner is doing above the progress bar, with the pass it is on if any.
+    fn set_progress_label(&self, what: &str) {
+        let pass = self.imp().pass_text.borrow();
+        let text = if pass.is_empty() { what.to_owned() } else { format!("{what} ({pass})") };
+        if let Some(l) = self.imp().progress_label.borrow().as_ref() {
+            l.set_text(&text);
         }
     }
 
@@ -2211,6 +2237,7 @@ impl Window {
         *self.imp().final_buf.borrow_mut() = None;
         *self.imp().final_ir.borrow_mut() = None;
         self.imp().receiving_ir.set(false);
+        self.imp().pass_text.borrow_mut().clear();
         // A failed or cancelled final scan leaves the preview on screen, so
         // Scan can be tried again; a failed preview leaves nothing to scan.
         let preview_ok = self.imp().scan_kind.get() == imp::ScanKind::Final && self.imp().preview_ready.get();
