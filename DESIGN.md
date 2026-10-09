@@ -1382,8 +1382,13 @@ was given transparent rounded corners (corner radius 200 px measured from the or
 of 5% with a soft shadow, the GNOME arrangement, and written out at 16, 32, 48, 64, 128, 256 and 512 px
 in `data/icons/hicolor/`. Meson installs them under the application's ID, the desktop file and About
 use that name, and a cargo run finds them in the source tree. It reads well down to 32 px; at 16 px it is
-a purple tile with a hint of film. There is no SVG: Flathub accepts a 128 px or larger PNG, and a
-vector version would need to be drawn or traced from this picture.
+a purple tile with a hint of film. The scalable version (`hicolor/scalable/apps/`, 26 kB) is a trace of the picture, not a
+drawing: the tile's gradient and the film strip's shading are real SVG gradients, and ten flat
+colours (the strip, the black of the canister, the peach frames, the red and green of the tulips,
+the orange of the negative frames) are traced with potrace in stacked layers, with sprocket holes
+left open so the tile shows through. Compared with the picture side by side it is faithful, with
+small wobbles on a few edges; a designer's redraw would be cleaner. The PNGs, made from the
+original, are used at their exact sizes.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

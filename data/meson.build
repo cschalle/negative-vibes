@@ -51,3 +51,8 @@ foreach size : ['16', '32', '48', '64', '128', '256', '512']
     rename: '@0@.png'.format(application_id),
   )
 endforeach
+install_data(
+  'icons/hicolor/scalable/apps/io.github.cschalle.NegativeVibes.svg',
+  install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps',
+  rename: '@0@.svg'.format(application_id),
+)
