@@ -174,14 +174,21 @@ impl Window {
         )
     }
 
-    /// The XMP packet for frame `idx`: what the person wrote for the roll plus
-    /// what is known about the frame and its scan. `None` when switched off.
-    pub(super) fn frame_xmp(&self, idx: u32, settings: &ExportSettings) -> Option<Vec<u8>> {
-        if !settings.embed_metadata {
+    /// What a DNG of frame `idx` says about its picture and scan.
+    pub(super) fn frame_dng_info(&self, idx: u32, settings: &ExportSettings) -> Option<nv_export::dng::DngInfo> {
+        if settings.format != nv_export::ExportFormat::Dng {
             return None;
         }
+        let (meta, info) = self.frame_metadata(idx, settings);
+        let iso = Some(self.effective_params(idx).profile.iso);
+        Some(nv_export::dng::DngInfo::from_metadata(&meta, &info, iso))
+    }
+
+    /// The roll's metadata and what is known about frame `idx`, shared by XMP and DNG tags.
+    fn frame_metadata(&self, idx: u32, settings: &ExportSettings) -> (nv_export::metadata::Metadata, nv_export::metadata::FrameInfo) {
         let roll = self.imp().roll.borrow();
-        let roll = roll.as_ref()?;
+        let mut meta = settings.metadata.clone();
+        let Some(roll) = roll.as_ref() else { return (meta, Default::default()) };
         let frame = roll.frame(idx);
         let scan = frame.and_then(|f| f.raw.as_ref()).map(|r| &r.scan);
         let info = nv_export::metadata::FrameInfo {
@@ -197,11 +204,20 @@ impl Window {
                 if p.vendor == "Generic" { String::new() } else { format!("{} {}", p.vendor, p.name) }
             },
         };
-        // The roll's film stock fills the field when the person left it empty.
-        let mut meta = settings.metadata.clone();
         if meta.film_stock.trim().is_empty() {
             meta.film_stock = roll.film_stock.clone().unwrap_or_default();
         }
+        (meta, info)
+    }
+
+    /// The XMP packet for frame `idx`: what the person wrote for the roll plus
+    /// what is known about the frame and its scan. `None` when switched off.
+    pub(super) fn frame_xmp(&self, idx: u32, settings: &ExportSettings) -> Option<Vec<u8>> {
+        if !settings.embed_metadata {
+            return None;
+        }
+        self.imp().roll.borrow().as_ref()?;
+        let (meta, info) = self.frame_metadata(idx, settings);
         Some(nv_export::metadata::xmp_packet(&meta, &info))
     }
 
@@ -230,7 +246,7 @@ impl Window {
             self.imp().next_export_id.set(id);
             let label = format!("Frame {idx}");
             self.imp().export_jobs.borrow_mut().push(JobInfo { id, frame: idx, label: label.clone(), state: JobState::Queued, fraction: 0.0 });
-            queue.enqueue(ExportJob { id, frame: idx, label, raw, params: self.effective_params(idx), orientation: self.orientation_of(idx), angle: self.angle_of(idx), xmp: self.frame_xmp(idx, &settings), settings: settings.clone(), dir: dir.clone(), stem });
+            queue.enqueue(ExportJob { id, frame: idx, label, raw, params: self.effective_params(idx), orientation: self.orientation_of(idx), angle: self.angle_of(idx), xmp: self.frame_xmp(idx, &settings), dng: self.frame_dng_info(idx, &settings), settings: settings.clone(), dir: dir.clone(), stem });
             queued += 1;
         }
         self.refresh_queue_ui();

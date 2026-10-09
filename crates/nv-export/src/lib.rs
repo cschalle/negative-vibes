@@ -16,6 +16,6 @@ mod resize;
 mod tiff;
 
 pub use colour::ColourSpace;
-pub use encode::{copy_raw, export_image, export_image_straightened, export_image_with, write_scan_tiff, ExportError, ExportReport};
+pub use encode::{copy_raw, export_image, export_image_straightened, export_image_with, export_image_full, write_scan_tiff, ExportError, ExportReport};
 pub use naming::{render_template, unique_path, NameContext, NameError};
 pub use settings::{Compression, ExportFormat, ExportSettings, OutputSize, Purpose};

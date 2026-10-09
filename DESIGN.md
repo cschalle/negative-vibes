@@ -1327,6 +1327,21 @@ markup warning from a folder subtitle containing `<roll>`, and paths with `&` in
 `NV_OPEN_DIALOGS=1` hook opens the dialogs headlessly to check they build without GTK
 complaints; they do. The dialogs have not been clicked through.
 
+**DNG follow-up (after trying the file in darktable 5.6.2, which opened it correctly:
+linear raw recognised, right orientation and size).** darktable showed "1/inf f/0.0 0.0 mm
+ISO 0" and the black surround of the scan window. The DNG now carries an EXIF block and the
+usual picture tags from the roll's metadata and the frame: the film's speed as ISO (from its
+profile), DateTimeOriginal (the date taken, when it is a whole date), DateTimeDigitized and
+DateTime (the scan), the lens, the photographer, copyright, and one line of description (title
+and caption, then the original camera and the film). The scanner's name (without its device
+path) is the model. Exposure time and aperture are left out on purpose: a scan has neither,
+and a made-up number would be a lie, so darktable may still print them as blank or zero. The
+default crop is the picture inside the black surround: columns and rows that are not near-black
+next to the middle of the picture, then 1.5% in from that edge to leave the film's own edge out;
+no crop when there is almost no surround, or when the result would be a sliver. On the tulip
+scan the crop is 812 × 554 of 864 × 645. The pixels outside it are still in the file, so a
+developer can widen it. Checked with exiv2 on every tag and on the crop.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

@@ -558,3 +558,34 @@ fn metadata_is_embedded_in_every_format_and_read_back_by_exiv2() {
     nv_export::export_image_with(&raw, &frozen, Orientation::IDENTITY, 0.0, Some(&xmp), &off, &dest, &|_| {}, &AtomicBool::new(false)).unwrap();
     assert!(!std::fs::read(&dest).unwrap().windows(9).any(|w| w == b"xpacket b"));
 }
+
+#[test]
+fn a_dng_carries_its_camera_data_and_opens_cropped_to_the_picture() {
+    use nv_export::dng::DngInfo;
+    use nv_export::metadata::{FrameInfo, Metadata};
+    let (raw, frozen, _) = tulip();
+    let dir = scratch("dng-info");
+    let meta = Metadata { creator: "Ann Example".into(), title: "Tulips".into(), copyright: "© Ann".into(), lens: "50mm f/1.8".into(), date_taken: "1987-06-15".into(), camera: "Nikon FM2".into(), ..Default::default() };
+    let frame = FrameInfo { scanner: "Plustek OpticFilm 8200i plustek8200i:libusb:005:033".into(), scan_date: "2026-10-08T12:00:00Z".into(), film_profile: "Kodak Portra 400".into(), ..Default::default() };
+    let info = DngInfo::from_metadata(&meta, &frame, Some(400));
+    let dest = dir.join("info.dng");
+    let s = ExportSettings { format: nv_export::ExportFormat::Dng, ..Default::default() };
+    nv_export::export_image_full(&raw, &frozen, Orientation::IDENTITY, 0.0, None, Some(&info), &s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap();
+
+    let Some(tags) = run("exiv2", &["-pa", dest.to_str().unwrap()]) else { return };
+    for want in ["Exif.Image.Artist", "Ann Example", "Exif.Image.Copyright", "© Ann", "Exif.Image.Model", "Plustek OpticFilm 8200i", "Exif.Image.ImageDescription", "Tulips", "Nikon FM2", "Exif.Photo.ISOSpeedRatings", "400", "Exif.Photo.DateTimeOriginal", "1987:06:15 00:00:00", "Exif.Photo.DateTimeDigitized", "2026:10:08 12:00:00", "Exif.Photo.LensModel", "50mm f/1.8"] {
+        assert!(tags.contains(want), "exiv2 does not report {want}:\n{tags}");
+    }
+    assert!(!tags.contains("plustek8200i:libusb"), "the device path must not leak into the model");
+
+    // The default crop is the picture inside the black surround of the scan window.
+    let line = |key: &str| tags.lines().find(|l| l.contains(key)).unwrap_or_else(|| panic!("no {key}:\n{tags}")).to_owned();
+    let nums = |l: &str| -> Vec<u32> { l.split_whitespace().rev().take(2).filter_map(|t| t.parse().ok()).collect::<Vec<_>>().into_iter().rev().collect() };
+    let origin = nums(&line("DefaultCropOrigin"));
+    let size = nums(&line("DefaultCropSize"));
+    let (w, h) = (raw.width, raw.effective_height());
+    eprintln!("default crop {origin:?} {size:?} of {w}x{h}");
+    assert!(size[0] < w && size[1] < h, "no crop was set: {size:?} of {w}x{h}");
+    assert!(origin[0] > 0 && origin[1] > 0 && origin[0] + size[0] <= w && origin[1] + size[1] <= h, "crop {origin:?} {size:?} lies outside {w}x{h}");
+    assert!(size[0] * 100 > w * 70 && size[1] * 100 > h * 70, "the crop is too small to be the picture: {size:?}");
+}

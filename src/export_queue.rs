@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_channel::{Receiver, Sender};
-use nv_export::{export_image_with, unique_path, ExportReport, ExportSettings};
+use nv_export::{export_image_full, unique_path, ExportReport, ExportSettings};
 use nv_process::{tiles::freeze, ProcessParams, Proxy, DEFAULT_PROXY_PIXELS};
 
 /// One frame to export.
@@ -29,6 +29,8 @@ pub struct ExportJob {
     pub angle: f32,
     /// The XMP packet to embed, built from the roll's metadata and the frame.
     pub xmp: Option<Vec<u8>>,
+    /// What a DNG says about the picture and its scan.
+    pub dng: Option<nv_export::dng::DngInfo>,
     pub settings: ExportSettings,
     /// Folder (created if missing) and file name without extension.
     pub dir: PathBuf,
@@ -142,7 +144,7 @@ fn run(job: &ExportJob, events: &Sender<ExportEvent>, cancel: &AtomicBool) -> Re
             let _ = events.send_blocking(ExportEvent::Progress { id, fraction: f });
         }
     };
-    export_image_with(&raw, &frozen, job.orientation, job.angle, job.xmp.as_deref(), &job.settings, &dest, &progress, cancel)
+    export_image_full(&raw, &frozen, job.orientation, job.angle, job.xmp.as_deref(), job.dng.as_ref(), &job.settings, &dest, &progress, cancel)
 }
 
 #[cfg(test)]
@@ -165,6 +167,7 @@ mod tests {
             orientation: nv_process::Orientation::IDENTITY,
             angle: 0.0,
             xmp: None,
+            dng: None,
             settings: ExportSettings { bit_depth: 8, ..Default::default() },
             dir: dir.to_owned(),
             stem: "roll-01".into(),

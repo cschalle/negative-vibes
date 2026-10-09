@@ -209,6 +209,24 @@ pub fn export_image_with(
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
 ) -> Result<ExportReport, ExportError> {
+    export_image_full(raw, frozen, orientation, angle_deg, xmp, None, settings, dest, progress, cancel)
+}
+
+/// [`export_image_with`] with the details a DNG carries about its picture and scan
+/// (see [`crate::dng::DngInfo`]); other formats ignore them.
+#[allow(clippy::too_many_arguments)]
+pub fn export_image_full(
+    raw: &FrameBuf,
+    frozen: &ProcessParams,
+    orientation: Orientation,
+    angle_deg: f32,
+    xmp: Option<&[u8]>,
+    dng: Option<&crate::dng::DngInfo>,
+    settings: &ExportSettings,
+    dest: &Path,
+    progress: &dyn Fn(f32),
+    cancel: &AtomicBool,
+) -> Result<ExportReport, ExportError> {
     let xmp = xmp.filter(|_| settings.embed_metadata);
     let (sw, sh) = (raw.width as usize, raw.effective_height() as usize);
     if sw == 0 || sh == 0 {
@@ -216,7 +234,7 @@ pub fn export_image_with(
     }
     let s = settings.normalised();
     if s.format == ExportFormat::Dng {
-        return export_dng(raw, frozen, orientation, xmp, dest, progress, cancel);
+        return export_dng(raw, frozen, orientation, xmp, dng, dest, progress, cancel);
     }
     // The picture the orientation makes, and the size it is exported at.
     let (pw, ph) = orientation.output_size(sw, sh);
@@ -239,11 +257,11 @@ pub fn export_image_with(
 
 /// The raw scan as a linear DNG: the frame's orientation rides along as a
 /// tag, and the scanner's profile, if the frame uses one, in the colour matrix.
-fn export_dng(raw: &FrameBuf, frozen: &ProcessParams, orientation: Orientation, xmp: Option<&[u8]>, dest: &Path, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<ExportReport, ExportError> {
+fn export_dng(raw: &FrameBuf, frozen: &ProcessParams, orientation: Orientation, xmp: Option<&[u8]>, dng: Option<&crate::dng::DngInfo>, dest: &Path, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<ExportReport, ExportError> {
     let part = temp_name(dest);
     let result = (|| {
         let file = BufWriter::new(File::create(&part)?);
-        crate::dng::write_dng(file, raw, orientation, frozen.input.as_ref(), &crate::dng::DngInfo::default(), xmp, progress, cancel)
+        crate::dng::write_dng(file, raw, orientation, frozen.input.as_ref(), &dng.cloned().unwrap_or_else(crate::dng::DngInfo::plain), xmp, progress, cancel)
     })();
     match result {
         Ok((width, height)) => {

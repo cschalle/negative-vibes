@@ -25,20 +25,148 @@ const ASCII: u16 = 2;
 const SHORT: u16 = 3;
 const LONG: u16 = 4;
 const RATIONAL: u16 = 5;
+const UNDEFINED: u16 = 7;
 const SRATIONAL: u16 = 10;
 
-/// Who made the file, for the Make, Model and Software tags.
-#[derive(Debug, Clone)]
+/// What the file says about itself: who made it, what it is of, and when.
+/// A scan has no exposure time or aperture of its own, so those are left out;
+/// the film's speed is the one exposure-like number it does have.
+#[derive(Debug, Clone, Default)]
 pub struct DngInfo {
     pub make: String,
     pub model: String,
     pub software: String,
+    /// The photographer, copyright and a line about the picture (IFD0).
+    pub artist: String,
+    pub copyright: String,
+    pub description: String,
+    /// The lens the picture was taken with.
+    pub lens: String,
+    /// The film's speed, from its profile.
+    pub film_iso: Option<u32>,
+    /// When the photograph was taken and when it was scanned, `YYYY:MM:DD HH:MM:SS`.
+    pub date_original: Option<String>,
+    pub date_scanned: Option<String>,
 }
 
-impl Default for DngInfo {
-    fn default() -> Self {
-        Self { make: "Negative Vibes".into(), model: "Film scan".into(), software: format!("Negative Vibes {}", env!("CARGO_PKG_VERSION")) }
+impl DngInfo {
+    /// Only who made the file.
+    pub fn plain() -> Self {
+        Self { make: "Negative Vibes".into(), model: "Film scan".into(), software: format!("Negative Vibes {}", env!("CARGO_PKG_VERSION")), ..Default::default() }
     }
+
+    /// The tags a frame's metadata and scan details give. Empty fields stay out of the file.
+    pub fn from_metadata(meta: &crate::metadata::Metadata, frame: &crate::metadata::FrameInfo, film_iso: Option<u32>) -> Self {
+        let m = meta.cleaned();
+        // The scanner's name without the backend's device path.
+        let scanner: String = frame.scanner.split_whitespace().take_while(|w| !w.contains(':')).collect::<Vec<_>>().join(" ");
+        let title = if m.title.is_empty() { frame.label.trim().to_owned() } else { m.title.clone() };
+        let film = if m.film_stock.is_empty() { frame.film_profile.trim().to_owned() } else { m.film_stock.clone() };
+        // One line about the picture: what it is, then what it was shot on.
+        let parts: Vec<&str> = [title.as_str(), m.caption.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+        let gear: Vec<&str> = [m.camera.as_str(), film.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+        let description = [parts.join(". "), gear.join(", ")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" — ");
+        Self {
+            make: "Negative Vibes".into(),
+            model: if scanner.is_empty() { "Film scan".into() } else { scanner },
+            software: format!("Negative Vibes {}", env!("CARGO_PKG_VERSION")),
+            artist: m.creator.clone(),
+            copyright: m.copyright.clone(),
+            description,
+            lens: m.lens.clone(),
+            film_iso: film_iso.filter(|i| *i > 0),
+            date_original: exif_date(&m.date_taken),
+            date_scanned: exif_date(&frame.scan_date),
+        }
+    }
+}
+
+/// `YYYY:MM:DD HH:MM:SS` from an ISO date: a whole date, with a time or not.
+/// A year or a month alone says too little to be a date and gives `None`.
+pub fn exif_date(iso: &str) -> Option<String> {
+    let s = iso.trim();
+    let (date, time) = match s.split_once(['T', ' ']) {
+        Some((d, t)) => (d, t.trim_end_matches('Z')),
+        None => (s, ""),
+    };
+    let d: Vec<&str> = date.split('-').collect();
+    if d.len() != 3 || d[0].len() != 4 || d[1].len() != 2 || d[2].len() != 2 || !d.iter().all(|p| p.bytes().all(|b| b.is_ascii_digit())) {
+        return None;
+    }
+    let t: Vec<&str> = time.split(':').collect();
+    let hms = match t.as_slice() {
+        [h, m, s] if [h, m, s].iter().all(|p| p.len() >= 2 && p.bytes().take(2).all(|b| b.is_ascii_digit())) => format!("{}:{}:{}", &h[..2], &m[..2], &s[..2]),
+        [h, m] if [h, m].iter().all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_digit())) => format!("{h}:{m}:00"),
+        _ => "00:00:00".to_owned(),
+    };
+    Some(format!("{}:{}:{} {hms}", d[0], d[1], d[2]))
+}
+
+/// The picture inside the black the scanner's window shows around the film
+/// holder: `[x, y, width, height]` in scan pixels, trimmed a little further
+/// to leave out the film's own edge. The whole scan when there is no such
+/// surround, or nothing can be told. Developers open the file cropped to this
+/// and can still widen it, since the pixels are all there.
+pub fn content_bounds(raw: &FrameBuf) -> [u32; 4] {
+    let whole = [0, 0, raw.width, raw.effective_height().min(raw.rows_available())];
+    let (w, h) = (raw.width as usize, whole[3] as usize);
+    if w < 64 || h < 64 || raw.bytes_per_row == 0 {
+        return whole;
+    }
+    let (ch, bps, bpr) = (raw.channels as usize, raw.depth as usize / 8, raw.bytes_per_row);
+    let data = raw.as_bytes();
+    let step = (w.max(h) / 400).max(1);
+    let (cols, rows) = (w / step, h / step);
+    // The green channel, or the only one.
+    let g = usize::from(ch >= 2);
+    let sample = |x: usize, y: usize| read_sample(data, y * step * bpr + (x * step * ch + g) * bps, bps) as f64;
+    let mut col = vec![0f64; cols];
+    let mut row = vec![0f64; rows];
+    for y in 0..rows {
+        for x in 0..cols {
+            let v = sample(x, y);
+            col[x] += v / rows as f64;
+            row[y] += v / cols as f64;
+        }
+    }
+    // What the picture area reads like: the middle of the middle.
+    let median = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.total_cmp(b));
+        s[s.len() / 2]
+    };
+    let centre = median(&col[cols / 4..cols - cols / 4]).max(median(&row[rows / 4..rows - rows / 4]));
+    if centre <= 0.0 {
+        return whole;
+    }
+    // The run around the middle that is lit, not black.
+    let span = |v: &[f64]| -> (usize, usize) {
+        let lit = |x: f64| x > 0.25 * centre;
+        let mid = v.len() / 2;
+        let (mut a, mut b) = (mid, mid);
+        while a > 0 && lit(v[a - 1]) {
+            a -= 1;
+        }
+        while b + 1 < v.len() && lit(v[b + 1]) {
+            b += 1;
+        }
+        (a, b + 1)
+    };
+    let (x0, x1) = span(&col);
+    let (y0, y1) = span(&row);
+    let (px0, px1, py0, py1) = (x0 * step, (x1 * step).min(w), y0 * step, (y1 * step).min(h));
+    let (bw, bh) = (px1.saturating_sub(px0), py1.saturating_sub(py0));
+    // Hardly any surround: nothing to crop.
+    if bw as f64 > 0.97 * w as f64 && bh as f64 > 0.97 * h as f64 {
+        return whole;
+    }
+    // A sliver is not a picture: something went wrong, keep everything.
+    if (bw as f64) < 0.3 * w as f64 || (bh as f64) < 0.3 * h as f64 {
+        return whole;
+    }
+    // The film's own edge and holder shadow sit just inside the black.
+    let (ix, iy) = ((bw as f64 * 0.015) as usize + step, (bh as f64 * 0.015) as usize + step);
+    [(px0 + ix) as u32, (py0 + iy) as u32, bw.saturating_sub(2 * ix) as u32, bh.saturating_sub(2 * iy) as u32]
 }
 
 /// The EXIF orientation value (1 to 8) that shows the scan as `o` does.
@@ -237,6 +365,7 @@ pub fn write_dng<W: Write + Seek>(
     let thumb_at = u32::try_from(out.seek(SeekFrom::End(0))?).map_err(|_| too_big())?;
     out.write_all(&thumb)?;
 
+    let crop = content_bounds(raw);
     let offsets: Vec<u32> = strips.iter().map(|s| s.0).collect();
     let counts: Vec<u32> = strips.iter().map(|s| s.1).collect();
     let sub = write_ifd(
@@ -254,11 +383,26 @@ pub fn write_dng<W: Write + Seek>(
             long(279, &counts),
             short(284, &[1]),
             long(50717, &[65535, 65535, 65535]), // WhiteLevel
-            long(50719, &[0, 0]),                // DefaultCropOrigin
-            long(50720, &[w as u32, h as u32]),  // DefaultCropSize
+            long(50719, &[crop[0], crop[1]]),    // DefaultCropOrigin
+            long(50720, &[crop[2], crop[3]]),    // DefaultCropSize
         ],
     )?;
     let m = color_matrix(input);
+    // The EXIF block: what is known about the photograph and its scan.
+    let mut exif = vec![Entry { tag: 0x9000, typ: UNDEFINED, count: 4, data: b"0231".to_vec() }];
+    if let Some(iso) = info.film_iso {
+        exif.push(short(0x8827, &[iso.min(65535) as u16]));
+    }
+    if let Some(d) = &info.date_original {
+        exif.push(ascii(0x9003, d));
+    }
+    if let Some(d) = &info.date_scanned {
+        exif.push(ascii(0x9004, d)); // DateTimeDigitized: the scan
+    }
+    if !info.lens.is_empty() {
+        exif.push(ascii(0xA434, &info.lens));
+    }
+    let exif_at = write_ifd(&mut out, exif)?;
     let mut tags = vec![
             long(254, &[1]),
             long(256, &[tw]),
@@ -283,6 +427,15 @@ pub fn write_dng<W: Write + Seek>(
             unsigned_rationals(50728, &[1, 1, 1]),
             short(50778, &[21]), // CalibrationIlluminant1: D65
     ];
+    tags.push(long(34665, &[exif_at]));
+    for (tag, text) in [(270u16, &info.description), (315, &info.artist), (33432, &info.copyright)] {
+        if !text.is_empty() {
+            tags.push(ascii(tag, text));
+        }
+    }
+    if let Some(d) = &info.date_scanned {
+        tags.push(ascii(306, d));
+    }
     if let Some(x) = xmp {
         tags.push(Entry { tag: 700, typ: BYTE, count: x.len() as u32, data: x.to_vec() });
     }
@@ -298,6 +451,66 @@ pub fn write_dng<W: Write + Seek>(
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn dates_become_exif_dates_only_when_they_are_whole_dates() {
+        assert_eq!(exif_date("1987-06-15").as_deref(), Some("1987:06:15 00:00:00"));
+        assert_eq!(exif_date("1987-06-15T14:30").as_deref(), Some("1987:06:15 14:30:00"));
+        assert_eq!(exif_date("2026-10-08T12:34:56Z").as_deref(), Some("2026:10:08 12:34:56"));
+        assert_eq!(exif_date("2026-10-08 12:34:56").as_deref(), Some("2026:10:08 12:34:56"));
+        for no in ["", "1987", "1987-06", "June 1987", "1234567890", "1987-6-5"] {
+            assert_eq!(exif_date(no), None, "{no}");
+        }
+    }
+
+    #[test]
+    fn the_tags_come_from_the_metadata_and_empty_ones_stay_out() {
+        use crate::metadata::{FrameInfo, Metadata};
+        let meta = Metadata { creator: "Ann".into(), title: "Harbour".into(), caption: "Boats at dawn".into(), copyright: "© Ann".into(), camera: "Nikon FM2".into(), lens: "50mm f/1.8".into(), date_taken: "1987-06-15".into(), ..Default::default() };
+        let frame = FrameInfo { scanner: "Plustek OpticFilm 8200i plustek8200i:libusb:005:033".into(), scan_date: "2026-10-08T12:00:00Z".into(), film_profile: "Kodak Portra 400".into(), ..Default::default() };
+        let i = DngInfo::from_metadata(&meta, &frame, Some(400));
+        assert_eq!(i.model, "Plustek OpticFilm 8200i");
+        assert_eq!(i.description, "Harbour. Boats at dawn — Nikon FM2, Kodak Portra 400");
+        assert_eq!((i.artist.as_str(), i.lens.as_str(), i.film_iso), ("Ann", "50mm f/1.8", Some(400)));
+        assert_eq!((i.date_original.as_deref(), i.date_scanned.as_deref()), (Some("1987:06:15 00:00:00"), Some("2026:10:08 12:00:00")));
+        let bare = DngInfo::from_metadata(&Metadata::default(), &FrameInfo::default(), Some(0));
+        assert_eq!((bare.model.as_str(), bare.description.as_str(), bare.film_iso, bare.date_original.is_none()), ("Film scan", "", None, true));
+    }
+
+    /// A 16-bit RGB frame: black surround of the given widths, a textured lit picture inside.
+    fn framed(w: usize, h: usize, (l, r, t, b): (usize, usize, usize, usize)) -> FrameBuf {
+        let mut buf = FrameBuf::new(w as u32, Some(h as u32), 16, 3);
+        let mut bytes = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let inside = x >= l && x < w - r && y >= t && y < h - b;
+                let v: u16 = if inside { 20000 + ((x * 7 + y * 13) % 5000) as u16 } else { 300 };
+                for _ in 0..3 {
+                    bytes.extend(v.to_ne_bytes());
+                }
+            }
+        }
+        buf.append(&bytes);
+        buf
+    }
+
+    #[test]
+    fn the_black_surround_is_found_and_left_out() {
+        let raw = framed(800, 600, (80, 60, 70, 40));
+        let [x, y, w, h] = content_bounds(&raw);
+        // Inside the lit area (80..740 × 70..560), a little in from its edge.
+        assert!(x >= 80 && x < 100 && y >= 70 && y < 90, "origin {x},{y}");
+        assert!(x + w <= 740 && x + w > 720 && y + h <= 560 && y + h > 540, "far corner {},{}", x + w, y + h);
+        // No surround, nothing to crop; and a flat black frame is left alone.
+        assert_eq!(content_bounds(&framed(800, 600, (0, 0, 0, 0))), [0, 0, 800, 600]);
+        assert_eq!(content_bounds(&framed(800, 600, (400, 399, 0, 0))), [0, 0, 800, 600], "a sliver is not a picture");
+        let mut dark = FrameBuf::new(200, Some(200), 16, 3);
+        dark.append(&vec![0u8; 200 * 200 * 6]);
+        assert_eq!(content_bounds(&dark), [0, 0, 200, 200]);
+        let mut tiny = FrameBuf::new(10, Some(10), 16, 3);
+        tiny.append(&vec![9u8; 600]);
+        assert_eq!(content_bounds(&tiny), [0, 0, 10, 10]);
+    }
 
     #[test]
     fn exif_orientation_matches_the_standard_values() {
@@ -353,11 +566,11 @@ mod tests {
     #[test]
     fn an_empty_scan_is_refused_and_cancelling_stops() {
         let empty = FrameBuf::new(0, Some(0), 16, 3);
-        let r = write_dng(Cursor::new(Vec::new()), &empty, Orientation::IDENTITY, None, &DngInfo::default(), None, &|_| {}, &AtomicBool::new(false));
+        let r = write_dng(Cursor::new(Vec::new()), &empty, Orientation::IDENTITY, None, &DngInfo { make: "M".into(), model: "m".into(), software: "s".into(), ..Default::default() }, None, &|_| {}, &AtomicBool::new(false));
         assert!(matches!(r, Err(ExportError::Empty)));
         let mut b = FrameBuf::new(4, Some(4), 8, 3);
         b.append(&[7u8; 48]);
-        let r = write_dng(Cursor::new(Vec::new()), &b, Orientation::IDENTITY, None, &DngInfo::default(), None, &|_| {}, &AtomicBool::new(true));
+        let r = write_dng(Cursor::new(Vec::new()), &b, Orientation::IDENTITY, None, &DngInfo { make: "M".into(), model: "m".into(), software: "s".into(), ..Default::default() }, None, &|_| {}, &AtomicBool::new(true));
         assert!(matches!(r, Err(ExportError::Cancelled)));
     }
 }
