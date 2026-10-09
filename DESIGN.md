@@ -1387,8 +1387,9 @@ drawing: the tile's gradient and the film strip's shading are real SVG gradients
 colours (the strip, the black of the canister, the peach frames, the red and green of the tulips,
 the orange of the negative frames) are traced with potrace in stacked layers, with sprocket holes
 left open so the tile shows through. Compared with the picture side by side it is faithful, with
-small wobbles on a few edges; a designer's redraw would be cleaner. The PNGs, made from the
-original, are used at their exact sizes.
+small wobbles on a few edges; a designer's redraw would be cleaner. The SVG is the application icon: the PNG sizes made earlier were dropped, because a theme uses an
+exact-size PNG in preference to the scalable image, and the original 1024 px picture stays in
+`data/icons/source/` for making a raster again if one is ever needed.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
