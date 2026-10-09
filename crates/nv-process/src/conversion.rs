@@ -9,7 +9,9 @@ pub struct Measured {
     pub cast_fit: [[f32; 2]; 3],
 }
 
-/// Density above base, profile gamma and cast alignment: stage 4 up to the
+const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// Density above base, profile gamma, dye crosstalk and cast alignment: stage 4 up to the
 /// point where the range is measured. Also returns the cast fit used.
 fn density_stage(pixels: &[f32], w: usize, h: usize, params: &ProcessParams) -> (Vec<f32>, [[f32; 2]; 3]) {
     let p = &params.conversion;
@@ -37,6 +39,18 @@ fn density_stage(pixels: &[f32], w: usize, h: usize, params: &ProcessParams) -> 
         for i in 0..n {
             for c in 0..3 {
                 density[i * 3 + c] = density[i * 3 + c].powf(g[c]);
+            }
+        }
+    }
+
+    // Step 2a: dye crosstalk. Each dye absorbs a little in the other
+    // channels; the profile's matrix takes that back out of the density.
+    if p.auto_ccr && profile.crosstalk != IDENTITY {
+        let m = profile.crosstalk;
+        for px in density.chunks_exact_mut(3) {
+            let d = [px[0], px[1], px[2]];
+            for c in 0..3 {
+                px[c] = (m[c][0] * d[0] + m[c][1] * d[1] + m[c][2] * d[2]).max(0.0);
             }
         }
     }
@@ -445,5 +459,49 @@ mod tests {
     fn endpoints_are_sane() {
         assert!(scurve(0.0, TOE, SHOULDER).abs() < 1e-6);
         assert!(scurve(1.0, TOE, SHOULDER) <= 1.0);
+    }
+}
+
+#[cfg(test)]
+mod crosstalk_tests {
+    use super::*;
+    use crate::params::*;
+    use nv_film::FilmProfile;
+
+    fn params(m: [[f32; 3]; 3]) -> ProcessParams {
+        let mut profile = FilmProfile::identity();
+        profile.crosstalk = m;
+        ProcessParams {
+            image_type: ImageType::ColourNegative,
+            profile,
+            conversion: ConversionParams {
+                film_base: Some([1.0; 3]),
+                exposure: 0.0,
+                tolerance: 0.0016,
+                auto_ccr: true,
+                cast_removal: 0.0,
+                d_max: Some([1.0; 3]),
+                cast_fit: Some([[0.0, 1.0]; 3]),
+                region: None,
+                positive_range: None,
+            },
+            tone: ToneParams::default(),
+            dust: Default::default(),
+            detail: Default::default(),
+            colour: Default::default(),
+            input: None,
+        }
+    }
+
+    #[test]
+    fn a_matrix_removes_leaked_density() {
+        // Red carries 0.4 density; the dyes leak 0.25 of it into green.
+        let t = [10f32.powf(-0.4), 10f32.powf(-0.1), 1.0];
+        let plain = convert_negative(&t, 1, 1, &params(IDENTITY));
+        let m = [[1.0, 0.0, 0.0], [-0.25, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let fixed = convert_negative(&t, 1, 1, &params(m));
+        assert!(plain[1] > 0.0);
+        assert!(fixed[1].abs() < 1e-4, "green should lose all its density: {:?}", fixed);
+        assert_eq!(plain[0], fixed[0]);
     }
 }

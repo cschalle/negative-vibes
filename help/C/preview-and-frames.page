@@ -12,7 +12,7 @@
     <p>Press <gui>Preview</gui> in the header bar (or <keyseq><key>Ctrl</key><key>R</key></keyseq>). While the scanner works, the button becomes <gui>Stop</gui>. The preview resolution can be changed in <guiseq><gui>Preferences</gui><gui>Scanning</gui></guiseq>.</p>
   </section>
   <section id="frames"><title>Frames</title>
-    <p>Each picture on the film is a frame in the list on the left. Press <gui>Detect Frames</gui> (<keyseq><key>Ctrl</key><key>Shift</key><key>F</key></keyseq>) to find them on a preview, or <gui>Add Frame</gui> to add one yourself. Choose the <gui>Frame</gui> tool in the bottom bar and drag on the picture to draw or redraw the rectangle that will be scanned.</p>
+    <p>Each picture on the film is a frame in the list on the left. Press <gui>Detect Frames</gui> (<keyseq><key>Ctrl</key><key>Shift</key><key>F</key></keyseq>) to find them on a preview, or <gui>Add Frame</gui> to add one yourself. Choose the <gui>Frame</gui> tool in the bottom bar and drag on the picture to draw or redraw the rectangle that will be scanned. Drag a corner or an edge of the rectangle to resize it, or drag inside it to move it. Hold <key>Shift</key> while resizing to keep its shape.</p>
     <p>The frame menu (the three dots under the list) can duplicate, keep, reject or delete a frame. A duplicate has the same rectangle but no scan, which is useful to scan a frame again with other settings.</p>
   </section>
   <section id="one-at-a-time"><title>Scanners that take one frame at a time</title>

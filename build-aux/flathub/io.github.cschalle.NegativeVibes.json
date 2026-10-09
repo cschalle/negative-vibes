@@ -1,0 +1,38 @@
+{
+  "app-id": "io.github.cschalle.NegativeVibes",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "50",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "negative-vibes",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=all",
+    "--filesystem=xdg-pictures",
+    "--env=SANE_CONFIG_DIR=/app/etc/sane.d"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin",
+    "env": { "CARGO_HOME": "/run/build/negative-vibes/cargo-home" }
+  },
+  "modules": [
+    {
+      "name": "sane-backends",
+      "config-opts": ["--disable-locking", "--with-usb"],
+      "sources": [
+        { "type": "archive", "url": "https://gitlab.com/sane-project/backends/-/archive/1.4.0/backends-1.4.0.tar.gz", "sha256": "FILL-IN" }
+      ]
+    },
+    {
+      "name": "negative-vibes",
+      "buildsystem": "meson",
+      "config-opts": ["-Dprofile=default"],
+      "sources": [
+        { "type": "git", "url": "https://github.com/cschalle/negative-vibes.git", "tag": "v0.1.0" },
+        "cargo-sources.json"
+      ]
+    }
+  ]
+}

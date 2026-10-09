@@ -313,6 +313,9 @@ use nv_image::FrameBuf;
 use nv_process::{ProcessParams, params::ToneParams};
 use nv_store::{Roll, RollStore};
 
+/// How close, in pixels, a press must be to a frame rectangle's edge to grab it.
+const HANDLE_REACH: f64 = 10.0;
+
 glib::wrapper! {
     pub struct Window(ObjectSubclass<imp::Window>)
         @extends adw::ApplicationWindow, gtk::ApplicationWindow, gtk::Window, gtk::Widget,
@@ -455,7 +458,7 @@ impl Window {
         let tool_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).build();
         let mut tool_buttons: Vec<(imp::CanvasTool, gtk::ToggleButton)> = Vec::new();
         for (tool, label, tip) in [
-            (imp::CanvasTool::Frame, "Frame", "Draw the area to scan"),
+            (imp::CanvasTool::Frame, "Frame", "Draw the area to scan; drag its edges to resize, Shift keeps the shape"),
             (imp::CanvasTool::FilmBase, "Base", "Pick the film base: click unexposed film (the rebate)"),
             (imp::CanvasTool::Black, "Black", "Pick black: click the darkest part that should be black"),
             (imp::CanvasTool::Grey, "Grey", "Pick grey: click something that should be neutral"),
@@ -1705,6 +1708,18 @@ impl Window {
                 cr.set_line_width(1.5);
                 cr.rectangle(x, y, w, h);
                 let _ = cr.stroke();
+
+                // Handles at the corners and edge midpoints, only when there is room for them.
+                if win.imp().canvas_tool.get() == imp::CanvasTool::Frame && w > 40.0 && h > 40.0 {
+                    for (hx, hy) in [(x, y), (x + w / 2.0, y), (x + w, y), (x, y + h / 2.0), (x + w, y + h / 2.0), (x, y + h), (x + w / 2.0, y + h), (x + w, y + h)] {
+                        cr.rectangle(hx - 3.5, hy - 3.5, 7.0, 7.0);
+                        cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+                        let _ = cr.fill_preserve();
+                        cr.set_source_rgba(0.0, 0.0, 0.0, 0.8);
+                        cr.set_line_width(1.0);
+                        let _ = cr.stroke();
+                    }
+                }
             }
             win.draw_strokes(cr, content, (iw, ih));
         });
@@ -1712,11 +1727,16 @@ impl Window {
         // Drag out a new rectangle.
         let drag = gtk::GestureDrag::builder().button(gdk::BUTTON_PRIMARY).build();
         let start = std::rc::Rc::new(std::cell::Cell::new(None::<(f64, f64)>));
+        // An existing rectangle grabbed by an edge, corner or its inside: the grab and the
+        // rectangle as it was, in view space.
+        let grabbed = std::rc::Rc::new(std::cell::Cell::new(None::<(geom::Grab, [f64; 4])>));
 
         let win_weak = self.downgrade();
         let start_c = start.clone();
+        let grabbed_c = grabbed.clone();
         drag.connect_drag_begin(move |g, x, y| {
             let Some(win) = win_weak.upgrade() else { return };
+            grabbed_c.set(None);
             let tool = win.imp().canvas_tool.get();
             if mask::is_mask_tool(tool) {
                 start_c.set(None);
@@ -1731,13 +1751,32 @@ impl Window {
             }
             let (Some((iw, ih)), Some(widget)) = (win.canvas_image_size(), g.widget()) else { return };
             let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
+            if let Some(view) = win.frame_rect().map(|r| win.orientation().rect_from_source(r)) {
+                if let Some(grab) = geom::hit_test(view, x, y, c, HANDLE_REACH) {
+                    start_c.set(None);
+                    grabbed_c.set(Some((grab, view)));
+                    return;
+                }
+            }
             start_c.set(geom::point_to_frac(x, y, c));
         });
 
         let win_weak = self.downgrade();
         let start_c = start.clone();
+        let grabbed_c = grabbed.clone();
         drag.connect_drag_update(move |g, dx, dy| {
             let Some(win) = win_weak.upgrade() else { return };
+            if let (Some((grab, view)), Some((iw, ih)), Some(widget)) = (grabbed_c.get(), win.canvas_image_size(), g.widget()) {
+                // Dragging a handle edits the rectangle; Shift keeps its shape.
+                let (_, _, cw, ch) = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
+                if cw > 0.0 && ch > 0.0 {
+                    let shift = g.current_event_state().contains(gdk::ModifierType::SHIFT_MASK);
+                    let aspect = shift.then(|| (view[2] - view[0]) * iw / ((view[3] - view[1]) * ih));
+                    let edited = geom::drag_rect(view, grab, dx / cw, dy / ch, aspect, iw / ih);
+                    win.set_frame_rect(Some(win.orientation().rect_to_source(edited)));
+                }
+                return;
+            }
             if mask::is_mask_tool(win.imp().canvas_tool.get()) {
                 if let (Some(w), Some((sx, sy))) = (g.widget(), g.start_point()) {
                     if let Some((fx, fy)) = win.canvas_fraction(&w, sx + dx, sy + dy) {
@@ -1757,6 +1796,10 @@ impl Window {
         drag.connect_drag_end(move |_, _, _| {
             let Some(win) = win_weak.upgrade() else { return };
             start.set(None);
+            if grabbed.take().is_some() {
+                win.persist_frame_rect();
+                return;
+            }
             if mask::is_mask_tool(win.imp().canvas_tool.get()) {
                 win.end_stroke();
                 return;
@@ -1770,6 +1813,31 @@ impl Window {
             win.persist_frame_rect();
         });
         area.add_controller(drag);
+
+        // Show what a press would grab: resize arrows on the edges, a hand inside.
+        let motion = gtk::EventControllerMotion::new();
+        let win_weak = self.downgrade();
+        motion.connect_motion(move |m, x, y| {
+            let (Some(win), Some(widget)) = (win_weak.upgrade(), m.widget()) else { return };
+            let mut name = None;
+            if win.imp().canvas_tool.get() == imp::CanvasTool::Frame {
+                if let (Some(rect), Some((iw, ih))) = (win.frame_rect(), win.canvas_image_size()) {
+                    let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
+                    let view = win.orientation().rect_from_source(rect);
+                    name = geom::hit_test(view, x, y, c, HANDLE_REACH).map(|g| match g {
+                        geom::Grab::Move => "move",
+                        geom::Grab::Edge(-1, -1) => "nw-resize",
+                        geom::Grab::Edge(1, -1) => "ne-resize",
+                        geom::Grab::Edge(-1, 1) => "sw-resize",
+                        geom::Grab::Edge(1, 1) => "se-resize",
+                        geom::Grab::Edge(_, 0) => "ew-resize",
+                        geom::Grab::Edge(_, _) => "ns-resize",
+                    });
+                }
+            }
+            widget.set_cursor_from_name(name);
+        });
+        area.add_controller(motion);
 
         // A click with a pipette tool picks the pixel under it.
         let pick = gtk::GestureClick::builder().button(gdk::BUTTON_PRIMARY).build();
