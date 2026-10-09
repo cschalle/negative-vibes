@@ -2,6 +2,7 @@ mod application;
 mod canvas_geom;
 mod config;
 mod export_queue;
+mod google;
 mod prefs;
 mod window;
 

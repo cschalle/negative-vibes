@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="google-photos">
+  <info>
+    <link type="guide" xref="index" group="output"/>
+    <link type="seealso" xref="export"/>
+    <link type="seealso" xref="metadata"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Send your pictures to Google Photos as they are exported.</desc>
+  </info>
+  <title>Send pictures to Google Photos</title>
+  <p>Negative Vibes can add each picture to your Google Photos library as soon as it has been exported. It asks for the narrowest permission Google offers: it can add pictures and make albums for them, and it cannot see, change or delete anything else in your library.</p>
+
+  <section id="sign-in"><title>Sign in</title>
+    <steps>
+      <item><p>Open <gui>Preferences</gui> (<keyseq><key>Ctrl</key><key>,</key></keyseq>) and choose <gui>Google Photos</gui>.</p></item>
+      <item><p>Press <gui>Sign In…</gui>. Your web browser opens on Google's page. Choose your account and allow access.</p></item>
+      <item><p>The browser says you are signed in. Go back to Negative Vibes.</p></item>
+    </steps>
+    <p>Your password is never seen by Negative Vibes. What it keeps is a token from Google, in the system's password keyring. <gui>Sign Out</gui> deletes the token and tells Google the access is no longer needed. You can also remove the access at any time in your Google Account, under <gui>Security</gui> and <gui>Your connections to third-party apps and services</gui>.</p>
+    <note style="tip"><p>If a copy of Negative Vibes was built without a Google client, <gui>Preferences</gui> says so. Create an OAuth client of type <gui>Desktop app</gui> in the Google Cloud console, turn on the <gui>Photos Library API</gui>, and enter its client ID and secret under <gui>Use Your Own Google Client</gui>.</p></note>
+  </section>
+
+  <section id="upload"><title>Upload</title>
+    <p>In the <link xref="export">Export</link> dialog, choose the <gui>Google Photos</gui> preset, or turn on <gui>Send to Google Photos</gui> with any other settings. The preset makes an 8-bit sRGB JPEG with a long edge of 4000 pixels, which looks good on any screen and uploads quickly. Every picture is also saved in the export folder.</p>
+    <p>With <gui>Put the Roll in an Album</gui> on, the pictures go into an album named after the roll. The album is made the first time and used afterwards. Google only lets an application add to albums it made itself, so Negative Vibes cannot add to an album you made by hand.</p>
+    <p>Each picture is given a description in Google Photos: the caption or title you wrote, then the film, the roll and the frame number. Frames you have rejected are not uploaded.</p>
+    <p>Together with <gui>Export After Each Scan</gui>, a roll can go from the scanner to your library without any more clicks.</p>
+  </section>
+
+  <section id="date"><title>When it was taken</title>
+    <p>Google Photos puts a picture on its timeline by the date inside the file. A scan has no such date, so without help every scan of a holiday in 1987 would appear on the day you scanned it. Enter <gui>Date Taken</gui> in <link xref="metadata">Metadata</link> (<keyseq><key>Ctrl</key><key>I</key></keyseq>) before exporting. A whole date, or only a month or a year, will do; a year alone is placed in the middle of the year. JPEG and PNG files carry the date in a form Google Photos reads.</p>
+  </section>
+
+  <section id="problems"><title>If an upload fails</title>
+    <p>The picture is always exported first, so nothing is lost. The export list (the button with the arrow in the header bar) shows which pictures reached Google Photos. A picture that did not has a button to try again. If Google no longer accepts your sign-in, the button asks you to sign in again.</p>
+    <p>Pictures are sent to Google at their full size. Uploads of pictures above 16 megapixels count against your Google storage unless your account uses Storage saver.</p>
+  </section>
+</page>

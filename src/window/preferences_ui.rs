@@ -358,7 +358,93 @@ impl Window {
         film.add(&list);
         film.add(&actions);
 
-        for p in [&general, &scanning, &output, &cms, &film] {
+        // ── Google Photos ────────────────────────────────────────────────────
+        let google = adw::PreferencesPage::builder().title("Google Photos").icon_name("web-browser-symbolic").build();
+        let account = group(
+            "Account",
+            "Pictures can be sent to your Google Photos library as they are exported. Negative Vibes can only add pictures and make albums for them: it cannot see or change anything else in your library.",
+        );
+        let status = adw::ActionRow::builder().title("Google Account").subtitle("Checking…").build();
+        let button = gtk::Button::builder().label("Sign In…").valign(gtk::Align::Center).sensitive(false).build();
+        status.add_suffix(&button);
+        account.add(&status);
+        // The row says what is true now; the button does what fits.
+        let refresh_account: Rc<dyn Fn()> = {
+            let (weak, status, button) = (self.downgrade(), status.clone(), button.clone());
+            Rc::new(move || {
+                let Some(app) = weak.upgrade() else { return };
+                let has_client = crate::google::oauth_config(&app.imp().prefs.borrow()).is_set();
+                button.set_sensitive(true);
+                if app.google_signing_in() {
+                    status.set_subtitle("Waiting for you to finish in the browser…");
+                    button.set_label("Cancel");
+                } else if app.google_signed_in() {
+                    status.set_subtitle("Signed in");
+                    button.set_label("Sign Out");
+                } else if !has_client {
+                    status.set_subtitle("This copy has no Google client: add one below");
+                    button.set_label("Sign In…");
+                    button.set_sensitive(false);
+                } else {
+                    status.set_subtitle("Not signed in");
+                    button.set_label("Sign In…");
+                }
+            })
+        };
+        {
+            let refresh = refresh_account.clone();
+            self.with_google_token(move |_| refresh());
+        }
+        {
+            let (weak, refresh) = (self.downgrade(), refresh_account.clone());
+            button.connect_clicked(move |_| {
+                let Some(app) = weak.upgrade() else { return };
+                if app.google_signing_in() {
+                    app.google_cancel_sign_in();
+                } else if app.google_signed_in() {
+                    app.google_sign_out();
+                    refresh();
+                } else {
+                    let (weak, refresh2) = (app.downgrade(), refresh.clone());
+                    app.google_sign_in(Rc::new(move |r| {
+                        refresh2();
+                        if let (Err(e), Some(app)) = (r, weak.upgrade()) {
+                            if !e.is_empty() {
+                                app.show_toast(&format!("Could not sign in: {e}"));
+                            }
+                        }
+                    }));
+                    refresh();
+                }
+            });
+        }
+        let own = adw::ExpanderRow::builder()
+            .title("Use Your Own Google Client")
+            .subtitle("For a copy built without one. Create an OAuth client of type Desktop app in the Google Cloud console and enable the Photos Library API")
+            .show_enable_switch(false)
+            .build();
+        own.set_expanded(!prefs.google_client_id.is_empty());
+        let client_id = adw::EntryRow::builder().title("Client ID").text(&prefs.google_client_id).build();
+        let client_secret = adw::PasswordEntryRow::builder().title("Client Secret").text(&prefs.google_client_secret).build();
+        for (row, set) in [
+            (client_id.upcast_ref::<adw::EntryRow>(), (|p: &mut Prefs, v: String| p.google_client_id = v) as fn(&mut Prefs, String)),
+            (client_secret.upcast_ref(), |p, v| p.google_client_secret = v),
+        ] {
+            let (save, refresh) = (save.clone(), refresh_account.clone());
+            row.connect_changed(move |e| {
+                let v = e.text().to_string();
+                save(&|p| set(p, v.clone()));
+                refresh();
+            });
+        }
+        own.add_row(&client_id);
+        own.add_row(&client_secret);
+        let advanced = group("", "");
+        advanced.add(&own);
+        google.add(&account);
+        google.add(&advanced);
+
+        for p in [&general, &scanning, &output, &cms, &film, &google] {
             win.add(p);
         }
         super::chrome::present_labelled(&win);

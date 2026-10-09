@@ -383,6 +383,9 @@ fn write_png<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile: 
         // XMP lives in an uncompressed iTXt chunk with this keyword (XMP specification, part 3).
         info.utf8_text.push(png::text_metadata::ITXtChunk::new("XML:com.adobe.xmp", String::from_utf8_lossy(x).into_owned()));
     }
+    if let Some(e) = exif_for(s) {
+        info.exif_metadata = Some(std::borrow::Cow::Owned(e));
+    }
     let encoder = png::Encoder::with_info(out, info).map_err(png_err)?;
     let mut writer = encoder.write_header().map_err(png_err)?;
     let mut stream = writer.stream_writer().map_err(png_err)?;
@@ -427,8 +430,20 @@ fn write_jpeg<W: Write>(out: W, s: &ExportSettings, w: usize, h: usize, profile:
         }
         enc.add_app_segment(1, &[NS, x].concat()).map_err(|e| ExportError::Jpeg(e.to_string()))?;
     }
+    if let Some(e) = exif_for(s) {
+        enc.add_app_segment(1, &[b"Exif\0\0".as_slice(), &e].concat()).map_err(|e| ExportError::Jpeg(e.to_string()))?;
+    }
     let color = if s.grey { jpeg_encoder::ColorType::Luma } else { jpeg_encoder::ColorType::Rgb };
     enc.encode(&pixels, w as u16, h as u16, color).map_err(|e| ExportError::Jpeg(e.to_string()))
+}
+
+/// The EXIF block for a file written with `s`: the date taken and the description,
+/// when the settings embed metadata.
+fn exif_for(s: &ExportSettings) -> Option<Vec<u8>> {
+    if !s.embed_metadata {
+        return None;
+    }
+    crate::exif::exif_block(&s.metadata.cleaned())
 }
 
 // ── Raw ───────────────────────────────────────────────────────────────────────

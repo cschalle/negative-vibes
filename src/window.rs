@@ -71,6 +71,12 @@ pub(crate) mod imp {
         pub export_queue: std::cell::OnceCell<crate::export_queue::ExportQueue>,
         pub export_jobs: RefCell<Vec<super::export::JobInfo>>,
         pub next_export_id: Cell<u64>,
+        // ── Google Photos ─────────────────────────────────────────────────
+        /// The saved sign-in, once the keyring has been asked.
+        pub google_token: RefCell<Option<String>>,
+        pub google_token_checked: Cell<bool>,
+        /// Set to stop a sign-in that is waiting for the browser.
+        pub google_signin_cancel: RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
         pub queue_button: RefCell<Option<gtk::MenuButton>>,
         pub queue_list: RefCell<Option<gtk::ListBox>>,
         /// The scan in flight is for the raw file only: no export after it.
@@ -294,6 +300,7 @@ mod export;
 mod export_dialog;
 mod film_ui;
 mod frames;
+mod google_ui;
 mod guided_ui;
 mod history;
 mod loupe;

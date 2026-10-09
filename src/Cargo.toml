@@ -21,6 +21,9 @@ nv-film    = { path = "../crates/nv-film" }
 nv-process = { path = "../crates/nv-process" }
 nv-export  = { path = "../crates/nv-export" }
 nv-calibrate = { path = "../crates/nv-calibrate" }
+nv-gphotos = { path = "../crates/nv-gphotos" }
+oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
+futures-lite = "2"
 async-channel = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

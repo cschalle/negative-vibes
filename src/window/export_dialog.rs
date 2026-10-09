@@ -68,6 +68,13 @@ impl Window {
         let embed_meta =
             adw::SwitchRow::builder().title("Embed Metadata").subtitle("The author, caption and film details from Metadata (Ctrl+I)").active(current.embed_metadata).build();
         let after_scan = adw::SwitchRow::builder().title("Export After Each Scan").active(current.after_scan).build();
+        let google_sub = if self.google_signed_in() {
+            "Signed in. Each picture is added to your library once it is exported"
+        } else {
+            "Sign in under Preferences, or when asked, to turn this on"
+        };
+        let google = adw::SwitchRow::builder().title("Send to Google Photos").subtitle(google_sub).active(current.google_photos).build();
+        let google_album = adw::SwitchRow::builder().title("Put the Roll in an Album").subtitle("An album named after the roll").active(current.google_album).build();
         let frames = combo("Frames", &["Selected Frame", "All Scanned Frames"], 0);
 
         let folder: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::new(RefCell::new(current.folder.clone()));
@@ -79,7 +86,7 @@ impl Window {
 
         // The dialog's widgets as an ExportSettings.
         let read = {
-            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value, embed_meta) = (
+            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value, embed_meta, google, google_album) = (
                 format.clone(),
                 depth.clone(),
                 compression.clone(),
@@ -93,6 +100,8 @@ impl Window {
                 size.clone(),
                 size_value.clone(),
                 embed_meta.clone(),
+                google.clone(),
+                google_album.clone(),
             );
             let metadata = current.metadata.clone();
             Rc::new(move || ExportSettings {
@@ -116,12 +125,14 @@ impl Window {
                 after_scan: after_scan.is_active(),
                 metadata: metadata.clone(),
                 embed_metadata: embed_meta.is_active(),
+                google_photos: google.is_active(),
+                google_album: google_album.is_active(),
             })
         };
 
         // What applies to what, and the example name.
         let refresh = {
-            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value, space, grey, embed) = (
+            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value, space, grey, embed, google_album) = (
                 self.downgrade(),
                 read.clone(),
                 depth.clone(),
@@ -135,6 +146,7 @@ impl Window {
                 space.clone(),
                 grey.clone(),
                 embed.clone(),
+                google_album.clone(),
             );
             Rc::new(move || {
                 let Some(win) = win.upgrade() else { return };
@@ -150,6 +162,7 @@ impl Window {
                     depth.set_selected(0);
                 }
                 compression.set_sensitive(s.format == ExportFormat::Tiff);
+                google_album.set_sensitive(s.google_photos);
                 size_value.set_sensitive(!dng);
                 quality.set_sensitive(jpeg);
                 let n = OutputSize::presets().len();
@@ -173,6 +186,10 @@ impl Window {
         };
         refresh();
 
+        {
+            let refresh = refresh.clone();
+            google.connect_active_notify(move |_| refresh());
+        }
         for row in [&format, &depth, &compression, &space, &size] {
             let refresh = refresh.clone();
             row.connect_selected_notify(move |_| refresh());
@@ -188,7 +205,8 @@ impl Window {
 
         // A preset fills in the format, depth, compression, quality and colour; the folder and name stay.
         {
-            let (format, depth, compression, quality, space) = (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone());
+            let (format, depth, compression, quality, space, size, size_value, google) =
+                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), size.clone(), size_value.clone(), google.clone());
             let refresh = refresh.clone();
             preset.connect_selected_notify(move |row| {
                 let Some((_, p)) = (row.selected() as usize).checked_sub(1).and_then(|i| ExportSettings::presets().into_iter().nth(i)) else { return };
@@ -197,6 +215,21 @@ impl Window {
                 compression.set_selected(COMPRESSIONS.iter().position(|c| *c == p.compression).unwrap_or(0) as u32);
                 quality.set_value(p.jpeg_quality as f64);
                 space.set_selected(SPACES.iter().position(|c| *c == p.colour_space).unwrap_or(0) as u32);
+                match OutputSize::presets().iter().position(|(_, o)| *o == p.size) {
+                    Some(i) => size.set_selected(i as u32),
+                    None => match p.size {
+                        OutputSize::LongEdge { pixels } => {
+                            size.set_selected(OutputSize::presets().len() as u32);
+                            size_value.set_value(pixels as f64);
+                        }
+                        OutputSize::Percent { percent } => {
+                            size.set_selected(OutputSize::presets().len() as u32 + 1);
+                            size_value.set_value(percent as f64);
+                        }
+                        _ => {}
+                    },
+                }
+                google.set_active(p.google_photos);
                 refresh();
             });
         }
@@ -225,7 +258,7 @@ impl Window {
 
         let page = adw::PreferencesPage::new();
         let g = |title: &str| adw::PreferencesGroup::builder().title(title).build();
-        let (g_preset, g_format, g_colour, g_files, g_which) = (g(""), g("Format"), g("Colour"), g("Files"), g(""));
+        let (g_preset, g_format, g_colour, g_files, g_google, g_which) = (g(""), g("Format"), g("Colour"), g("Files"), g("Google Photos"), g(""));
         g_preset.add(&preset);
         for r in [&format, &depth, &compression] {
             g_format.add(r);
@@ -241,8 +274,10 @@ impl Window {
         g_files.add(&preview);
         g_files.add(&embed_meta);
         g_files.add(&after_scan);
+        g_google.add(&google);
+        g_google.add(&google_album);
         g_which.add(&frames);
-        for grp in [&g_preset, &g_format, &g_colour, &g_files, &g_which] {
+        for grp in [&g_preset, &g_format, &g_colour, &g_files, &g_google, &g_which] {
             page.add(grp);
         }
 

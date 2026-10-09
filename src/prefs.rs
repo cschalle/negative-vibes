@@ -39,6 +39,9 @@ pub struct Prefs {
     pub pass_align_limit: u32,
     /// A scanner (IT8) profile new rolls start with.
     pub scanner_profile: Option<String>,
+    /// A Google OAuth client to sign in with, instead of the one built into this copy.
+    pub google_client_id: String,
+    pub google_client_secret: String,
 }
 
 impl Prefs {
@@ -70,6 +73,8 @@ impl Default for Prefs {
             ir_align_limit: 20,
             pass_align_limit: 20,
             scanner_profile: None,
+            google_client_id: String::new(),
+            google_client_secret: String::new(),
         }
     }
 }

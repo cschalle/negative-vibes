@@ -11,3 +11,7 @@
 5. Add screenshots to `data/*.metainfo.xml.in` (`<screenshots>`), and run
    `flatpak run org.freedesktop.appstream.cli validate` on the result.
 6. Confirm the application ID matches the GitHub account that will own the repository.
+7. Google Photos needs an OAuth client (see the README). Pass `NV_GOOGLE_CLIENT_ID` and
+   `NV_GOOGLE_CLIENT_SECRET` in `build-options.env` once the client has passed Google's app
+   verification for the `photoslibrary.appendonly` scope; until then, ship without them and users
+   enter their own under Preferences. The sign-in token is stored through the Secret portal.

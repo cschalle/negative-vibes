@@ -21,6 +21,10 @@
       overrides make it easy to produce a consistent set of scans from a
       single roll of film.
     </p>
+    <p>
+      Finished pictures can be exported as TIFF, JPEG, PNG or DNG, and
+      optionally sent to Google Photos as they are written.
+    </p>
   </description>
 
   <launchable type="desktop-id">@APP_ID@.desktop</launchable>

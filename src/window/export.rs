@@ -7,7 +7,7 @@ use nv_export::{ExportSettings, NameContext, render_template};
 use nv_store::{ExportRecord, FrameState, Roll, RollStore};
 
 use super::Window;
-use crate::export_queue::{ExportEvent, ExportJob, ExportQueue};
+use crate::export_queue::{ExportEvent, ExportJob, ExportQueue, UploadSpec};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JobState {
@@ -18,6 +18,28 @@ pub enum JobState {
     Cancelled,
 }
 
+/// Where a picture's trip to Google Photos has got to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UploadState {
+    /// Not going there.
+    No,
+    /// Waiting for the export to finish.
+    Waiting,
+    Sending,
+    /// In the library; the link opens it, when Google gave one.
+    Done(Option<String>),
+    Failed {
+        message: String,
+        sign_in_needed: bool,
+    },
+}
+
+impl UploadState {
+    fn active(&self) -> bool {
+        matches!(self, UploadState::Waiting | UploadState::Sending)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct JobInfo {
     pub id: u64,
@@ -25,6 +47,9 @@ pub struct JobInfo {
     pub label: String,
     pub state: JobState,
     pub fraction: f32,
+    pub upload: UploadState,
+    /// How the picture is sent, kept to try again.
+    pub spec: Option<UploadSpec>,
 }
 
 fn today() -> String {
@@ -119,11 +144,38 @@ impl Window {
         });
         self.add_action(&show);
 
+        let retry = gio::SimpleAction::new("retry-upload", Some(&u64::static_variant_type()));
+        let weak = self.downgrade();
+        retry.connect_activate(move |_, target| {
+            if let (Some(win), Some(id)) = (weak.upgrade(), target.and_then(|t| t.get::<u64>())) {
+                win.retry_upload(id);
+            }
+        });
+        self.add_action(&retry);
+
+        let sign_in = gio::SimpleAction::new("google-sign-in", None);
+        let weak = self.downgrade();
+        sign_in.connect_activate(move |_, _| {
+            if let Some(win) = weak.upgrade() {
+                let w = win.downgrade();
+                win.google_sign_in(std::rc::Rc::new(move |r| {
+                    if let Some(win) = w.upgrade() {
+                        match r {
+                            Ok(()) => win.show_toast("Signed in to Google Photos"),
+                            Err(e) if e.is_empty() => {}
+                            Err(e) => win.show_toast(&format!("Could not sign in: {e}")),
+                        }
+                    }
+                }));
+            }
+        });
+        self.add_action(&sign_in);
+
         let clear = gio::SimpleAction::new("clear-finished-exports", None);
         let weak = self.downgrade();
         clear.connect_activate(move |_, _| {
             if let Some(win) = weak.upgrade() {
-                win.imp().export_jobs.borrow_mut().retain(|j| matches!(j.state, JobState::Queued | JobState::Running));
+                win.imp().export_jobs.borrow_mut().retain(|j| matches!(j.state, JobState::Queued | JobState::Running) || j.upload.active());
                 win.refresh_queue_ui();
             }
         });
@@ -168,7 +220,7 @@ impl Window {
     }
 
     /// The roll's metadata and what is known about frame `idx`, shared by XMP and DNG tags.
-    fn frame_metadata(&self, idx: u32, settings: &ExportSettings) -> (nv_export::metadata::Metadata, nv_export::metadata::FrameInfo) {
+    pub(super) fn frame_metadata(&self, idx: u32, settings: &ExportSettings) -> (nv_export::metadata::Metadata, nv_export::metadata::FrameInfo) {
         let roll = self.imp().roll.borrow();
         let mut meta = settings.metadata.clone();
         let Some(roll) = roll.as_ref() else { return (meta, Default::default()) };
@@ -207,8 +259,15 @@ impl Window {
     /// Queue the frames' scans for export with the roll's export settings.
     /// Frames that have not been scanned are skipped, and the toast says so.
     pub(super) fn queue_export(&self, frames: &[u32]) {
+        // Uploading needs the saved sign-in, which lives in the keyring: fetch it first.
+        if self.export_settings().google_photos && !self.imp().google_token_checked.get() {
+            let frames = frames.to_vec();
+            self.with_google_token(move |win| win.queue_export(&frames));
+            return;
+        }
         let Some(queue) = self.imp().export_queue.get() else { return };
         let settings = self.export_settings().normalised();
+        let mut no_upload = false;
         let dir = self.export_folder(&settings);
 
         let (mut queued, mut unscanned) = (0, Vec::new());
@@ -228,7 +287,17 @@ impl Window {
             let id = self.imp().next_export_id.get() + 1;
             self.imp().next_export_id.set(id);
             let label = format!("Frame {idx}");
-            self.imp().export_jobs.borrow_mut().push(JobInfo { id, frame: idx, label: label.clone(), state: JobState::Queued, fraction: 0.0 });
+            let upload = self.upload_spec(idx, &settings);
+            no_upload |= settings.google_photos && upload.is_none();
+            self.imp().export_jobs.borrow_mut().push(JobInfo {
+                id,
+                frame: idx,
+                label: label.clone(),
+                state: JobState::Queued,
+                fraction: 0.0,
+                upload: if upload.is_some() { UploadState::Waiting } else { UploadState::No },
+                spec: upload.clone(),
+            });
             queue.enqueue(ExportJob {
                 id,
                 frame: idx,
@@ -242,15 +311,54 @@ impl Window {
                 settings: settings.clone(),
                 dir: dir.clone(),
                 stem,
+                upload,
             });
             queued += 1;
         }
         self.refresh_queue_ui();
+        if no_upload && queued > 0 {
+            self.warn_no_upload();
+        }
         if queued == 0 && !unscanned.is_empty() {
             self.show_toast("Nothing to export: scan the frame first");
         } else if !unscanned.is_empty() {
             self.show_toast(&format!("Skipped {} frame(s) that have not been scanned", unscanned.len()));
         }
+    }
+
+    /// Google Photos was asked for but cannot be used: say why, once, and offer the way out.
+    fn warn_no_upload(&self) {
+        let cfg = crate::google::oauth_config(&self.imp().prefs.borrow());
+        let toast = if !cfg.is_set() {
+            adw::Toast::new("Exported, but not sent to Google Photos: no Google client is set up (Preferences)")
+        } else if !self.google_signed_in() {
+            let t = adw::Toast::new("Exported, but not sent to Google Photos: you are not signed in");
+            t.set_button_label(Some("Sign In"));
+            t.set_action_name(Some("win.google-sign-in"));
+            t
+        } else {
+            return; // only rejected frames were left out
+        };
+        if let Some(o) = self.imp().toast_overlay.borrow().as_ref() {
+            o.add_toast(toast);
+        }
+    }
+
+    /// Send a written picture to Google Photos again.
+    fn retry_upload(&self, id: u64) {
+        let job = self.imp().export_jobs.borrow().iter().find(|j| j.id == id).cloned();
+        let (Some(job), Some(queue)) = (job, self.imp().export_queue.get()) else { return };
+        let (JobState::Done(path), Some(spec)) = (job.state, job.spec) else { return };
+        let Some(spec) = self.refreshed_spec(spec) else {
+            self.warn_no_upload();
+            return;
+        };
+        if let Some(j) = self.imp().export_jobs.borrow_mut().iter_mut().find(|j| j.id == id) {
+            j.upload = UploadState::Waiting;
+            j.spec = Some(spec.clone());
+        }
+        queue.retry_upload(id, path, spec);
+        self.refresh_queue_ui();
     }
 
     fn handle_export_event(&self, ev: ExportEvent) {
@@ -267,6 +375,22 @@ impl Window {
                 let label = self.imp().export_jobs.borrow().iter().find(|j| j.id == id).map(|j| j.label.clone()).unwrap_or_default();
                 set(id, &|j| j.state = JobState::Failed(message.clone()));
                 self.show_toast(&format!("Could not export {label}: {message}"));
+            }
+            ExportEvent::Uploading { id } => set(id, &|j| j.upload = UploadState::Sending),
+            ExportEvent::Uploaded { id, url } => set(id, &|j| j.upload = UploadState::Done(url.clone())),
+            ExportEvent::AlbumCreated { title, id } => self.remember_album(&title, &id),
+            ExportEvent::UploadFailed { id, message, sign_in_needed } => {
+                let label = self.imp().export_jobs.borrow().iter().find(|j| j.id == id).map(|j| j.label.clone()).unwrap_or_default();
+                set(id, &|j| j.upload = UploadState::Failed { message: message.clone(), sign_in_needed });
+                let toast = adw::Toast::new(&format!("{label} was exported but not sent to Google Photos: {message}"));
+                if sign_in_needed {
+                    self.google_forget_token();
+                    toast.set_button_label(Some("Sign In"));
+                    toast.set_action_name(Some("win.google-sign-in"));
+                }
+                if let Some(o) = self.imp().toast_overlay.borrow().as_ref() {
+                    o.add_toast(toast);
+                }
             }
             ExportEvent::Done { id, report } => {
                 let frame = self.imp().export_jobs.borrow().iter().find(|j| j.id == id).map(|j| j.frame);
@@ -381,6 +505,51 @@ impl Window {
                     show.set_action_name(Some("win.show-in-files"));
                     show.set_action_target_value(Some(&path.to_string_lossy().to_string().to_variant()));
                     row.add_suffix(&show);
+                    let sent = match &j.upload {
+                        UploadState::No => None,
+                        UploadState::Waiting => Some("waiting to upload".to_owned()),
+                        UploadState::Sending => Some("uploading to Google Photos…".to_owned()),
+                        UploadState::Done(_) => Some("in Google Photos".to_owned()),
+                        UploadState::Failed { message, .. } => Some(format!("upload failed: {message}")),
+                    };
+                    if let Some(sent) = sent {
+                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        row.set_subtitle(&format!("{name} · {sent}"));
+                    }
+                    match &j.upload {
+                        UploadState::Sending => row.add_suffix(&gtk::Spinner::builder().spinning(true).valign(gtk::Align::Center).build()),
+                        UploadState::Done(Some(url)) => {
+                            let open = gtk::Button::builder()
+                                .icon_name("web-browser-symbolic")
+                                .tooltip_text("Open in Google Photos")
+                                .valign(gtk::Align::Center)
+                                .css_classes(["flat"])
+                                .build();
+                            let url = url.clone();
+                            open.connect_clicked(move |b| {
+                                let win = b.root().and_downcast::<gtk::Window>();
+                                gtk::UriLauncher::new(&url).launch(win.as_ref(), None::<&gio::Cancellable>, |_| {});
+                            });
+                            row.add_suffix(&open);
+                        }
+                        UploadState::Failed { sign_in_needed, .. } => {
+                            row.add_css_class("error");
+                            let again = gtk::Button::builder()
+                                .icon_name("view-refresh-symbolic")
+                                .tooltip_text(if *sign_in_needed { "Sign in to Google Photos" } else { "Try the upload again" })
+                                .valign(gtk::Align::Center)
+                                .css_classes(["flat"])
+                                .build();
+                            if *sign_in_needed {
+                                again.set_action_name(Some("win.google-sign-in"));
+                            } else {
+                                again.set_action_name(Some("win.retry-upload"));
+                                again.set_action_target_value(Some(&j.id.to_variant()));
+                            }
+                            row.add_suffix(&again);
+                        }
+                        _ => {}
+                    }
                 }
                 JobState::Failed(m) => {
                     row.set_subtitle(m);
@@ -402,7 +571,7 @@ impl Window {
         }
 
         btn.set_visible(!jobs.is_empty());
-        let active = jobs.iter().filter(|j| matches!(j.state, JobState::Queued | JobState::Running)).count();
+        let active = jobs.iter().filter(|j| matches!(j.state, JobState::Queued | JobState::Running) || j.upload.active()).count();
         btn.set_icon_name(if active > 0 { "emblem-synchronizing-symbolic" } else { "document-send-symbolic" });
         btn.set_tooltip_text(Some(&if active > 0 { format!("{active} export(s) in progress") } else { "Exports".to_owned() }));
         super::chrome::label_icon_buttons(btn.upcast_ref());

@@ -86,7 +86,7 @@ mod imp {
             if std::env::var_os("NV_OPEN_DIALOGS").is_some() {
                 let w = window.clone();
                 glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
-                    for name in ["preferences", "guided", "metadata", "film-create", "calibrate", "about", "shortcuts"] {
+                    for name in ["preferences", "export", "guided", "metadata", "film-create", "calibrate", "about", "shortcuts"] {
                         gio::prelude::ActionGroupExt::activate_action(&w, name, None);
                     }
                     glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {

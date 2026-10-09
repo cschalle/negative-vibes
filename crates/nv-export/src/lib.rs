@@ -8,6 +8,7 @@
 pub mod colour;
 pub mod dng;
 pub mod encode;
+pub mod exif;
 pub mod icc;
 pub mod metadata;
 pub mod naming;

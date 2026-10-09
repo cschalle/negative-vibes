@@ -12,6 +12,7 @@ members = [
     "crates/nv-store",
     "crates/nv-export",
     "crates/nv-calibrate",
+    "crates/nv-gphotos",
     "crates/nv-cli",
 ]
 

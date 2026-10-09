@@ -9,11 +9,12 @@
   <title>Export pictures</title>
   <p>Press <gui>Export</gui> (<keyseq><key>Ctrl</key><key>E</key></keyseq>) to make pictures from the scans. The scan is developed again every time, so you can export the same frame with different settings as often as you like.</p>
   <terms>
-    <item><title><gui>Preset</gui></title><p>Settings for a purpose: <gui>Archive</gui>, <gui>Share</gui> or <gui>Print</gui>.</p></item>
+    <item><title><gui>Preset</gui></title><p>Settings for a purpose: <gui>Archive</gui>, <gui>Share</gui>, <gui>Print</gui> or <gui>Google Photos</gui>.</p></item>
     <item><title><gui>Format</gui></title><p>TIFF (8 or 16 bits, with or without compression), JPEG, PNG, or DNG. A DNG is the scan itself, undeveloped, for programs such as darktable and RawTherapee to develop. It carries the frame's rotation, the film speed and the details you entered as metadata, and opens cropped to the picture; the black around it is still in the file.</p></item>
     <item><title><gui>Size</gui></title><p>The original size, a long edge in pixels, or a percentage.</p></item>
     <item><title><gui>Colour Space</gui></title><p>sRGB, or Adobe RGB for printing.</p></item>
     <item><title><gui>Folder</gui> and <gui>File Name</gui></title><p>Where the pictures go, and what they are called.</p></item>
+    <item><title><gui>Send to Google Photos</gui></title><p>Adds each picture to your library once it is written. See <link xref="google-photos"/>.</p></item>
     <item><title><gui>Export After Each Scan</gui></title><p>Makes the picture as soon as a scan is saved.</p></item>
   </terms>
   <section id="names"><title>File names</title>

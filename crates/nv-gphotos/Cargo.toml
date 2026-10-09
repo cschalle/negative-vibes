@@ -1,0 +1,15 @@
+[package]
+name = "nv-gphotos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Upload pictures to Google Photos: OAuth sign-in for a desktop app and the add-only Photos Library API"
+
+[dependencies]
+ureq = { version = "3", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+thiserror = "1"

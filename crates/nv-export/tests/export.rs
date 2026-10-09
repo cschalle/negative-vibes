@@ -674,3 +674,21 @@ fn a_dng_carries_its_camera_data_and_opens_cropped_to_the_picture() {
     assert!(origin[0] > 0 && origin[1] > 0 && origin[0] + size[0] <= w && origin[1] + size[1] <= h, "crop {origin:?} {size:?} lies outside {w}x{h}");
     assert!(size[0] * 100 > w * 70 && size[1] * 100 > h * 70, "the crop is too small to be the picture: {size:?}");
 }
+
+#[test]
+fn jpeg_and_png_carry_the_date_taken_as_exif() {
+    let (raw, p, _) = tulip();
+    let dir = scratch("exif-date");
+    for (format, magic) in [(nv_export::ExportFormat::Jpeg, &b"Exif\0\0II*\0"[..]), (nv_export::ExportFormat::Png, &b"II*\0"[..])] {
+        let mut s = ExportSettings { format, bit_depth: 8, ..Default::default() };
+        s.metadata.date_taken = "1987-06-15".into();
+        let path = export(&raw, &p, &s, &dir, &format!("dated-{}", format.extension()));
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(bytes.windows(magic.len()).any(|w| w == magic), "{format:?}: no EXIF block");
+        assert!(bytes.windows(19).any(|w| w == b"1987:06:15 12:00:00"), "{format:?}: no date");
+
+        s.embed_metadata = false;
+        let path = export(&raw, &p, &s, &dir, &format!("plain-{}", format.extension()));
+        assert!(!std::fs::read(&path).unwrap().windows(10).any(|w| w == b"1987:06:15"), "{format:?}: date written though metadata is off");
+    }
+}

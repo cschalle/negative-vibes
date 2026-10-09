@@ -168,6 +168,10 @@ pub struct ExportSettings {
     /// What the person wrote for the roll (F§10), and whether it goes into the files.
     pub metadata: crate::metadata::Metadata,
     pub embed_metadata: bool,
+    /// Send each exported picture to Google Photos once it is written.
+    pub google_photos: bool,
+    /// ... into an album named after the roll.
+    pub google_album: bool,
 }
 
 impl Default for ExportSettings {
@@ -186,6 +190,8 @@ impl Default for ExportSettings {
             after_scan: true,
             metadata: Default::default(),
             embed_metadata: true,
+            google_photos: false,
+            google_album: true,
         }
     }
 }
@@ -202,12 +208,27 @@ impl ExportSettings {
         s
     }
 
+    /// What suits Google Photos: an 8-bit sRGB JPEG, large enough to look good on any
+    /// screen and small enough to upload quickly, sent on as soon as it is written.
+    pub fn google_photos_preset() -> Self {
+        ExportSettings {
+            format: ExportFormat::Jpeg,
+            bit_depth: 8,
+            jpeg_quality: 92,
+            colour_space: ColourSpace::Srgb,
+            size: OutputSize::LongEdge { pixels: 4000 },
+            google_photos: true,
+            ..Default::default()
+        }
+    }
+
     /// The three purposes of DESIGN.md §8.5.
     pub fn presets() -> Vec<(&'static str, ExportSettings)> {
         vec![
             ("Archive", ExportSettings { format: ExportFormat::Tiff, bit_depth: 16, compression: Compression::Deflate, colour_space: ColourSpace::AdobeRgb, ..Default::default() }),
             ("Share", ExportSettings { format: ExportFormat::Jpeg, bit_depth: 8, jpeg_quality: 90, colour_space: ColourSpace::Srgb, ..Default::default() }),
             ("Print", ExportSettings { format: ExportFormat::Tiff, bit_depth: 8, compression: Compression::Lzw, colour_space: ColourSpace::AdobeRgb, ..Default::default() }),
+            ("Google Photos", ExportSettings::google_photos_preset()),
         ]
     }
 }
@@ -283,7 +304,13 @@ mod tests {
     #[test]
     fn presets_have_distinct_purposes() {
         let p = ExportSettings::presets();
-        assert_eq!(p.len(), 3);
+        assert_eq!(p.len(), 4);
         assert!(p.iter().any(|(n, s)| *n == "Share" && s.format == ExportFormat::Jpeg));
+        let g = p.iter().find(|(n, _)| *n == "Google Photos").map(|(_, s)| s.clone()).unwrap();
+        assert!(g.google_photos && g.google_album && g.format == ExportFormat::Jpeg && g.bit_depth == 8);
+        assert!(!ExportSettings::default().google_photos, "nothing is uploaded unless asked for");
+        // Files written before the setting existed still load.
+        let old: ExportSettings = serde_json::from_str(r#"{"format":"png"}"#).unwrap();
+        assert!(!old.google_photos && old.google_album);
     }
 }

@@ -21,8 +21,9 @@ you can change your mind about the look at any time and export again.
   calibration (through ArgyllCMS), colour-to-grey.
 - **Cleaning and detail:** infrared dust removal, software dust removal, brush masks, unsharp
   mask, noise reduction, local contrast, a 1:1 loupe.
-- **Output:** TIFF, JPEG, PNG, DNG, HDR RAW and HDRi RAW; ICC profiles; XMP/IPTC metadata;
-  naming templates; an export queue.
+- **Output:** TIFF, JPEG, PNG, DNG, HDR RAW and HDRi RAW; ICC profiles; XMP/IPTC metadata and
+  an EXIF capture date; naming templates; an export queue.
+- **Google Photos:** optional upload of each exported picture, into an album per roll (see below).
 
 Help pages are in `help/` (open them with F1 in the app, or `yelp help/C`).
 
@@ -40,6 +41,18 @@ cargo test --workspace    # headless tests for every crate
 
 A Flatpak manifest for development is in `build-aux/`; `build-aux/flathub/` has the one
 for release (see the notes there).
+
+## Google Photos
+
+Exports can be sent to Google Photos as they are written (Export dialog, or the *Google Photos*
+preset; sign in under Preferences). The app asks only for the add-only scope
+(`photoslibrary.appendonly`), keeps the refresh token in the system keyring, and puts each roll in
+an album it creates itself.
+
+Sign-in needs a Google OAuth client of type *Desktop app* with the Photos Library API enabled.
+Build with `NV_GOOGLE_CLIENT_ID` and `NV_GOOGLE_CLIENT_SECRET` set to bake yours in, or leave them
+out and each user enters their own under Preferences > Google Photos. A client used by people other
+than the Google Cloud project's test users has to pass Google's app verification first.
 
 ## Command line
 

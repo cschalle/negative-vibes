@@ -1327,6 +1327,31 @@ markup warning from a folder subtitle containing `<roll>`, and paths with `&` in
 `NV_OPEN_DIALOGS=1` hook opens the dialogs headlessly to check they build without GTK
 complaints; they do. The dialogs have not been clicked through.
 
+**Google Photos upload (2026-10-09).** New crate `nv-gphotos` (blocking `ureq`, run on the export
+worker): OAuth 2.0 for installed apps with the system browser, a loopback redirect on a random
+port and PKCE (the RFC 7636 test vector is in the tests), only the add-only scope
+`photoslibrary.appendonly`; the add-only Photos Library API (stream the file to `/v1/uploads`,
+then `mediaItems:batchCreate` with a description and, optionally, the roll's album); retries on 429
+and 5xx with backoff, a renewed access token on a 401, and "sign in again" when Google revokes the
+refresh token. Tested against a local server that plays Google: the upload headers and bodies, the
+album id, retries that resend the whole file, token renewal, a forged `state`, cancel and time-out.
+In the app: the export worker uploads each file after writing it and reports Uploading, Uploaded
+or UploadFailed (the file stays; the queue popover offers Try Again or Sign In), keeps the signed-in
+client and the roll's albums between uploads (one album per roll, remade if it was deleted in
+Google Photos; its id is kept in `google-photos.json` in the roll folder). The refresh token is kept
+in the keyring through `oo7` (the Secret portal in a Flatpak) and read only when Google Photos is
+first wanted. The Export dialog has *Send to Google Photos*, *Put the Roll in an Album* and a
+*Google Photos* preset (8-bit sRGB JPEG, 4000 px long edge); Preferences has a Google Photos page
+(sign in and out, and a client ID and secret for builds that have none baked in through
+`NV_GOOGLE_CLIENT_ID`/`NV_GOOGLE_CLIENT_SECRET`). Google places a picture on its timeline by its EXIF
+date, so JPEG and PNG exports now carry an EXIF block (`nv-export::exif`) with DateTimeOriginal from
+Metadata's Date Taken (a year or month alone is placed mid-year/mid-month) and the caption as the
+description; ImageMagick reads it from both formats. Frames rated Reject are not uploaded.
+**Not tried against Google itself:** it needs an OAuth client (Google Cloud project with the Photos
+Library API on) which does not exist yet, so the real consent screen, the upload and the album
+creation have only been run against the stand-in server. TIFF exports carry the date in XMP only.
+Distribution to others needs Google's app verification for the scope (see `build-aux/flathub/`).
+
 **DNG follow-up (after trying the file in darktable 5.6.2, which opened it correctly:
 linear raw recognised, right orientation and size).** darktable showed "1/inf f/0.0 0.0 mm
 ISO 0" and the black surround of the scan window. The DNG now carries an EXIF block and the
