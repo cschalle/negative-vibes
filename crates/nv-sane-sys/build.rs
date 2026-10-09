@@ -22,7 +22,13 @@ fn try_pkg_config() -> bool {
     if !output.status.success() {
         return false;
     }
-    // pkg-config gave us link flags; just emit the standard directive.
+    // pkg-config gave us link flags. Pass on its search paths: a prefix that is not on the
+    // linker's own path (/app in a Flatpak build) is otherwise not found.
+    for flag in String::from_utf8_lossy(&output.stdout).split_whitespace() {
+        if let Some(dir) = flag.strip_prefix("-L") {
+            println!("cargo:rustc-link-search=native={dir}");
+        }
+    }
     println!("cargo:rustc-link-lib=sane");
     true
 }
