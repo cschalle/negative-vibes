@@ -1,11 +1,11 @@
-pub mod model;
-pub mod store;
-pub mod raw_io;
 pub mod dng;
+pub mod model;
+pub mod raw_io;
+pub mod store;
 
 pub use model::{Frame, FrameState, Geometry, RawRef, Roll};
-pub use store::{ExportRecord, RollStore};
 pub use raw_io::{RawReader, RawWriter};
+pub use store::{ExportRecord, RollStore};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

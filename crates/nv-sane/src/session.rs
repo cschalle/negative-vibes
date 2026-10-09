@@ -1,6 +1,6 @@
-use std::ffi::CStr;
-use nv_sane_sys as sys;
 use crate::{Result, SaneError, error::check, handle::Handle};
+use nv_sane_sys as sys;
+use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
@@ -32,12 +32,7 @@ impl Session {
     /// network backends (much faster, avoids mDNS timeouts).
     pub fn get_devices(&self, local_only: bool) -> Result<Vec<DeviceInfo>> {
         let mut list: *mut *const sys::SANE_Device = std::ptr::null_mut();
-        let status = unsafe {
-            sys::sane_get_devices(
-                &mut list,
-                if local_only { sys::SANE_TRUE } else { sys::SANE_FALSE },
-            )
-        };
+        let status = unsafe { sys::sane_get_devices(&mut list, if local_only { sys::SANE_TRUE } else { sys::SANE_FALSE }) };
         check(status)?;
         if list.is_null() {
             return Ok(vec![]);
@@ -50,12 +45,7 @@ impl Session {
                 break;
             }
             let dev = unsafe { &*dev_ptr };
-            devices.push(DeviceInfo {
-                name: cstr(dev.name)?,
-                vendor: cstr(dev.vendor)?,
-                model: cstr(dev.model)?,
-                kind: cstr(dev.type_)?,
-            });
+            devices.push(DeviceInfo { name: cstr(dev.name)?, vendor: cstr(dev.vendor)?, model: cstr(dev.model)?, kind: cstr(dev.type_)? });
             i += 1;
         }
         Ok(devices)
@@ -84,7 +74,5 @@ fn cstr(ptr: sys::SANE_String_Const) -> Result<String> {
     if ptr.is_null() {
         return Ok(String::new());
     }
-    Ok(unsafe { CStr::from_ptr(ptr) }
-        .to_str()?
-        .to_owned())
+    Ok(unsafe { CStr::from_ptr(ptr) }.to_str()?.to_owned())
 }

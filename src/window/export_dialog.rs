@@ -31,10 +31,7 @@ impl Window {
         let format = combo("Format", &["TIFF", "JPEG", "PNG", "DNG (the raw scan)"], FORMATS.iter().position(|f| *f == current.format).unwrap_or(0));
         let depth = combo("Bit Depth", &["8 bit", "16 bit"], usize::from(current.bit_depth == 16));
         let compression = combo("Compression", &["None", "LZW", "Deflate"], COMPRESSIONS.iter().position(|c| *c == current.compression).unwrap_or(0));
-        let quality = adw::SpinRow::builder()
-            .title("Quality")
-            .adjustment(&gtk::Adjustment::new(current.jpeg_quality as f64, 1.0, 100.0, 1.0, 10.0, 0.0))
-            .build();
+        let quality = adw::SpinRow::builder().title("Quality").adjustment(&gtk::Adjustment::new(current.jpeg_quality as f64, 1.0, 100.0, 1.0, 10.0, 0.0)).build();
         let space = combo("Colour Space", &["sRGB", "Adobe RGB (1998)"], SPACES.iter().position(|c| *c == current.colour_space).unwrap_or(0));
         // Size: the named sizes, then a custom long edge or percentage.
         let presets = OutputSize::presets();
@@ -68,7 +65,8 @@ impl Window {
         let template = adw::EntryRow::builder().title("File Name").text(&current.template).build();
         let preview = adw::ActionRow::builder().title("Example").subtitle("").build();
         preview.add_css_class("property");
-        let embed_meta = adw::SwitchRow::builder().title("Embed Metadata").subtitle("The author, caption and film details from Metadata (Ctrl+I)").active(current.embed_metadata).build();
+        let embed_meta =
+            adw::SwitchRow::builder().title("Embed Metadata").subtitle("The author, caption and film details from Metadata (Ctrl+I)").active(current.embed_metadata).build();
         let after_scan = adw::SwitchRow::builder().title("Export After Each Scan").active(current.after_scan).build();
         let frames = combo("Frames", &["Selected Frame", "All Scanned Frames"], 0);
 
@@ -81,8 +79,21 @@ impl Window {
 
         // The dialog's widgets as an ExportSettings.
         let read = {
-            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value, embed_meta) =
-                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), grey.clone(), embed.clone(), template.clone(), after_scan.clone(), folder.clone(), size.clone(), size_value.clone(), embed_meta.clone());
+            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value, embed_meta) = (
+                format.clone(),
+                depth.clone(),
+                compression.clone(),
+                quality.clone(),
+                space.clone(),
+                grey.clone(),
+                embed.clone(),
+                template.clone(),
+                after_scan.clone(),
+                folder.clone(),
+                size.clone(),
+                size_value.clone(),
+                embed_meta.clone(),
+            );
             let metadata = current.metadata.clone();
             Rc::new(move || ExportSettings {
                 format: FORMATS[(format.selected() as usize).min(3)],
@@ -110,8 +121,21 @@ impl Window {
 
         // What applies to what, and the example name.
         let refresh = {
-            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value, space, grey, embed) =
-                (self.downgrade(), read.clone(), depth.clone(), compression.clone(), quality.clone(), preview.clone(), folder_row.clone(), folder.clone(), size.clone(), size_value.clone(), space.clone(), grey.clone(), embed.clone());
+            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value, space, grey, embed) = (
+                self.downgrade(),
+                read.clone(),
+                depth.clone(),
+                compression.clone(),
+                quality.clone(),
+                preview.clone(),
+                folder_row.clone(),
+                folder.clone(),
+                size.clone(),
+                size_value.clone(),
+                space.clone(),
+                grey.clone(),
+                embed.clone(),
+            );
             Rc::new(move || {
                 let Some(win) = win.upgrade() else { return };
                 let s = read();

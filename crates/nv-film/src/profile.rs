@@ -60,7 +60,7 @@ impl FilmProfile {
             base_rgb: [0.60, 0.32, 0.18],
             gamma: [1.0, 1.0, 1.0],
             density_max: [2.0, 2.0, 2.0],
-            crosstalk: [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]],
+            crosstalk: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             curve_toe: 0.12,
             curve_shoulder: 0.18,
             source: "builtin".into(),

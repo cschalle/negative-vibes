@@ -354,7 +354,15 @@ mod tests {
     }
 
     fn frame() -> FrameInfo {
-        FrameInfo { roll: "Roll 7".into(), frame_number: Some(12), label: "".into(), scanner: "Plustek OpticFilm 8200i".into(), resolution_dpi: Some(3600), scan_date: "2026-10-08T12:00:00Z".into(), film_profile: "Portra 400".into() }
+        FrameInfo {
+            roll: "Roll 7".into(),
+            frame_number: Some(12),
+            label: "".into(),
+            scanner: "Plustek OpticFilm 8200i".into(),
+            resolution_dpi: Some(3600),
+            scan_date: "2026-10-08T12:00:00Z".into(),
+            film_profile: "Portra 400".into(),
+        }
     }
 
     #[test]

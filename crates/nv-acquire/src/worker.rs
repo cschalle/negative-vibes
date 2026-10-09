@@ -1,10 +1,10 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_channel::{Receiver, Sender};
 use nv_device::{AcquisitionPlan, DeviceCapabilities, IrStyle, Quirks};
-use nv_sane::{parameters::FrameFormat, Session};
+use nv_sane::{Session, parameters::FrameFormat};
 
 use crate::event::{ScanEvent, WorkerCmd};
 use crate::frame::FrameMeta;
@@ -26,10 +26,7 @@ impl AcquireWorker {
         let (cmd_tx, cmd_rx) = async_channel::unbounded::<WorkerCmd>();
         let (evt_tx, evt_rx) = async_channel::unbounded::<ScanEvent>();
 
-        std::thread::Builder::new()
-            .name("nv-sane-worker".to_owned())
-            .spawn(move || run_worker(cmd_rx, evt_tx, quirks_path))
-            .expect("failed to spawn SANE worker thread");
+        std::thread::Builder::new().name("nv-sane-worker".to_owned()).spawn(move || run_worker(cmd_rx, evt_tx, quirks_path)).expect("failed to spawn SANE worker thread");
 
         Self { cmd_tx, evt_rx }
     }
@@ -38,32 +35,13 @@ impl AcquireWorker {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::Probe);
     }
 
-    pub fn start_scan(
-        &self,
-        device_name: String,
-        resolution_dpi: u32,
-        with_ir: bool,
-        area: Option<[f64; 4]>,
-    ) {
+    pub fn start_scan(&self, device_name: String, resolution_dpi: u32, with_ir: bool, area: Option<[f64; 4]>) {
         self.start_scan_with(device_name, resolution_dpi, with_ir, area, PassPlan::SINGLE);
     }
 
     /// [`start_scan`](Self::start_scan) with several passes over the frame.
-    pub fn start_scan_with(
-        &self,
-        device_name: String,
-        resolution_dpi: u32,
-        with_ir: bool,
-        area: Option<[f64; 4]>,
-        passes: PassPlan,
-    ) {
-        let _ = self.cmd_tx.send_blocking(WorkerCmd::StartScan {
-            device_name,
-            resolution_dpi,
-            with_ir,
-            area,
-            passes,
-        });
+    pub fn start_scan_with(&self, device_name: String, resolution_dpi: u32, with_ir: bool, area: Option<[f64; 4]>, passes: PassPlan) {
+        let _ = self.cmd_tx.send_blocking(WorkerCmd::StartScan { device_name, resolution_dpi, with_ir, area, passes });
     }
 
     pub fn cancel(&self) {
@@ -77,11 +55,7 @@ impl AcquireWorker {
 
 // ── Worker thread ─────────────────────────────────────────────────────────────
 
-fn run_worker(
-    cmd_rx: Receiver<WorkerCmd>,
-    evt_tx: Sender<ScanEvent>,
-    quirks_path: PathBuf,
-) {
+fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_path: PathBuf) {
     let quirks = Quirks::load(&quirks_path);
 
     let session = match Session::new() {
@@ -109,18 +83,7 @@ fn run_worker(
 
             WorkerCmd::StartScan { device_name, resolution_dpi, with_ir, area, passes } => {
                 cancelled.store(false, Ordering::SeqCst);
-                do_scan(
-                    &session,
-                    &quirks,
-                    &evt_tx,
-                    &cmd_rx,
-                    cancelled.clone(),
-                    &device_name,
-                    resolution_dpi,
-                    with_ir,
-                    area,
-                    passes,
-                );
+                do_scan(&session, &quirks, &evt_tx, &cmd_rx, cancelled.clone(), &device_name, resolution_dpi, with_ir, area, passes);
             }
 
             WorkerCmd::Cancel => {
@@ -147,10 +110,7 @@ fn do_probe(session: &Session, quirks: &Quirks, evt_tx: &Sender<ScanEvent>) {
         // Skip v4l (webcam) devices: they report type "virtual device" and
         // their names start with "v4l:". They can't scan film.
         let kind_lc = dev.kind.to_lowercase();
-        if dev.name.starts_with("v4l:")
-            || kind_lc.contains("camera")
-            || kind_lc.contains("virtual device")
-        {
+        if dev.name.starts_with("v4l:") || kind_lc.contains("camera") || kind_lc.contains("virtual device") {
             eprintln!("nv-acquire: skipping non-scanner device '{}' (type: {})", dev.name, dev.kind);
             continue;
         }
@@ -204,9 +164,7 @@ fn do_scan(
         Err(_) => vec![],
     };
     let dev = dev_info.iter().find(|d| d.name == device_name);
-    let (vendor, model) = dev
-        .map(|d| (d.vendor.as_str(), d.model.as_str()))
-        .unwrap_or(("", ""));
+    let (vendor, model) = dev.map(|d| (d.vendor.as_str(), d.model.as_str())).unwrap_or(("", ""));
 
     let backend = nv_device::quirks::backend_name(device_name);
     let qk = quirks.find(backend, model);
@@ -236,8 +194,7 @@ fn do_scan(
     // Emit device ready.
     let _ = evt_tx.send_blocking(ScanEvent::DeviceReady { caps: Box::new(caps.clone()) });
 
-    let ir_follows = with_ir
-        && matches!(caps.ir, IrStyle::MultiFrame | IrStyle::Rgbi | IrStyle::SeparateScan);
+    let ir_follows = with_ir && matches!(caps.ir, IrStyle::MultiFrame | IrStyle::Rgbi | IrStyle::SeparateScan);
 
     let passes = passes.normalised();
     if !passes.is_single() {
@@ -260,9 +217,7 @@ fn do_scan(
         }
 
         if let Err(e) = handle.start() {
-            let _ = evt_tx.send_blocking(ScanEvent::Error(format!(
-                "Could not start scan: {e}\nCheck that the scanner lid is closed and film is loaded."
-            )));
+            let _ = evt_tx.send_blocking(ScanEvent::Error(format!("Could not start scan: {e}\nCheck that the scanner lid is closed and film is loaded.")));
             return;
         }
 
@@ -284,19 +239,11 @@ fn do_scan(
         };
 
         if frame_index > 0 && ir_follows && matches!(meta.format, FrameFormat::Gray) {
-            let _ = evt_tx.send_blocking(ScanEvent::IrFrameStarted {
-                width_px: meta.width_px,
-                height_px: meta.height_px,
-                bytes_per_line: meta.bytes_per_line,
-                depth: meta.depth,
-            });
+            let _ = evt_tx.send_blocking(ScanEvent::IrFrameStarted { width_px: meta.width_px, height_px: meta.height_px, bytes_per_line: meta.bytes_per_line, depth: meta.depth });
         }
 
         if frame_index == 0 {
-            eprintln!(
-                "nv-acquire: scan parameters: {}×{:?} depth={} ch={} bytes_per_line={}",
-                meta.width_px, meta.height_px, meta.depth, meta.channels(), meta.bytes_per_line
-            );
+            eprintln!("nv-acquire: scan parameters: {}×{:?} depth={} ch={} bytes_per_line={}", meta.width_px, meta.height_px, meta.depth, meta.channels(), meta.bytes_per_line);
             let _ = evt_tx.send_blocking(ScanEvent::ScanStarted {
                 width_px: meta.width_px,
                 height_px: meta.height_px,
@@ -313,15 +260,7 @@ fn do_scan(
         let mut progress = |f: f32| {
             let _ = evt_tx.send_blocking(ScanEvent::Progress(f));
         };
-        if let Err(cancelled_flag) = read_frame(
-            &handle,
-            &meta,
-            evt_tx,
-            cmd_rx,
-            cancelled.clone(),
-            &mut sink,
-            &mut progress,
-        ) {
+        if let Err(cancelled_flag) = read_frame(&handle, &meta, evt_tx, cmd_rx, cancelled.clone(), &mut sink, &mut progress) {
             if cancelled_flag {
                 let _ = evt_tx.send_blocking(ScanEvent::Cancelled);
             }
@@ -329,10 +268,7 @@ fn do_scan(
         }
 
         // Report frame completion.
-        let is_ir_frame = matches!(
-            params.format,
-            FrameFormat::Gray | FrameFormat::Rgbi
-        ) && frame_index > 0;
+        let is_ir_frame = matches!(params.format, FrameFormat::Gray | FrameFormat::Rgbi) && frame_index > 0;
 
         if is_ir_frame {
             let _ = evt_tx.send_blocking(ScanEvent::IrFrameDone);
@@ -588,7 +524,8 @@ fn do_multi_pass(handle: &nv_sane::Handle, ctx: &MultiCtx) {
         let l = ir.layout();
         let ir_bytes = l.from_flat(&ir.mean());
         let _ = ctx.evt_tx.send_blocking(ScanEvent::ColorFrameDone);
-        let _ = ctx.evt_tx.send_blocking(ScanEvent::IrFrameStarted { width_px: l.width as u32, height_px: Some(l.height as u32), bytes_per_line: l.bytes_per_line, depth: l.depth });
+        let _ =
+            ctx.evt_tx.send_blocking(ScanEvent::IrFrameStarted { width_px: l.width as u32, height_px: Some(l.height as u32), bytes_per_line: l.bytes_per_line, depth: l.depth });
         for (i, chunk) in ir_bytes.chunks(READ_BUF * 4).enumerate() {
             let _ = ctx.evt_tx.send_blocking(ScanEvent::DataChunk { offset: i * READ_BUF * 4, data: chunk.to_vec() });
         }
@@ -609,10 +546,7 @@ fn do_multi_pass(handle: &nv_sane::Handle, ctx: &MultiCtx) {
 /// reaches outside the window.
 pub fn area_to_device(area: [f64; 4], ranges: [f64; 4]) -> Option<[f64; 4]> {
     let [x0, y0, x1, y1] = area;
-    if !(0.0..=1.0).contains(&x0) || !(0.0..=1.0).contains(&y0)
-        || !(0.0..=1.0).contains(&x1) || !(0.0..=1.0).contains(&y1)
-        || x1 <= x0 || y1 <= y0
-    {
+    if !(0.0..=1.0).contains(&x0) || !(0.0..=1.0).contains(&y0) || !(0.0..=1.0).contains(&x1) || !(0.0..=1.0).contains(&y1) || x1 <= x0 || y1 <= y0 {
         return None;
     }
     let [xmin, xmax, ymin, ymax] = ranges;
@@ -640,14 +574,11 @@ fn apply_area(handle: &nv_sane::Handle, area: [f64; 4]) -> Result<(), String> {
 
     let (xmin, xmax) = range_of("tl-x")?;
     let (ymin, ymax) = range_of("tl-y")?;
-    let [tlx, tly, brx, bry] = area_to_device(area, [xmin, xmax, ymin, ymax])
-        .ok_or_else(|| format!("invalid scan area {area:?}"))?;
+    let [tlx, tly, brx, bry] = area_to_device(area, [xmin, xmax, ymin, ymax]).ok_or_else(|| format!("invalid scan area {area:?}"))?;
 
     // Top-left first: the bottom-right values are always beyond it.
     for (name, v) in [("tl-x", tlx), ("tl-y", tly), ("br-x", brx), ("br-y", bry)] {
-        handle
-            .set_option_by_name(name, &OptionValue::Fixed(v))
-            .map_err(|e| format!("{name}: {e}"))?;
+        handle.set_option_by_name(name, &OptionValue::Fixed(v)).map_err(|e| format!("{name}: {e}"))?;
     }
     eprintln!("nv-acquire: scan area {tlx:.2},{tly:.2} – {brx:.2},{bry:.2} mm");
     Ok(())
@@ -674,20 +605,14 @@ mod area_tests {
     }
 }
 
-fn apply_plan_options(
-    handle: &nv_sane::Handle,
-    plan: &AcquisitionPlan,
-) -> nv_sane::Result<()> {
+fn apply_plan_options(handle: &nv_sane::Handle, plan: &AcquisitionPlan) -> nv_sane::Result<()> {
     use nv_sane::OptionValue;
 
     // mode
     let _ = handle.set_option_by_name("mode", &OptionValue::String(plan.mode.clone()))?;
 
     // resolution
-    let _ = handle.set_option_by_name(
-        "resolution",
-        &OptionValue::Int(plan.resolution_dpi as i32),
-    )?;
+    let _ = handle.set_option_by_name("resolution", &OptionValue::Int(plan.resolution_dpi as i32))?;
 
     // depth
     let _ = handle.set_option_by_name("depth", &OptionValue::Int(plan.depth as i32))?;

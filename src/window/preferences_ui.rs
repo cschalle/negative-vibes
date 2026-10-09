@@ -8,8 +8,8 @@ use adw::prelude::*;
 use adw::subclass::prelude::ObjectSubclassIsExt;
 use nv_export::{ColourSpace, ExportFormat};
 
-use super::scan_settings::dpi_label;
 use super::Window;
+use super::scan_settings::dpi_label;
 use crate::prefs::Prefs;
 
 type Save = Rc<dyn Fn(&dyn Fn(&mut Prefs))>;
@@ -98,7 +98,11 @@ impl Window {
             let (weak, win) = (self.downgrade(), win.clone());
             reset_btn.connect_clicked(move |_| {
                 let Some(app_win) = weak.upgrade() else { return };
-                let dialog = adw::MessageDialog::builder().transient_for(&win).heading("Restore Default Preferences?").body("Every preference goes back to its original value. Rolls and their settings are not touched.").build();
+                let dialog = adw::MessageDialog::builder()
+                    .transient_for(&win)
+                    .heading("Restore Default Preferences?")
+                    .body("Every preference goes back to its original value. Rolls and their settings are not touched.")
+                    .build();
                 dialog.add_responses(&[("cancel", "Cancel"), ("reset", "Restore")]);
                 dialog.set_response_appearance("reset", adw::ResponseAppearance::Destructive);
                 let (weak, win) = (app_win.downgrade(), win.clone());
@@ -131,13 +135,25 @@ impl Window {
         let res = group("Resolution", "What a new roll starts with");
         let at = |want: u32| steps.iter().rposition(|d| *d <= want).unwrap_or(0);
         let (s1, s2) = (steps.clone(), steps.clone());
-        res.add(&combo("Preview Resolution", "A quick, small look at the whole film", &labels, at(prefs.preview_dpi), &save, move |p, i| p.preview_dpi = s1.get(i).copied().unwrap_or(300)));
+        res.add(&combo("Preview Resolution", "A quick, small look at the whole film", &labels, at(prefs.preview_dpi), &save, move |p, i| {
+            p.preview_dpi = s1.get(i).copied().unwrap_or(300)
+        }));
         res.add(&combo("Scan Resolution", "For the final scan", &labels, at(prefs.scan_dpi), &save, move |p, i| p.scan_dpi = s2.get(i).copied().unwrap_or(1200)));
         let capture = group("Capture", "What a new roll starts with");
         capture.add(&switch("Capture Infrared", "For dust removal; silver black and white film blocks infrared", prefs.scan_ir, &save, |p, v| p.scan_ir = v));
         capture.add(&spin("Samples", "Passes averaged to lower the noise; each is a full scan", prefs.samples as f64, (1.0, 8.0, 1.0), &save, |p, v| p.samples = v as u8));
-        let me = adw::SwitchRow::builder().title("Multi-Exposure").subtitle("Add a longer exposure for cleaner shadows, on scanners that can").active(prefs.long_exposure.is_some()).build();
-        let long = adw::SpinRow::builder().title("Long Exposure").subtitle("Times the normal exposure").digits(1).adjustment(&gtk::Adjustment::new(prefs.long_exposure.unwrap_or(2.5) as f64, 1.5, 4.0, 0.1, 0.5, 0.0)).sensitive(prefs.long_exposure.is_some()).build();
+        let me = adw::SwitchRow::builder()
+            .title("Multi-Exposure")
+            .subtitle("Add a longer exposure for cleaner shadows, on scanners that can")
+            .active(prefs.long_exposure.is_some())
+            .build();
+        let long = adw::SpinRow::builder()
+            .title("Long Exposure")
+            .subtitle("Times the normal exposure")
+            .digits(1)
+            .adjustment(&gtk::Adjustment::new(prefs.long_exposure.unwrap_or(2.5) as f64, 1.5, 4.0, 0.1, 0.5, 0.0))
+            .sensitive(prefs.long_exposure.is_some())
+            .build();
         {
             let (save1, long1) = (save.clone(), long.clone());
             me.connect_active_notify(move |r| {
@@ -157,7 +173,9 @@ impl Window {
         capture.add(&long);
         let align = group("Alignment", "How far out of line may be put right, in pixels");
         align.add(&spin("Infrared", "Between the infrared and the colour of one scan", prefs.ir_align_limit as f64, (0.0, 64.0, 1.0), &save, |p, v| p.ir_align_limit = v as u32));
-        align.add(&spin("Passes", "Between the passes of a multi-sample or multi-exposure scan", prefs.pass_align_limit as f64, (0.0, 64.0, 1.0), &save, |p, v| p.pass_align_limit = v as u32));
+        align.add(&spin("Passes", "Between the passes of a multi-sample or multi-exposure scan", prefs.pass_align_limit as f64, (0.0, 64.0, 1.0), &save, |p, v| {
+            p.pass_align_limit = v as u32
+        }));
         for g in [&res, &capture, &align] {
             scanning.add(g);
         }
@@ -182,7 +200,10 @@ impl Window {
             });
         }
         files.add(&template);
-        let folder_row = adw::ActionRow::builder().title("Folder").subtitle(prefs.export.folder.as_ref().map_or("~/Pictures/Scans/&lt;roll&gt; (default)".to_owned(), |f| glib::markup_escape_text(&f.display().to_string()).to_string())).build();
+        let folder_row = adw::ActionRow::builder()
+            .title("Folder")
+            .subtitle(prefs.export.folder.as_ref().map_or("~/Pictures/Scans/&lt;roll&gt; (default)".to_owned(), |f| glib::markup_escape_text(&f.display().to_string()).to_string()))
+            .build();
         let choose = gtk::Button::builder().label("Choose…").valign(gtk::Align::Center).build();
         let default_btn = gtk::Button::builder().label("Default").valign(gtk::Align::Center).css_classes(["flat"]).build();
         folder_row.add_suffix(&default_btn);
@@ -208,7 +229,9 @@ impl Window {
         let colour = group("Colour", "");
         let spaces = [ColourSpace::Srgb, ColourSpace::AdobeRgb];
         let ci = spaces.iter().position(|c| *c == prefs.export.colour_space).unwrap_or(0);
-        colour.add(&combo("Colour Space", "For JPEG, PNG and TIFF", &["sRGB", "Adobe RGB (1998)"].map(String::from), ci, &save, move |p, i| p.export.colour_space = spaces[i.min(1)]));
+        colour.add(&combo("Colour Space", "For JPEG, PNG and TIFF", &["sRGB", "Adobe RGB (1998)"].map(String::from), ci, &save, move |p, i| {
+            p.export.colour_space = spaces[i.min(1)]
+        }));
         colour.add(&switch("Embed the Colour Profile", "So other programs show the colours as intended", prefs.export.embed_profile, &save, |p, v| p.export.embed_profile = v));
         colour.add(&switch("Embed Metadata", "The details from Metadata (Ctrl+I)", prefs.export.embed_metadata, &save, |p, v| p.export.embed_metadata = v));
         output.add(&files);
@@ -253,7 +276,10 @@ impl Window {
                     rows.borrow_mut().push(empty);
                 }
                 for p in user {
-                    let row = adw::ActionRow::builder().title(format!("{} {}", p.vendor, p.name)).subtitle(p.measured_on.as_ref().map_or("Imported".to_owned(), |m| format!("Measured on {}, {}", m.device, m.date))).build();
+                    let row = adw::ActionRow::builder()
+                        .title(format!("{} {}", p.vendor, p.name))
+                        .subtitle(p.measured_on.as_ref().map_or("Imported".to_owned(), |m| format!("Measured on {}, {}", m.device, m.date)))
+                        .build();
                     let export = gtk::Button::builder().icon_name("document-save-symbolic").tooltip_text("Export").valign(gtk::Align::Center).css_classes(["flat"]).build();
                     let delete = gtk::Button::builder().icon_name("user-trash-symbolic").tooltip_text("Delete").valign(gtk::Align::Center).css_classes(["flat"]).build();
                     row.add_suffix(&export);
@@ -262,13 +288,17 @@ impl Window {
                         let (id, win) = (p.id.clone(), win.clone());
                         export.connect_clicked(move |_| {
                             let id = id.clone();
-                            gtk::FileDialog::builder().title("Export Film Profile").initial_name(format!("{id}.json")).modal(true).build().save(Some(&win), None::<&gio::Cancellable>, move |r| {
-                                if let Some(path) = r.ok().and_then(|f| f.path()) {
-                                    if let Err(e) = nv_film::library::export(&id, &path) {
-                                        eprintln!("nv: could not export the profile: {e}");
+                            gtk::FileDialog::builder().title("Export Film Profile").initial_name(format!("{id}.json")).modal(true).build().save(
+                                Some(&win),
+                                None::<&gio::Cancellable>,
+                                move |r| {
+                                    if let Some(path) = r.ok().and_then(|f| f.path()) {
+                                        if let Err(e) = nv_film::library::export(&id, &path) {
+                                            eprintln!("nv: could not export the profile: {e}");
+                                        }
                                     }
-                                }
-                            });
+                                },
+                            );
                         });
                     }
                     {

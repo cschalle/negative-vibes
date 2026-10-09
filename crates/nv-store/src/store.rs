@@ -1,5 +1,5 @@
+use crate::{Result, model::Roll};
 use std::path::{Path, PathBuf};
-use crate::{model::Roll, Result};
 
 const ROLL_JSON: &str = "roll.json";
 const EXPORTS_JSON: &str = "exports.json";
@@ -67,10 +67,7 @@ impl RollStore {
     /// remembers its output. The file is a JSON array, replaced atomically.
     pub fn record_export(&self, record: &ExportRecord) -> Result<()> {
         let path = self.root.join(EXPORTS_JSON);
-        let mut all: Vec<ExportRecord> = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let mut all: Vec<ExportRecord> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         all.push(record.clone());
         let tmp = self.root.join(".exports.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(&all)?)?;
@@ -80,10 +77,7 @@ impl RollStore {
 
     /// Everything exported so far, oldest first.
     pub fn exports(&self) -> Vec<ExportRecord> {
-        std::fs::read(self.root.join(EXPORTS_JSON))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        std::fs::read(self.root.join(EXPORTS_JSON)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
     pub fn root(&self) -> &Path {
@@ -120,10 +114,7 @@ impl RollStore {
 }
 
 fn sanitise(name: &str) -> String {
-    name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' { c } else { '_' })
-        .collect::<String>()
-        .replace(' ', "_")
+    name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' { c } else { '_' }).collect::<String>().replace(' ', "_")
 }
 
 #[cfg(test)]

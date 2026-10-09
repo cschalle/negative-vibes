@@ -4,7 +4,7 @@
 //! neighbours then looks brighter or darker, instead of being stretched to
 //! look like them.
 
-use crate::{conversion, estimate_film_base_proxy, params::ProcessParams, settings::Settings, Proxy};
+use crate::{Proxy, conversion, estimate_film_base_proxy, params::ProcessParams, settings::Settings};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FrameAnalysis {
@@ -59,12 +59,7 @@ pub fn roll_analysis(frames: &[FrameAnalysis]) -> Option<FrameAnalysis> {
 impl FrameAnalysis {
     /// The roll-wide settings this analysis fixes.
     pub fn settings(&self) -> Settings {
-        Settings {
-            film_base: Some(self.film_base),
-            d_max: Some(self.d_max),
-            cast_fit: Some(self.cast_fit),
-            ..Default::default()
-        }
+        Settings { film_base: Some(self.film_base), d_max: Some(self.d_max), cast_fit: Some(self.cast_fit), ..Default::default() }
     }
 }
 
@@ -130,12 +125,7 @@ mod tests {
         p.conversion.film_base = Some(estimate_film_base_proxy(&thin));
         let own = brightest(&render(&thin, &p));
 
-        let roll = roll_analysis(&[
-            analyse_frame(&thin, None, &p).unwrap(),
-            analyse_frame(&dense, None, &p).unwrap(),
-            analyse_frame(&dense, None, &p).unwrap(),
-        ])
-        .unwrap();
+        let roll = roll_analysis(&[analyse_frame(&thin, None, &p).unwrap(), analyse_frame(&dense, None, &p).unwrap(), analyse_frame(&dense, None, &p).unwrap()]).unwrap();
         roll.settings().apply_to(&mut p);
         let fixed = brightest(&render(&thin, &p));
         assert!(own > fixed + 25, "per-frame range {own} vs roll range {fixed}");

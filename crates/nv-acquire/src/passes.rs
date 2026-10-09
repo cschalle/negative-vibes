@@ -301,7 +301,9 @@ pub fn fit_long_map(short: &[u32], long: &[u32], channels: usize, channel: usize
         return fallback;
     }
     // Solve the 3×3 system by Cramer's rule.
-    let det3 = |m: [[f64; 3]; 3]| m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    let det3 = |m: [[f64; 3]; 3]| {
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    };
     let d = det3(ata);
     if d.abs() < 1e-18 {
         return fallback;
@@ -467,7 +469,10 @@ mod tests {
         for (k, (sx, sy)) in shifts.into_iter().enumerate() {
             let moved = acc.add(&make_pass(&l, 1.0, sx, sy, 300.0, 20 + k as u64));
             if k > 0 {
-                assert!((moved.0 + sx as f32).abs() < 0.4 && (moved.1 + sy as f32).abs() < 0.4, "pass {k}: moved {moved:?}, the shift that lines it up is the opposite of the displacement ({sx}, {sy})");
+                assert!(
+                    (moved.0 + sx as f32).abs() < 0.4 && (moved.1 + sy as f32).abs() < 0.4,
+                    "pass {k}: moved {moved:?}, the shift that lines it up is the opposite of the displacement ({sx}, {sy})"
+                );
             }
         }
         // Away from the borders the average matches the picture.
@@ -537,7 +542,15 @@ mod tests {
         // The scanner's factor is only nominal: the long pass really has 3.5% more light.
         let real = e * 1.035;
         let offset = -250.0f32;
-        let observe = |gain: f32, rng: &mut dyn FnMut() -> f32| -> Vec<u32> { truth.iter().map(|t| { let m = *t as f32 * gain + if gain > 1.0 { offset } else { 0.0 }; (m + 1.2 * m.max(0.0).sqrt() * rng() * 1.7).round().clamp(0.0, 65535.0) as u32 }).collect() };
+        let observe = |gain: f32, rng: &mut dyn FnMut() -> f32| -> Vec<u32> {
+            truth
+                .iter()
+                .map(|t| {
+                    let m = *t as f32 * gain + if gain > 1.0 { offset } else { 0.0 };
+                    (m + 1.2 * m.max(0.0).sqrt() * rng() * 1.7).round().clamp(0.0, 65535.0) as u32
+                })
+                .collect()
+        };
         let short = observe(1.0, &mut rng);
         let long = observe(real, &mut rng);
         let merged = merge_exposures(&short, &long, 3, e, 65535);
@@ -563,7 +576,13 @@ mod tests {
     fn the_curve_between_the_exposures_is_read_from_the_picture_and_nonsense_is_ignored() {
         let truth: Vec<u32> = (0..30000).map(|i| 3000 + (i * 7 % 30000) as u32).collect();
         // The 8200i's measured behaviour: the factor creeps up from 2.56 to 2.61, with an offset, clipping at full scale.
-        let long: Vec<u32> = truth.iter().map(|t| { let x = *t as f32; ((x * (2.56 + 0.05 * x / 33000.0) - 270.0).round().max(0.0) as u32).min(65535) }).collect();
+        let long: Vec<u32> = truth
+            .iter()
+            .map(|t| {
+                let x = *t as f32;
+                ((x * (2.56 + 0.05 * x / 33000.0) - 270.0).round().max(0.0) as u32).min(65535)
+            })
+            .collect();
         let map = fit_long_map(&truth, &long, 1, 0, 2.5, 65535);
         for t in [4000u32, 10000, 20000, 28000] {
             let l = ((t as f32) * (2.56 + 0.05 * t as f32 / 33000.0) - 270.0) as u32;

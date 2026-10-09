@@ -3,7 +3,7 @@
 
 use nv_film::builtin_profiles;
 use nv_image::FrameBuf;
-use nv_process::{default_params_for, render, render_cached, render_detailed, ImageType, ProcessParams, Proxy, RenderCache};
+use nv_process::{ImageType, ProcessParams, Proxy, RenderCache, default_params_for, render, render_cached, render_detailed};
 
 /// A horizontal ramp, `w × h`, of linear transmission from `lo` to `hi`
 /// (the same in all three channels), with a bright rebate frame around it.
@@ -55,7 +55,12 @@ fn a_positive_is_normalised_and_keeps_its_order() {
     let row = middle_row_grey(&rgb, w, h);
     // Brighter transmission is brighter in the positive, and the range is used.
     assert!(row.windows(2).all(|p| p[1] + 1 >= p[0]), "not monotone");
-    assert!(row.last().unwrap() > &200 && row.first().unwrap() < &130 && *row.last().unwrap() as i32 - *row.first().unwrap() as i32 > 90, "{} .. {}", row.first().unwrap(), row.last().unwrap());
+    assert!(
+        row.last().unwrap() > &200 && row.first().unwrap() < &130 && *row.last().unwrap() as i32 - *row.first().unwrap() as i32 > 90,
+        "{} .. {}",
+        row.first().unwrap(),
+        row.last().unwrap()
+    );
 }
 
 #[test]

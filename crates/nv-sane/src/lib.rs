@@ -1,8 +1,8 @@
 pub mod error;
+pub mod handle;
 pub mod option;
 pub mod parameters;
 pub mod session;
-pub mod handle;
 
 pub use error::{Result, SaneError};
 pub use handle::Handle;

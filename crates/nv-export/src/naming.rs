@@ -80,10 +80,7 @@ pub fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
     if !first.exists() {
         return first;
     }
-    (2..)
-        .map(|n| dir.join(format!("{stem} ({n}).{ext}")))
-        .find(|p| !p.exists())
-        .expect("an unused number exists")
+    (2..).map(|n| dir.join(format!("{stem} ({n}).{ext}"))).find(|p| !p.exists()).expect("an unused number exists")
 }
 
 #[cfg(test)]

@@ -22,23 +22,10 @@ impl FrameBuf {
 
     /// Create a FrameBuf using the exact bytes-per-line reported by the backend.
     /// Use this when SANE's `bytes_per_line` may differ from the pixel-packed size.
-    pub fn with_stride(
-        width: u32,
-        height: Option<u32>,
-        depth: u8,
-        channels: u8,
-        bytes_per_line: usize,
-    ) -> Self {
+    pub fn with_stride(width: u32, height: Option<u32>, depth: u8, channels: u8, bytes_per_line: usize) -> Self {
         let bpr = bytes_per_line;
         let capacity = height.map(|h| bpr * h as usize).unwrap_or(bpr * 1024);
-        Self {
-            width,
-            height,
-            bytes_per_row: bpr,
-            depth,
-            channels,
-            data: Vec::with_capacity(capacity),
-        }
+        Self { width, height, bytes_per_row: bpr, depth, channels, data: Vec::with_capacity(capacity) }
     }
 
     /// Append a raw chunk (straight from `sane_read`).
@@ -186,16 +173,12 @@ pub fn read_sample(data: &[u8], offset: usize, bps: usize) -> u32 {
     if offset + bps > data.len() {
         return 0;
     }
-    if bps == 1 {
-        data[offset] as u32
-    } else {
-        u16::from_ne_bytes([data[offset], data[offset + 1]]) as u32
-    }
+    if bps == 1 { data[offset] as u32 } else { u16::from_ne_bytes([data[offset], data[offset + 1]]) as u32 }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{read_sample, FrameBuf};
+    use super::{FrameBuf, read_sample};
 
     #[test]
     fn sixteen_bit_samples_are_host_order() {

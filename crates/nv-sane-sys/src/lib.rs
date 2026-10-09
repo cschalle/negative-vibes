@@ -148,50 +148,26 @@ pub struct SANE_Option_Descriptor {
 unsafe extern "C" {
     pub fn sane_init(
         version_code: *mut SANE_Int,
-        authorize: Option<unsafe extern "C" fn(
-            resource: SANE_String_Const,
-            username: SANE_String,
-            password: SANE_String,
-        )>,
+        authorize: Option<unsafe extern "C" fn(resource: SANE_String_Const, username: SANE_String, password: SANE_String)>,
     ) -> SANE_Status;
 
     pub fn sane_exit();
 
-    pub fn sane_get_devices(
-        device_list: *mut *mut *const SANE_Device,
-        local_only: SANE_Bool,
-    ) -> SANE_Status;
+    pub fn sane_get_devices(device_list: *mut *mut *const SANE_Device, local_only: SANE_Bool) -> SANE_Status;
 
     pub fn sane_open(name: SANE_String_Const, handle: *mut SANE_Handle) -> SANE_Status;
 
     pub fn sane_close(handle: SANE_Handle);
 
-    pub fn sane_get_option_descriptor(
-        handle: SANE_Handle,
-        option: SANE_Int,
-    ) -> *const SANE_Option_Descriptor;
+    pub fn sane_get_option_descriptor(handle: SANE_Handle, option: SANE_Int) -> *const SANE_Option_Descriptor;
 
-    pub fn sane_control_option(
-        handle: SANE_Handle,
-        option: SANE_Int,
-        action: SANE_Action,
-        value: *mut std::os::raw::c_void,
-        info: *mut SANE_Int,
-    ) -> SANE_Status;
+    pub fn sane_control_option(handle: SANE_Handle, option: SANE_Int, action: SANE_Action, value: *mut std::os::raw::c_void, info: *mut SANE_Int) -> SANE_Status;
 
-    pub fn sane_get_parameters(
-        handle: SANE_Handle,
-        params: *mut SANE_Parameters,
-    ) -> SANE_Status;
+    pub fn sane_get_parameters(handle: SANE_Handle, params: *mut SANE_Parameters) -> SANE_Status;
 
     pub fn sane_start(handle: SANE_Handle) -> SANE_Status;
 
-    pub fn sane_read(
-        handle: SANE_Handle,
-        data: *mut SANE_Byte,
-        max_length: SANE_Int,
-        length: *mut SANE_Int,
-    ) -> SANE_Status;
+    pub fn sane_read(handle: SANE_Handle, data: *mut SANE_Byte, max_length: SANE_Int, length: *mut SANE_Int) -> SANE_Status;
 
     pub fn sane_cancel(handle: SANE_Handle);
 

@@ -34,9 +34,7 @@ impl Downscaler {
                 let (a, b) = (x as f64 * rx, (x + 1) as f64 * rx);
                 let first = a.floor() as usize;
                 let last = ((b - 1e-9).ceil() as usize).min(src_w);
-                let weights = (first..last)
-                    .map(|sx| ((b.min(sx as f64 + 1.0) - a.max(sx as f64)) / rx) as f32)
-                    .collect();
+                let weights = (first..last).map(|sx| ((b.min(sx as f64 + 1.0) - a.max(sx as f64)) / rx) as f32).collect();
                 (first, weights)
             })
             .collect();
@@ -101,7 +99,6 @@ impl Downscaler {
         self.acc.iter_mut().for_each(|a| *a = 0.0);
         self.out_row += 1;
     }
-
 }
 
 #[cfg(test)]
@@ -136,10 +133,14 @@ mod tests {
                 let mut acc = vec![0f64; c];
                 for sy in 0..sh {
                     let wy = ((((y + 1) as f64 * ry).min(sy as f64 + 1.0)) - (y as f64 * ry).max(sy as f64)).max(0.0);
-                    if wy <= 0.0 { continue; }
+                    if wy <= 0.0 {
+                        continue;
+                    }
                     for sx in 0..sw {
                         let wx = ((((x + 1) as f64 * rx).min(sx as f64 + 1.0)) - (x as f64 * rx).max(sx as f64)).max(0.0);
-                        if wx <= 0.0 { continue; }
+                        if wx <= 0.0 {
+                            continue;
+                        }
                         for ch in 0..c {
                             acc[ch] += src[(sy * sw + sx) * c + ch] as f64 * wx * wy;
                         }

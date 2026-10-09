@@ -92,10 +92,6 @@ pub struct SetInfo {
 
 impl SetInfo {
     pub(crate) fn from_raw(info: sys::SANE_Int) -> Self {
-        Self {
-            inexact: info & sys::SANE_INFO_INEXACT != 0,
-            reload_options: info & sys::SANE_INFO_RELOAD_OPTIONS != 0,
-            reload_params: info & sys::SANE_INFO_RELOAD_PARAMS != 0,
-        }
+        Self { inexact: info & sys::SANE_INFO_INEXACT != 0, reload_options: info & sys::SANE_INFO_RELOAD_OPTIONS != 0, reload_params: info & sys::SANE_INFO_RELOAD_PARAMS != 0 }
     }
 }

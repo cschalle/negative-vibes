@@ -9,13 +9,13 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 
 use nv_image::FrameBuf;
 
-use crate::params::{ImageType, ProcessParams};
 use crate::dust::{DustMode, TILE_MARGIN};
-use crate::{conversion, encode_output, estimate_film_base_proxy, render_toned, Orientation, Proxy};
+use crate::params::{ImageType, ProcessParams};
+use crate::{Orientation, Proxy, conversion, encode_output, estimate_film_base_proxy, render_toned};
 
 /// Tile edge in pixels.
 pub const TILE: usize = 512;
@@ -121,15 +121,17 @@ pub fn render_toned_region(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0
     std::thread::scope(|scope| {
         for _ in 0..threads.clamp(1, n) {
             let (send, next) = (send.clone(), &next);
-            scope.spawn(move || loop {
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                if i >= n {
-                    break;
-                }
-                let (tx, ty) = (tx0 + i % (tx1 - tx0), ty0 + i / (tx1 - tx0));
-                let tile = tile_toned(raw, frozen, tx * TILE, ty * TILE, TILE, TILE);
-                if send.send((i, tile)).is_err() {
-                    break;
+            scope.spawn(move || {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= n {
+                        break;
+                    }
+                    let (tx, ty) = (tx0 + i % (tx1 - tx0), ty0 + i / (tx1 - tx0));
+                    let tile = tile_toned(raw, frozen, tx * TILE, ty * TILE, TILE, TILE);
+                    if send.send((i, tile)).is_err() {
+                        break;
+                    }
                 }
             });
         }
@@ -153,16 +155,7 @@ pub fn render_toned_region(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0
 /// scan: the `w × h` block at `(x0, y0)` *of the picture*. Only the part of
 /// the scan that block comes from is rendered, so an exporter can write a
 /// rotated frame band by band as cheaply as an upright one.
-pub fn render_toned_region_oriented(
-    raw: &FrameBuf,
-    frozen: &ProcessParams,
-    orientation: Orientation,
-    x0: usize,
-    y0: usize,
-    w: usize,
-    h: usize,
-    threads: usize,
-) -> Vec<f32> {
+pub fn render_toned_region_oriented(raw: &FrameBuf, frozen: &ProcessParams, orientation: Orientation, x0: usize, y0: usize, w: usize, h: usize, threads: usize) -> Vec<f32> {
     if orientation.is_identity() {
         return render_toned_region(raw, frozen, x0, y0, w, h, threads);
     }
@@ -235,15 +228,17 @@ pub fn render_full(raw: &FrameBuf, frozen: &ProcessParams, threads: usize) -> Ve
     std::thread::scope(|scope| {
         for _ in 0..threads.clamp(1, tx_n * ty_n) {
             let (send, next) = (send.clone(), &next);
-            scope.spawn(move || loop {
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                if i >= tx_n * ty_n {
-                    break;
-                }
-                let (tx, ty) = (i % tx_n, i / tx_n);
-                let tile = render_block(raw, frozen, tx * TILE, ty * TILE, TILE, TILE);
-                if send.send((i, tile)).is_err() {
-                    break;
+            scope.spawn(move || {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= tx_n * ty_n {
+                        break;
+                    }
+                    let (tx, ty) = (i % tx_n, i / tx_n);
+                    let tile = render_block(raw, frozen, tx * TILE, ty * TILE, TILE, TILE);
+                    if send.send((i, tile)).is_err() {
+                        break;
+                    }
                 }
             });
         }

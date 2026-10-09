@@ -20,7 +20,13 @@ pub(super) fn dpi_label(dpi: u32) -> String {
 /// "11.8 MB" or "482 MB": a size a person can read.
 pub fn human_bytes(b: u64) -> String {
     let mb = b as f64 / (1024.0 * 1024.0);
-    if mb >= 100.0 { format!("{mb:.0} MB") } else if mb >= 1.0 { format!("{mb:.1} MB") } else { format!("{:.0} kB", b as f64 / 1024.0) }
+    if mb >= 100.0 {
+        format!("{mb:.0} MB")
+    } else if mb >= 1.0 {
+        format!("{mb:.1} MB")
+    } else {
+        format!("{:.0} kB", b as f64 / 1024.0)
+    }
 }
 
 /// Pixels and bytes of a scan of `window_mm` (or the part `area` of it) at `dpi`,
@@ -63,7 +69,8 @@ impl Window {
         // Headless hooks for the hardware checks, like NV_AUTOSCAN.
         let samples = std::env::var("NV_SAMPLES").ok().and_then(|v| v.parse().ok()).unwrap_or(samples);
         let long = std::env::var("NV_LONG_EXPOSURE").ok().and_then(|v| v.parse().ok()).or(long);
-        let plan = nv_acquire::passes::PassPlan { samples, long_exposure: long.filter(|_| imp.device_exposure.get()), max_offset: imp.prefs.borrow().pass_align_limit }.normalised();
+        let plan =
+            nv_acquire::passes::PassPlan { samples, long_exposure: long.filter(|_| imp.device_exposure.get()), max_offset: imp.prefs.borrow().pass_align_limit }.normalised();
         if self.scan_dpi() > MAX_PASSES_DPI {
             return nv_acquire::passes::PassPlan::SINGLE;
         }
@@ -129,7 +136,13 @@ impl Window {
         group.add(&ir);
         let samples = adw::SpinRow::builder().title("Samples").adjustment(&gtk::Adjustment::new(1.0, 1.0, nv_acquire::passes::MAX_SAMPLES as f64, 1.0, 1.0, 0.0)).build();
         let me = adw::SwitchRow::builder().title("Multi-Exposure").subtitle("Adds a longer exposure for cleaner shadows in dense film").visible(false).build();
-        let long = adw::SpinRow::builder().title("Long Exposure").subtitle("Times the normal exposure").digits(1).visible(false).adjustment(&gtk::Adjustment::new(2.5, 1.5, 4.0, 0.1, 0.5, 0.0)).build();
+        let long = adw::SpinRow::builder()
+            .title("Long Exposure")
+            .subtitle("Times the normal exposure")
+            .digits(1)
+            .visible(false)
+            .adjustment(&gtk::Adjustment::new(2.5, 1.5, 4.0, 0.1, 0.5, 0.0))
+            .build();
         group.add(&samples);
         group.add(&me);
         group.add(&long);
@@ -139,7 +152,9 @@ impl Window {
             let apply = move || {
                 let Some(win) = weak.upgrade() else { return };
                 let imp = win.imp();
-                if imp.updating_ui.get() { return; }
+                if imp.updating_ui.get() {
+                    return;
+                }
                 let Some((samples, me, long)) = imp.passes_rows.borrow().clone() else { return };
                 let (s, l) = (samples.value() as u8, me.is_active().then(|| long.value() as f32));
                 if let Some(roll) = imp.roll.borrow_mut().as_mut() {

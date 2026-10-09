@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use nv_film::builtin_profiles;
-use nv_process::{auto_tone, default_params_for, estimate_film_base_proxy, pipette, render, sample_converted, Histogram, ProcessParams, Proxy};
+use nv_process::{Histogram, ProcessParams, Proxy, auto_tone, default_params_for, estimate_film_base_proxy, pipette, render, sample_converted};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

@@ -1,5 +1,5 @@
-use nv_sane::{Handle, OptionDescriptor, OptionKind};
 use crate::quirks::DeviceQuirks;
+use nv_sane::{Handle, OptionDescriptor, OptionKind};
 
 /// How the device delivers infrared.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -67,18 +67,11 @@ pub struct DeviceCapabilities {
 
 impl DeviceCapabilities {
     /// Build from SANE option descriptors and optional quirks.
-    pub fn detect(
-        device_name: &str,
-        vendor: &str,
-        model: &str,
-        handle: &Handle,
-        quirks: Option<&DeviceQuirks>,
-    ) -> nv_sane::Result<Self> {
+    pub fn detect(device_name: &str, vendor: &str, model: &str, handle: &Handle, quirks: Option<&DeviceQuirks>) -> nv_sane::Result<Self> {
         let opts = handle.all_options()?;
 
         let film_source = detect_film_source(&opts, handle);
-        let has_film_source = film_source.is_some()
-            || quirks.map_or(false, |q| q.film_window_mm.is_some());
+        let has_film_source = film_source.is_some() || quirks.map_or(false, |q| q.film_window_mm.is_some());
 
         let depths = detect_depths(&opts);
         let resolutions = detect_resolutions(&opts);
@@ -87,18 +80,12 @@ impl DeviceCapabilities {
         let exposure_option = detect_exposure_option(&opts);
 
         // Quirks override / augment what we detect from options.
-        let ir = quirks
-            .and_then(|q| q.ir.clone())
-            .unwrap_or_else(|| detect_ir_from_options(&opts));
+        let ir = quirks.and_then(|q| q.ir.clone()).unwrap_or_else(|| detect_ir_from_options(&opts));
         let ir_registered = quirks.map_or(false, |q| q.ir_registered);
-        let holder = quirks
-            .and_then(|q| q.holder.clone())
-            .unwrap_or_else(|| guess_holder(&scan_area_mm));
+        let holder = quirks.and_then(|q| q.holder.clone()).unwrap_or_else(|| guess_holder(&scan_area_mm));
         let streaming_progress = quirks.map_or(false, |q| q.streaming_progress);
         let recommended_dpi = quirks.and_then(|q| q.recommended_dpi);
-        let neutralise = quirks
-            .map(|q| q.neutralise.keys().cloned().collect())
-            .unwrap_or_default();
+        let neutralise = quirks.map(|q| q.neutralise.keys().cloned().collect()).unwrap_or_default();
         let film_window_mm = quirks.and_then(|q| q.film_window_mm);
 
         Ok(Self {
@@ -136,11 +123,7 @@ fn detect_film_source(opts: &[OptionDescriptor], handle: &Handle) -> Option<Stri
         .find(|v| film_keywords.iter().any(|kw| v.to_lowercase().contains(&kw.to_lowercase())))
         .cloned()
         // If none of the keywords match, try reading the current value.
-        .or_else(|| {
-            handle.get_option(opt).ok().and_then(|v| {
-                if let nv_sane::OptionValue::String(s) = v { Some(s) } else { None }
-            })
-        })
+        .or_else(|| handle.get_option(opt).ok().and_then(|v| if let nv_sane::OptionValue::String(s) = v { Some(s) } else { None }))
 }
 
 fn detect_ir_from_options(opts: &[OptionDescriptor]) -> IrStyle {
@@ -174,13 +157,9 @@ fn detect_depths(opts: &[OptionDescriptor]) -> Vec<u8> {
 }
 
 fn detect_resolutions(opts: &[OptionDescriptor]) -> Vec<u32> {
-    let opt = opts
-        .iter()
-        .find(|o| o.name == "resolution" || o.name == "x-resolution");
+    let opt = opts.iter().find(|o| o.name == "resolution" || o.name == "x-resolution");
     match opt.map(|o| &o.constraint) {
-        Some(nv_sane::OptionConstraint::WordList(v)) => {
-            v.iter().map(|&r| r as u32).collect()
-        }
+        Some(nv_sane::OptionConstraint::WordList(v)) => v.iter().map(|&r| r as u32).collect(),
         Some(nv_sane::OptionConstraint::Range { max, .. }) => {
             // Generate power-of-two steps up to max.
             let mut v = Vec::new();
@@ -196,29 +175,12 @@ fn detect_resolutions(opts: &[OptionDescriptor]) -> Vec<u32> {
 }
 
 fn detect_scan_area_mm(opts: &[OptionDescriptor]) -> Option<[f64; 4]> {
-    let by_name = |name: &str| {
-        opts.iter().find(|o| o.name == name).and_then(|o| {
-            if let nv_sane::OptionConstraint::Range { max, .. } = o.constraint {
-                Some(max)
-            } else {
-                None
-            }
-        })
-    };
-    Some([
-        0.0,
-        0.0,
-        by_name("br-x")?,
-        by_name("br-y")?,
-    ])
+    let by_name = |name: &str| opts.iter().find(|o| o.name == name).and_then(|o| if let nv_sane::OptionConstraint::Range { max, .. } = o.constraint { Some(max) } else { None });
+    Some([0.0, 0.0, by_name("br-x")?, by_name("br-y")?])
 }
 
 fn detect_exposure_option(opts: &[OptionDescriptor]) -> Option<String> {
-    opts.iter()
-        .find(|o| {
-            o.name.starts_with("exposure") || o.name.starts_with("analog-gamma") || o.name.starts_with("gain")
-        })
-        .map(|o| o.name.clone())
+    opts.iter().find(|o| o.name.starts_with("exposure") || o.name.starts_with("analog-gamma") || o.name.starts_with("gain")).map(|o| o.name.clone())
 }
 
 fn guess_holder(area: &Option<[f64; 4]>) -> HolderKind {

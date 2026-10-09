@@ -6,19 +6,14 @@ use std::sync::Arc;
 use adw::prelude::*;
 use adw::subclass::prelude::ObjectSubclassIsExt;
 use gtk::gdk;
-use nv_process::{Histogram, Proxy, DEFAULT_PROXY_PIXELS};
+use nv_process::{DEFAULT_PROXY_PIXELS, Histogram, Proxy};
 
 use super::Window;
 
 impl Window {
     /// Decode the scan on the canvas into a proxy (small scans: right here).
     pub(super) fn rebuild_proxy(&self) {
-        let proxy = self
-            .imp()
-            .scan_buf
-            .borrow()
-            .as_ref()
-            .map(|b| Arc::new(Proxy::from_raw(b, DEFAULT_PROXY_PIXELS)));
+        let proxy = self.imp().scan_buf.borrow().as_ref().map(|b| Arc::new(Proxy::from_raw(b, DEFAULT_PROXY_PIXELS)));
         *self.imp().proxy.borrow_mut() = proxy;
     }
 
@@ -53,7 +48,9 @@ impl Window {
                 *win.imp().histogram.borrow_mut() = Some(hist);
                 *win.imp().levels.borrow_mut() = Some(levels);
                 for area in [win.imp().levels_area.borrow(), win.imp().curve_area.borrow(), win.imp().wheel_area.borrow()] {
-                    if let Some(a) = area.as_ref() { a.queue_draw(); }
+                    if let Some(a) = area.as_ref() {
+                        a.queue_draw();
+                    }
                 }
                 if let Some(area) = win.imp().histogram_area.borrow().as_ref() {
                     area.queue_draw();
@@ -94,13 +91,7 @@ impl Window {
         // drivers, and GTK's conversion corrupts it on Wayland/Vulkan; R8G8B8A8
         // is universally supported.
         let rgba: Vec<u8> = rgb[..w * h * 3].chunks_exact(3).flat_map(|px| [px[0], px[1], px[2], 255u8]).collect();
-        let texture = gdk::MemoryTexture::new(
-            w as i32,
-            h as i32,
-            gdk::MemoryFormat::R8g8b8a8,
-            &glib::Bytes::from_owned(rgba),
-            w * 4,
-        );
+        let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), w * 4);
         if let Some(pic) = self.imp().canvas_picture.borrow().as_ref() {
             pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));
         }
@@ -108,12 +99,7 @@ impl Window {
 
     /// The histogram strip at the top of the inspector.
     pub(super) fn build_histogram(&self) -> gtk::DrawingArea {
-        let area = gtk::DrawingArea::builder()
-            .content_height(110)
-            .margin_start(12)
-            .margin_end(12)
-            .margin_bottom(6)
-            .build();
+        let area = gtk::DrawingArea::builder().content_height(110).margin_start(12).margin_end(12).margin_bottom(6).build();
         area.add_css_class("card");
 
         let weak = self.downgrade();

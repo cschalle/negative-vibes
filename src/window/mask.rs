@@ -6,11 +6,11 @@
 
 use adw::prelude::*;
 use adw::subclass::prelude::ObjectSubclassIsExt;
-use nv_process::dust::erase_touching;
 use nv_process::Stroke;
+use nv_process::dust::erase_touching;
 
-use super::imp::CanvasTool;
 use super::Window;
+use super::imp::CanvasTool;
 use crate::canvas_geom as geom;
 
 pub(super) fn is_mask_tool(t: CanvasTool) -> bool {

@@ -79,12 +79,14 @@ impl<W: Write + Seek> TiffWriter<W> {
         std::thread::scope(|scope| {
             for _ in 0..threads {
                 let (send, next, strips, bytes_of) = (send.clone(), &next, &strips, &bytes_of);
-                scope.spawn(move || loop {
-                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if i >= strips.len() {
-                        break;
+                scope.spawn(move || {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if i >= strips.len() {
+                            break;
+                        }
+                        let _ = send.send((i, compress(bytes_of(strips[i].1.clone()), compression, depth, row_len, step)));
                     }
-                    let _ = send.send((i, compress(bytes_of(strips[i].1.clone()), compression, depth, row_len, step)));
                 });
             }
             drop(send);
@@ -121,11 +123,16 @@ impl<W: Write + Seek> TiffWriter<W> {
         entries.push((256, LONG, 1, longs(&[self.width])));
         entries.push((257, LONG, 1, longs(&[self.height])));
         entries.push((258, SHORT, self.channels as u32, shorts(&vec![self.depth; self.channels as usize])));
-        entries.push((259, SHORT, 1, short(match self.compression {
-            Compression::None => 1,
-            Compression::Lzw => 5,
-            Compression::Deflate => 8,
-        })));
+        entries.push((
+            259,
+            SHORT,
+            1,
+            short(match self.compression {
+                Compression::None => 1,
+                Compression::Lzw => 5,
+                Compression::Deflate => 8,
+            }),
+        ));
         entries.push((262, SHORT, 1, short(if self.channels == 1 { 1 } else { 2 })));
         let n = self.strips.len() as u32;
         entries.push((273, LONG, n, longs(&self.strips.iter().map(|s| s.0).collect::<Vec<_>>())));
@@ -209,9 +216,9 @@ fn compress(mut data: Vec<u8>, compression: Compression, depth: u16, row_len: us
             z.write_all(&data)?;
             z.finish()
         }
-        Compression::Lzw => weezl::encode::Encoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8)
-            .encode(&data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
+        Compression::Lzw => {
+            weezl::encode::Encoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8).encode(&data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+        }
     }
 }
 

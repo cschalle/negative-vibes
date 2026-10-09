@@ -1,6 +1,6 @@
-use std::{collections::HashMap, path::Path};
-use serde::Deserialize;
 use crate::capabilities::{HolderKind, IrStyle};
+use serde::Deserialize;
+use std::{collections::HashMap, path::Path};
 
 /// A parsed `devices.toml` file.
 #[derive(Debug, Default, Deserialize)]
@@ -72,20 +72,14 @@ impl Quirks {
     /// Find the first quirks entry matching `backend` and `model`.
     /// Both patterns are treated as case-insensitive substrings.
     pub fn find(&self, backend: &str, model: &str) -> Option<&DeviceQuirks> {
-        self.entries.iter().find(|e| {
-            let bk_ok = e
-                .matcher
-                .backend
-                .as_deref()
-                .map_or(true, |pat| backend.to_lowercase().contains(&pat.to_lowercase()));
-            let mo_ok = e
-                .matcher
-                .model
-                .as_deref()
-                .map_or(true, |pat| model.to_lowercase().contains(&pat.to_lowercase()));
-            bk_ok && mo_ok
-        })
-        .map(|e| &e.quirks)
+        self.entries
+            .iter()
+            .find(|e| {
+                let bk_ok = e.matcher.backend.as_deref().map_or(true, |pat| backend.to_lowercase().contains(&pat.to_lowercase()));
+                let mo_ok = e.matcher.model.as_deref().map_or(true, |pat| model.to_lowercase().contains(&pat.to_lowercase()));
+                bk_ok && mo_ok
+            })
+            .map(|e| &e.quirks)
     }
 }
 

@@ -73,7 +73,7 @@ fn apply_contrast(v: f32, contrast: f32) -> f32 {
 /// and the midtone that puts its median at middle grey. Colour cast is not
 /// guessed here: equalising channel medians turned the tulip wall blue-green,
 /// because the scene is mostly red and green. Cast removal is a fit in the
-/// conversion, and the grey pipette is for the rest. 
+/// conversion, and the grey pipette is for the rest.
 pub fn auto_tone(converted: &[f32], w: usize, h: usize, region: Option<[f32; 4]>, low: f32, high: f32, balance: [f32; 3]) -> ToneParams {
     let (x0, x1, y0, y1) = crate::conversion::interior(w, h, region);
 
@@ -120,7 +120,12 @@ mod tests {
     #[test]
     fn auto_levels_stretch_a_narrow_ramp() {
         let w = 400;
-        let px: Vec<f32> = (0..w * 40).flat_map(|i| { let v = 0.2 + 0.4 * (i % w) as f32 / w as f32; [v, v, v] }).collect();
+        let px: Vec<f32> = (0..w * 40)
+            .flat_map(|i| {
+                let v = 0.2 + 0.4 * (i % w) as f32 / w as f32;
+                [v, v, v]
+            })
+            .collect();
         let t = auto_tone(&px, w, 40, None, 0.02, 0.98, [1.0; 3]);
         assert!((t.black_point - 0.240).abs() < 0.01, "{t:?}");
         assert!((t.white_point - 0.560).abs() < 0.01, "{t:?}");
@@ -141,7 +146,12 @@ mod tests {
     #[test]
     fn auto_midtone_puts_the_median_at_middle_grey() {
         let w = 400;
-        let px: Vec<f32> = (0..w * 40).flat_map(|i| { let v = (i % w) as f32 / w as f32; [v * v, v * v, v * v] }).collect();
+        let px: Vec<f32> = (0..w * 40)
+            .flat_map(|i| {
+                let v = (i % w) as f32 / w as f32;
+                [v * v, v * v, v * v]
+            })
+            .collect();
         let t = auto_tone(&px, w, 40, None, 0.0, 1.0, [1.0; 3]);
         let out = apply_tone(&px, &t);
         let mut luma: Vec<f32> = out.chunks(3).map(|p| p[1]).collect();
@@ -153,10 +163,7 @@ mod tests {
     #[test]
     fn curves_change_the_midtones_and_leave_the_ends() {
         use crate::curves::Curve;
-        let p = ToneParams {
-            curves: Curves { master: Curve(vec![[0.0, 0.0], [0.5, 0.35], [1.0, 1.0]]), ..Default::default() },
-            ..ToneParams::default()
-        };
+        let p = ToneParams { curves: Curves { master: Curve(vec![[0.0, 0.0], [0.5, 0.35], [1.0, 1.0]]), ..Default::default() }, ..ToneParams::default() };
         let out = apply_tone(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.218, 0.218, 0.218], &p);
         assert!(out[0].abs() < 1e-3 && (out[3] - 1.0).abs() < 1e-3, "{out:?}");
         // 0.218 linear is 0.5 encoded; the curve takes it to 0.35 encoded.

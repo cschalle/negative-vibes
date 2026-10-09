@@ -20,13 +20,7 @@ pub(crate) fn check(status: sys::SANE_Status) -> Result<()> {
     }
     let message = unsafe {
         let ptr = sys::sane_strstatus(status);
-        if ptr.is_null() {
-            "(unknown)".to_owned()
-        } else {
-            std::ffi::CStr::from_ptr(ptr)
-                .to_string_lossy()
-                .into_owned()
-        }
+        if ptr.is_null() { "(unknown)".to_owned() } else { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
     };
     Err(SaneError::Status { code: status, message })
 }

@@ -27,8 +27,8 @@ enum Cmd {
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
-        Cmd::Probe(args)  => probe::run(args),
-        Cmd::Scan(args)   => scan::run(args),
+        Cmd::Probe(args) => probe::run(args),
+        Cmd::Scan(args) => scan::run(args),
         Cmd::Render(args) => render::run(args),
         Cmd::Calibrate(args) => calibrate::run(args),
     };

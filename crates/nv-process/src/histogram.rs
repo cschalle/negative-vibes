@@ -26,11 +26,7 @@ impl Histogram {
     /// Largest bin count over the colour channels, ignoring the two end bins
     /// (clipping piles up there and would flatten everything else).
     pub fn peak(&self) -> u32 {
-        [&self.r, &self.g, &self.b]
-            .iter()
-            .flat_map(|c| c[1..255].iter().copied())
-            .max()
-            .unwrap_or(0)
+        [&self.r, &self.g, &self.b].iter().flat_map(|c| c[1..255].iter().copied()).max().unwrap_or(0)
     }
 }
 

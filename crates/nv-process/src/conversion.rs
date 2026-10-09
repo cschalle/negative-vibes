@@ -76,10 +76,7 @@ pub fn freeze_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessParam
     let mut p = params.clone();
     p.conversion.d_max = None;
     let (density, cast_fit) = density_stage(pixels, w, h, &p);
-    let d_max = params
-        .conversion
-        .d_max
-        .unwrap_or_else(|| interior_percentile(&density, w, h, 1.0 - params.conversion.tolerance, params.conversion.region));
+    let d_max = params.conversion.d_max.unwrap_or_else(|| interior_percentile(&density, w, h, 1.0 - params.conversion.tolerance, params.conversion.region));
     Measured { d_max, cast_fit }
 }
 
@@ -351,7 +348,17 @@ mod tests {
         ProcessParams {
             image_type: ImageType::ColourNegative,
             profile: FilmProfile::identity(),
-            conversion: ConversionParams { film_base: Some(base), exposure: 0.0, tolerance: 0.0016, auto_ccr: false, cast_removal, d_max: None, cast_fit: None, region: None, positive_range: None },
+            conversion: ConversionParams {
+                film_base: Some(base),
+                exposure: 0.0,
+                tolerance: 0.0016,
+                auto_ccr: false,
+                cast_removal,
+                d_max: None,
+                cast_fit: None,
+                region: None,
+                positive_range: None,
+            },
             tone: ToneParams::default(),
             dust: Default::default(),
             detail: Default::default(),

@@ -40,9 +40,7 @@ pub fn detect_frames(luma: &[u8], width: usize, height: usize, opts: DetectOptio
         luma[y * width + x] as f64
     };
 
-    let mut profile: Vec<f64> = (0..long)
-        .map(|l| (0..short).map(|s| at(l, s)).sum::<f64>() / short as f64)
-        .collect();
+    let mut profile: Vec<f64> = (0..long).map(|l| (0..short).map(|s| at(l, s)).sum::<f64>() / short as f64).collect();
     smooth(&mut profile, (long / 200).max(1));
 
     let t = otsu(&profile);
@@ -51,9 +49,7 @@ pub fn detect_frames(luma: &[u8], width: usize, height: usize, opts: DetectOptio
 
     // Frames are the wide runs of one class. Choose the class with more wide
     // runs; on a tie the one with the larger total span (gaps are narrow).
-    let wide = |bright: bool| -> Vec<(usize, usize)> {
-        runs.iter().filter(|r| r.2 == bright && r.1 - r.0 >= min_len).map(|r| (r.0, r.1)).collect()
-    };
+    let wide = |bright: bool| -> Vec<(usize, usize)> { runs.iter().filter(|r| r.2 == bright && r.1 - r.0 >= min_len).map(|r| (r.0, r.1)).collect() };
     let (dark, bright) = (wide(false), wide(true));
     let span = |v: &[(usize, usize)]| v.iter().map(|r| r.1 - r.0).sum::<usize>();
     let spans = if (dark.len(), span(&dark)) >= (bright.len(), span(&bright)) { dark } else { bright };
@@ -66,9 +62,7 @@ pub fn detect_frames(luma: &[u8], width: usize, height: usize, opts: DetectOptio
     // holds, judged on the columns inside the frames.
     let mut out = Vec::with_capacity(spans.len());
     for (a, b) in spans {
-        let cross: Vec<f64> = (0..short)
-            .map(|s| (a..b).map(|l| at(l, s)).sum::<f64>() / (b - a) as f64)
-            .collect();
+        let cross: Vec<f64> = (0..short).map(|s| (a..b).map(|l| at(l, s)).sum::<f64>() / (b - a) as f64).collect();
         let (s0, s1) = widest_run(&cross).unwrap_or((0, short));
         let (l0, l1) = (a as f64 / long as f64, b as f64 / long as f64);
         let (c0, c1) = (s0 as f64 / short as f64, s1 as f64 / short as f64);

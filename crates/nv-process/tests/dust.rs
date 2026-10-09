@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use nv_film::builtin_profiles;
-use nv_process::dust::{apply, detect, DustMode, DustParams};
-use nv_process::{default_params_for, render, tiles::freeze, Proxy};
+use nv_process::dust::{DustMode, DustParams, apply, detect};
+use nv_process::{Proxy, default_params_for, render, tiles::freeze};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -36,7 +36,11 @@ fn the_real_scan_has_dust_that_is_found_in_the_infrared_and_repaired() {
     let local = |x: usize, y: usize| -> f32 {
         let (x0, x1, y0, y1) = (x.saturating_sub(7), (x + 8).min(w), y.saturating_sub(7), (y + 8).min(h));
         let mut s = 0.0;
-        for yy in y0..y1 { for xx in x0..x1 { s += ir[yy * w + xx]; } }
+        for yy in y0..y1 {
+            for xx in x0..x1 {
+                s += ir[yy * w + xx];
+            }
+        }
         s / ((x1 - x0) * (y1 - y0)) as f32
     };
     let (mut marked, mut n_marked, mut other, mut n_other) = (0f64, 0f64, 0f64, 0f64);
@@ -44,7 +48,13 @@ fn the_real_scan_has_dust_that_is_found_in_the_infrared_and_repaired() {
     for y in h / 8..h * 7 / 8 {
         for x in w / 16..w * 15 / 16 {
             let r = (ir[y * w + x] / local(x, y).max(1e-4)) as f64;
-            if report.mask[y * w + x] == 1 { marked += r; n_marked += 1.0 } else { other += r; n_other += 1.0 }
+            if report.mask[y * w + x] == 1 {
+                marked += r;
+                n_marked += 1.0
+            } else {
+                other += r;
+                n_other += 1.0
+            }
         }
     }
     assert!(marked / n_marked < 0.975 && other / n_other > 0.99, "marked {:.3} vs the rest {:.3} of their surroundings", marked / n_marked, other / n_other);

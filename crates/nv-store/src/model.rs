@@ -10,7 +10,7 @@ pub struct Roll {
 
     pub id: String,
     pub name: String,
-    pub created: String,           // ISO 8601
+    pub created: String, // ISO 8601
 
     pub device_id: Option<String>, // "vendor model backend"
     pub film_stock: Option<String>,
@@ -23,7 +23,9 @@ pub struct Roll {
     pub frames: Vec<Frame>,
 }
 
-fn schema_version() -> u32 { SCHEMA_VERSION }
+fn schema_version() -> u32 {
+    SCHEMA_VERSION
+}
 
 impl Roll {
     pub fn new(name: &str) -> Self {
@@ -119,7 +121,7 @@ pub struct Frame {
     pub id: String,
     pub index: u32,
     pub label: Option<String>,
-    pub rating: Option<i8>,        // -1 reject, 0 unrated, 1–5 stars
+    pub rating: Option<i8>, // -1 reject, 0 unrated, 1–5 stars
     pub state: FrameState,
     pub geometry: Geometry,
     /// Preview image in the roll's `raw/` folder. Several frames found in one
@@ -173,7 +175,7 @@ pub struct Geometry {
     pub rotation: u8,
     pub flip_h: bool,
     pub flip_v: bool,
-    pub angle: f32,  // fine rotation, degrees
+    pub angle: f32, // fine rotation, degrees
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,7 +193,7 @@ pub struct ScanSettings {
     pub resolution_dpi: u32,
     pub depth: u8,
     pub channels: u8,
-    pub scanned_at: String,  // ISO 8601
+    pub scanned_at: String, // ISO 8601
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -199,21 +201,15 @@ pub struct ScanSettings {
 fn new_id() -> String {
     // Simple u64 hex ID — replace with UUID in a later milestone.
     use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     format!("{t:032x}")
 }
 
 fn now_iso() -> String {
     // chrono is not in the workspace yet; use a simple UTC approximation.
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{secs}")   // will improve to full ISO string in M4
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    format!("{secs}") // will improve to full ISO string in M4
 }
 
 #[cfg(test)]

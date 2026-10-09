@@ -153,11 +153,7 @@ mod tests {
 
     #[test]
     fn channel_curve_goes_first_then_master() {
-        let curves = Curves {
-            master: Curve(vec![[0.0, 0.0], [1.0, 0.5]]),
-            r: Curve(vec![[0.0, 0.0], [1.0, 0.8]]),
-            ..Default::default()
-        };
+        let curves = Curves { master: Curve(vec![[0.0, 0.0], [1.0, 0.5]]), r: Curve(vec![[0.0, 0.0], [1.0, 0.8]]), ..Default::default() };
         let [r, g, _] = curves.luts(101);
         assert!((r[100] - 0.4).abs() < 1e-4, "{}", r[100]); // 1.0 -> 0.8 -> 0.4
         assert!((g[100] - 0.5).abs() < 1e-4, "{}", g[100]); // 1.0 -> 1.0 -> 0.5

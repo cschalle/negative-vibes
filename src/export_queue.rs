@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_channel::{Receiver, Sender};
-use nv_export::{export_image_full, unique_path, ExportReport, ExportSettings};
-use nv_process::{tiles::freeze, ProcessParams, Proxy, DEFAULT_PROXY_PIXELS};
+use nv_export::{ExportReport, ExportSettings, export_image_full, unique_path};
+use nv_process::{DEFAULT_PROXY_PIXELS, ProcessParams, Proxy, tiles::freeze};
 
 /// One frame to export.
 #[derive(Debug, Clone)]
@@ -71,10 +71,7 @@ impl ExportQueue {
         let (evt_tx, events) = async_channel::unbounded::<ExportEvent>();
         let control = Arc::new(Control::default());
         let c = control.clone();
-        std::thread::Builder::new()
-            .name("nv-export".into())
-            .spawn(move || worker(rx, evt_tx, c))
-            .expect("failed to spawn the export thread");
+        std::thread::Builder::new().name("nv-export".into()).spawn(move || worker(rx, evt_tx, c)).expect("failed to spawn the export thread");
         Self { tx, events, control }
     }
 

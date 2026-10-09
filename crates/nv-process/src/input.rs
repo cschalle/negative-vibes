@@ -97,10 +97,34 @@ fn curve(t: &[u8], name: &'static str) -> Result<Vec<f32>, IccError> {
             let p: Vec<f64> = (0..n).map(|i| s15f16(t, 12 + i * 4)).collect::<Result<_, _>>()?;
             Box::new(move |x| match kind {
                 0 => x.powf(p[0]),
-                1 => if x >= -p[2] / p[1] { (p[1] * x + p[2]).max(0.0).powf(p[0]) } else { 0.0 },
-                2 => if x >= -p[2] / p[1] { (p[1] * x + p[2]).max(0.0).powf(p[0]) + p[3] } else { p[3] },
-                3 => if x >= p[4] { (p[1] * x + p[2]).max(0.0).powf(p[0]) } else { p[3] * x },
-                _ => if x >= p[4] { (p[1] * x + p[2]).max(0.0).powf(p[0]) + p[5] } else { p[3] * x + p[6] },
+                1 => {
+                    if x >= -p[2] / p[1] {
+                        (p[1] * x + p[2]).max(0.0).powf(p[0])
+                    } else {
+                        0.0
+                    }
+                }
+                2 => {
+                    if x >= -p[2] / p[1] {
+                        (p[1] * x + p[2]).max(0.0).powf(p[0]) + p[3]
+                    } else {
+                        p[3]
+                    }
+                }
+                3 => {
+                    if x >= p[4] {
+                        (p[1] * x + p[2]).max(0.0).powf(p[0])
+                    } else {
+                        p[3] * x
+                    }
+                }
+                _ => {
+                    if x >= p[4] {
+                        (p[1] * x + p[2]).max(0.0).powf(p[0]) + p[5]
+                    } else {
+                        p[3] * x + p[6]
+                    }
+                }
             })
         }
         _ => return Err(bad),
@@ -214,7 +238,7 @@ mod tests {
 #[cfg(test)]
 mod pipeline_tests {
     use super::*;
-    use crate::{default_params_for, ImageType, Proxy};
+    use crate::{ImageType, Proxy, default_params_for};
     use nv_film::builtin_profiles;
 
     /// A slide scan run through a profile comes out different, and a profile that
@@ -222,7 +246,12 @@ mod pipeline_tests {
     #[test]
     fn a_slide_uses_the_scanner_profile() {
         let (w, h) = (16usize, 16usize);
-        let pixels: Vec<f32> = (0..w * h).flat_map(|i| { let v = 0.1 + 0.8 * (i % w) as f32 / w as f32; [v, v * 0.8, v * 0.6] }).collect();
+        let pixels: Vec<f32> = (0..w * h)
+            .flat_map(|i| {
+                let v = 0.1 + 0.8 * (i % w) as f32 / w as f32;
+                [v, v * 0.8, v * 0.6]
+            })
+            .collect();
         let proxy = Proxy::new(w, h, 1, pixels);
         let mut p = default_params_for(&builtin_profiles()[0]);
         p.image_type = ImageType::Positive;
@@ -247,11 +276,20 @@ mod pipeline_tests {
     #[test]
     fn kodachrome_is_a_slide_that_does_not_use_infrared() {
         let (w, h) = (96usize, 96usize);
-        let pixels: Vec<f32> = (0..w * h).flat_map(|i| { let (x, y) = ((i % w) as f32, (i / w) as f32);
-            let v = 0.45 + 0.3 * (x * 0.05).sin() * (y * 0.04).cos() + 0.1 * (x / w as f32); [v, v * 0.9, v * 0.7] }).collect();
+        let pixels: Vec<f32> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = ((i % w) as f32, (i / w) as f32);
+                let v = 0.45 + 0.3 * (x * 0.05).sin() * (y * 0.04).cos() + 0.1 * (x / w as f32);
+                [v, v * 0.9, v * 0.7]
+            })
+            .collect();
         // A plane with a dark spot: infrared would call it dust.
         let mut ir: Vec<f32> = (0..w * h).map(|i| 0.9 + 0.01 * ((i as u32).wrapping_mul(2654435761) >> 24) as f32 / 128.0).collect();
-        for y in 40..44 { for x in 40..44 { ir[y * w + x] = 0.1; } }
+        for y in 40..44 {
+            for x in 40..44 {
+                ir[y * w + x] = 0.1;
+            }
+        }
         let mut proxy = Proxy::new(w, h, 1, pixels);
         proxy.ir = Some(ir);
         let mut p = default_params_for(&builtin_profiles()[0]);

@@ -7,8 +7,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::gdk;
 use adw::subclass::prelude::ObjectSubclassIsExt;
+use gtk::gdk;
 use nv_export::Purpose;
 use nv_film::{FilmKind, FilmProfile};
 use nv_process::params::ImageType;
@@ -96,7 +96,8 @@ impl Window {
         let (p1, g1) = page("What are you scanning?", "This sets how the picture is turned into a positive.");
         let type_row = adw::ComboRow::builder().title("Film Type").model(&gtk::StringList::new(&TYPES.map(|t| t.0))).build();
         let stock_row = adw::ComboRow::builder().title("Film Stock").subtitle("Pick the film if it is listed; otherwise leave the generic one").build();
-        let frames_row = adw::SpinRow::builder().title("Frames").subtitle("How many frames are on the strip or roll").adjustment(&gtk::Adjustment::new(6.0, 1.0, 100.0, 1.0, 6.0, 0.0)).build();
+        let frames_row =
+            adw::SpinRow::builder().title("Frames").subtitle("How many frames are on the strip or roll").adjustment(&gtk::Adjustment::new(6.0, 1.0, 100.0, 1.0, 6.0, 0.0)).build();
         let start_row = adw::SwitchRow::builder().title("Show This Guide at Start").active(self.imp().prefs.borrow().guided_on_start).build();
         for r in [type_row.upcast_ref::<gtk::Widget>(), stock_row.upcast_ref(), frames_row.upcast_ref(), start_row.upcast_ref()] {
             g1.add(r);
@@ -161,7 +162,23 @@ impl Window {
         content.append(&stack);
         let dialog = adw::Window::builder().transient_for(self).modal(false).title("Scan a Roll").default_width(620).default_height(560).content(&content).build();
 
-        let g = Rc::new(Guide { stack, step: Cell::new(0), back, next, title, type_row, stock_row, stocks: RefCell::new(Vec::new()), frames_row, purpose_row, preview_status, look_box, look_choice: Cell::new(None), scan_status, done_label });
+        let g = Rc::new(Guide {
+            stack,
+            step: Cell::new(0),
+            back,
+            next,
+            title,
+            type_row,
+            stock_row,
+            stocks: RefCell::new(Vec::new()),
+            frames_row,
+            purpose_row,
+            preview_status,
+            look_box,
+            look_choice: Cell::new(None),
+            scan_status,
+            done_label,
+        });
         let fill_stocks = {
             let g = g.clone();
             Rc::new(move || {
@@ -367,7 +384,8 @@ impl Window {
                 g.next.set_sensitive(true);
             }
             4 => {
-                let (scanned, total) = imp.roll.borrow().as_ref().map_or((0, 0), |r| (r.frames.iter().filter(|f| f.raw.is_some()).count(), r.frames.iter().filter(|f| f.preview.is_some()).count()));
+                let (scanned, total) =
+                    imp.roll.borrow().as_ref().map_or((0, 0), |r| (r.frames.iter().filter(|f| f.raw.is_some()).count(), r.frames.iter().filter(|f| f.preview.is_some()).count()));
                 let manual = imp.manual_advance.get();
                 // A one-frame window sees one frame at a time: the count comes from step 1.
                 let total = if manual { total.max(g.frames_row.value() as usize) } else { total };
@@ -397,11 +415,7 @@ impl Window {
     /// What to say when the scanner has gone quiet in the middle of a job.
     fn stuck_hint(&self) -> &'static str {
         let silent = self.imp().last_scan_event.get().is_some_and(|t| t.elapsed() > std::time::Duration::from_secs(30));
-        if silent {
-            "\nThe scanner has not answered for 30 seconds. Press Stop, switch the scanner off and on again, and try again."
-        } else {
-            ""
-        }
+        if silent { "\nThe scanner has not answered for 30 seconds. Press Stop, switch the scanner off and on again, and try again." } else { "" }
     }
 
     /// Three thumbnails of the picture in the three looks; clicking one applies it to the roll.

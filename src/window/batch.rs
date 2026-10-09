@@ -13,12 +13,8 @@ use crate::canvas_geom as geom;
 impl Window {
     /// Register the scan actions: the Scan button's menu and its shortcuts.
     pub(super) fn setup_batch(&self) {
-        let actions: [(&str, fn(&Window)); 4] = [
-            ("scan-selected", |w| w.scan_selected(false)),
-            ("scan-all", |w| w.scan_all()),
-            ("scan-raw-only", |w| w.scan_selected(true)),
-            ("stop", |w| w.stop()),
-        ];
+        let actions: [(&str, fn(&Window)); 4] =
+            [("scan-selected", |w| w.scan_selected(false)), ("scan-all", |w| w.scan_all()), ("scan-raw-only", |w| w.scan_selected(true)), ("stop", |w| w.stop())];
         for (name, f) in actions {
             let action = gio::SimpleAction::new(name, None);
             let weak = self.downgrade();

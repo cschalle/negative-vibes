@@ -41,7 +41,9 @@ impl Window {
         *self.imp().proc_params.borrow_mut() = Some(p);
         // The handles follow the mouse now, not when the render lands.
         for area in [self.imp().levels_area.borrow(), self.imp().curve_area.borrow()] {
-            if let Some(a) = area.as_ref() { a.queue_draw(); }
+            if let Some(a) = area.as_ref() {
+                a.queue_draw();
+            }
         }
         self.refresh_canvas();
     }
@@ -110,17 +112,9 @@ impl Window {
             let (Some(win), Some(widget)) = (weak.upgrade(), gesture.widget()) else { return };
             let tone = win.imp().proc_params.borrow().as_ref().map(|p| p.tone.clone()).unwrap_or_default();
             let w = widget.width() as f64;
-            let handles = [
-                (Handle::Black, enc(tone.black_point) * w),
-                (Handle::Mid, enc(mid_input(&tone)) * w),
-                (Handle::White, enc(tone.white_point) * w),
-            ];
+            let handles = [(Handle::Black, enc(tone.black_point) * w), (Handle::Mid, enc(mid_input(&tone)) * w), (Handle::White, enc(tone.white_point) * w)];
             // The nearest one; on a tie the press goes to the outer one on its side.
-            let best = handles
-                .iter()
-                .map(|(h, hx)| (*h, (x - hx).abs()))
-                .filter(|(_, d)| *d <= GRAB)
-                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            let best = handles.iter().map(|(h, hx)| (*h, (x - hx).abs())).filter(|(_, d)| *d <= GRAB).min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             g.set(best.map(|(h, _)| h));
             if best.is_some() {
                 win.begin_live_edit();
@@ -155,12 +149,18 @@ impl Window {
         let mut first: Option<gtk::ToggleButton> = None;
         for (ch, name) in [(0u8, "Master"), (1, "Red"), (2, "Green"), (3, "Blue")] {
             let b = gtk::ToggleButton::builder().label(name).active(ch == 0).build();
-            if let Some(f) = &first { b.set_group(Some(f)); } else { first = Some(b.clone()); }
+            if let Some(f) = &first {
+                b.set_group(Some(f));
+            } else {
+                first = Some(b.clone());
+            }
             let weak = self.downgrade();
             b.connect_toggled(move |b| {
                 if let (true, Some(win)) = (b.is_active(), weak.upgrade()) {
                     win.imp().curve_channel.set(ch);
-                    if let Some(a) = win.imp().curve_area.borrow().as_ref() { a.queue_draw(); }
+                    if let Some(a) = win.imp().curve_area.borrow().as_ref() {
+                        a.queue_draw();
+                    }
                 }
             });
             tabs.append(&b);
@@ -183,17 +183,25 @@ impl Window {
             cr.set_line_width(1.0);
             for i in 1..4 {
                 let (x, y) = (w * i as f64 / 4.0, h * i as f64 / 4.0);
-                cr.move_to(x, 0.0); cr.line_to(x, h);
-                cr.move_to(0.0, y); cr.line_to(w, y);
+                cr.move_to(x, 0.0);
+                cr.line_to(x, h);
+                cr.move_to(0.0, y);
+                cr.line_to(w, y);
             }
             let _ = cr.stroke();
             cr.set_source_rgba(fr, fgc, fb, 0.25);
-            cr.move_to(0.0, h); cr.line_to(w, 0.0);
+            cr.move_to(0.0, h);
+            cr.line_to(w, 0.0);
             let _ = cr.stroke();
 
             let mut tone = win.imp().proc_params.borrow().as_ref().map(|p| p.tone.clone()).unwrap_or_default();
             let curve = channel_curve(&mut tone, ch).clone();
-            let (r, g, b) = match ch { 1 => (0.9, 0.2, 0.2), 2 => (0.2, 0.65, 0.3), 3 => (0.25, 0.4, 0.95), _ => (fr, fgc, fb) };
+            let (r, g, b) = match ch {
+                1 => (0.9, 0.2, 0.2),
+                2 => (0.2, 0.65, 0.3),
+                3 => (0.25, 0.4, 0.95),
+                _ => (fr, fgc, fb),
+            };
             cr.set_source_rgb(r, g, b);
             cr.set_line_width(2.0);
             let lut = curve.lut(256);
@@ -251,12 +259,16 @@ impl Window {
             let nx = ((sx + dx) / w).clamp(0.0, 1.0) as f32;
             win.update_live(|p| {
                 let pts = &mut channel_curve(&mut p.tone, ch).0;
-                if i >= pts.len() { return; }
+                if i >= pts.len() {
+                    return;
+                }
                 // The ends keep their x; inner points stay between their neighbours.
                 let x = if i == 0 || i + 1 == pts.len() { pts[i][0] } else { nx.clamp(pts[i - 1][0] + 0.01, pts[i + 1][0] - 0.01) };
                 pts[i] = [x, ny];
             });
-            if let Some(a) = win.imp().curve_area.borrow().as_ref() { a.queue_draw(); }
+            if let Some(a) = win.imp().curve_area.borrow().as_ref() {
+                a.queue_draw();
+            }
         });
         let (weak, g) = (self.downgrade(), grab);
         drag.connect_drag_end(move |_, _, _| {
@@ -275,12 +287,13 @@ impl Window {
             let ch = win.imp().curve_channel.get();
             let mut tone = win.imp().proc_params.borrow().as_ref().map(|p| p.tone.clone()).unwrap_or_default();
             let pts = channel_curve(&mut tone, ch).0.clone();
-            let hit = pts.iter().enumerate().position(|(i, p)| {
-                i > 0 && i + 1 < pts.len() && ((p[0] as f64 * w - x).powi(2) + ((1.0 - p[1] as f64) * h - y).powi(2)).sqrt() <= GRAB
-            });
+            let hit =
+                pts.iter().enumerate().position(|(i, p)| i > 0 && i + 1 < pts.len() && ((p[0] as f64 * w - x).powi(2) + ((1.0 - p[1] as f64) * h - y).powi(2)).sqrt() <= GRAB);
             if let Some(i) = hit {
                 win.begin_live_edit();
-                win.update_live(|p| { channel_curve(&mut p.tone, ch).0.remove(i); });
+                win.update_live(|p| {
+                    channel_curve(&mut p.tone, ch).0.remove(i);
+                });
                 win.end_live_edit();
                 widget.queue_draw();
             }
@@ -294,7 +307,9 @@ impl Window {
                 win.begin_live_edit();
                 win.update_live(|p| p.tone.curves = Default::default());
                 win.end_live_edit();
-                if let Some(a) = win.imp().curve_area.borrow().as_ref() { a.queue_draw(); }
+                if let Some(a) = win.imp().curve_area.borrow().as_ref() {
+                    a.queue_draw();
+                }
             }
         });
 

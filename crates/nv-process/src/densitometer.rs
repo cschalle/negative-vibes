@@ -33,7 +33,12 @@ mod tests {
     #[test]
     fn a_point_reads_its_pixel_and_a_radius_averages_the_square() {
         // 3 × 3, value = column * 10, three channels.
-        let d: Vec<f32> = (0..9).flat_map(|i| { let v = (i % 3) as f32 * 10.0; [v, v + 1.0, v + 2.0] }).collect();
+        let d: Vec<f32> = (0..9)
+            .flat_map(|i| {
+                let v = (i % 3) as f32 * 10.0;
+                [v, v + 1.0, v + 2.0]
+            })
+            .collect();
         assert_eq!(sample(&d, 3, 3, 3, 0.5, 0.5, 0), Some([10.0, 11.0, 12.0]));
         assert_eq!(sample(&d, 3, 3, 3, 0.5, 0.5, 1), Some([10.0, 11.0, 12.0])); // whole picture
         let corner = sample(&d, 3, 3, 3, 0.0, 0.0, 1).unwrap(); // columns 0 and 1

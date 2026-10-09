@@ -36,7 +36,24 @@ impl Window {
         let film = entry("Film (blank: from the film profile)", &current.film_stock);
 
         let read: Rc<dyn Fn() -> Metadata> = {
-            let f = (creator.clone(), title.clone(), headline.clone(), caption.clone(), keywords.clone(), copyright.clone(), credit.clone(), source.clone(), instructions.clone(), city.clone(), province.clone(), country.clone(), date.clone(), camera.clone(), lens.clone(), film.clone());
+            let f = (
+                creator.clone(),
+                title.clone(),
+                headline.clone(),
+                caption.clone(),
+                keywords.clone(),
+                copyright.clone(),
+                credit.clone(),
+                source.clone(),
+                instructions.clone(),
+                city.clone(),
+                province.clone(),
+                country.clone(),
+                date.clone(),
+                camera.clone(),
+                lens.clone(),
+                film.clone(),
+            );
             Rc::new(move || Metadata {
                 creator: f.0.text().to_string(),
                 title: f.1.text().to_string(),
@@ -57,7 +74,24 @@ impl Window {
             })
         };
         let fill: Rc<dyn Fn(&Metadata)> = {
-            let f = (creator.clone(), title.clone(), headline.clone(), caption.clone(), keywords.clone(), copyright.clone(), credit.clone(), source.clone(), instructions.clone(), city.clone(), province.clone(), country.clone(), date.clone(), camera.clone(), lens.clone(), film.clone());
+            let f = (
+                creator.clone(),
+                title.clone(),
+                headline.clone(),
+                caption.clone(),
+                keywords.clone(),
+                copyright.clone(),
+                credit.clone(),
+                source.clone(),
+                instructions.clone(),
+                city.clone(),
+                province.clone(),
+                country.clone(),
+                date.clone(),
+                camera.clone(),
+                lens.clone(),
+                film.clone(),
+            );
             Rc::new(move |m: &Metadata| {
                 f.0.set_text(&m.creator);
                 f.1.set_text(&m.title);

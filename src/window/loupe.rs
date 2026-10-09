@@ -9,7 +9,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use adw::subclass::prelude::ObjectSubclassIsExt;
 use gtk::gdk;
-use nv_process::{tiles::freeze, ProcessParams, Proxy};
+use nv_process::{ProcessParams, Proxy, tiles::freeze};
 use nv_store::RawReader;
 
 use super::Window;
@@ -27,15 +27,8 @@ impl Window {
     /// The loupe's frame, an overlay in the corner of the canvas.
     pub(super) fn build_loupe(&self) -> gtk::Frame {
         let picture = gtk::Picture::builder().content_fit(gtk::ContentFit::ScaleDown).can_shrink(false).width_request(SIZE as i32).height_request(SIZE as i32).build();
-        let frame = gtk::Frame::builder()
-            .child(&picture)
-            .halign(gtk::Align::End)
-            .valign(gtk::Align::End)
-            .margin_end(12)
-            .margin_bottom(12)
-            .visible(false)
-            .css_classes(["card"])
-            .build();
+        let frame =
+            gtk::Frame::builder().child(&picture).halign(gtk::Align::End).valign(gtk::Align::End).margin_end(12).margin_bottom(12).visible(false).css_classes(["card"]).build();
         frame.set_tooltip_text(Some("1:1 at the scan's resolution, with every filter at full quality"));
         *self.imp().loupe_picture.borrow_mut() = Some(picture);
         frame
@@ -93,8 +86,7 @@ impl Window {
 
     fn update_loupe(&self) {
         let imp = self.imp();
-        let (Some(proxy), Some(params), Some((sw, sh))) =
-            (imp.proxy.borrow().clone(), imp.proc_params.borrow().clone(), self.scan_image_size().map(|(w, h)| (w as u32, h as u32)))
+        let (Some(proxy), Some(params), Some((sw, sh))) = (imp.proxy.borrow().clone(), imp.proc_params.borrow().clone(), self.scan_image_size().map(|(w, h)| (w as u32, h as u32)))
         else {
             return;
         };
@@ -174,10 +166,7 @@ impl Window {
             nv_process::densitometer::sample(&last.2, last.0, last.1, 3, p[0], p[1], 1)
         };
         label.set_label(&match (before, after) {
-            (Some(b), Some(a)) => format!(
-                "R {:4.1}→{:3.0}  G {:4.1}→{:3.0}  B {:4.1}→{:3.0}",
-                b[0] * 100.0, a[0], b[1] * 100.0, a[1], b[2] * 100.0, a[2]
-            ),
+            (Some(b), Some(a)) => format!("R {:4.1}→{:3.0}  G {:4.1}→{:3.0}  B {:4.1}→{:3.0}", b[0] * 100.0, a[0], b[1] * 100.0, a[1], b[2] * 100.0, a[2]),
             _ => String::new(),
         });
     }
@@ -337,7 +326,7 @@ fn render_block(
 mod tests {
     use super::*;
     use nv_film::builtin_profiles;
-    use nv_process::{default_params_for, DustMode, NoiseLevel, Orientation, UsmParams};
+    use nv_process::{DustMode, NoiseLevel, Orientation, UsmParams, default_params_for};
     use std::sync::Arc;
 
     fn tulip() -> nv_image::FrameBuf {

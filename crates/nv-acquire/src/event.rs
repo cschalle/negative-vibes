@@ -29,9 +29,7 @@ pub enum ScanEvent {
     DeviceList(Vec<DeviceCapabilities>),
 
     /// The selected device has been opened and options read.
-    DeviceReady {
-        caps: Box<DeviceCapabilities>,
-    },
+    DeviceReady { caps: Box<DeviceCapabilities> },
 
     /// Scan parameters are finalised; height may be None.
     ScanStarted {
@@ -56,12 +54,7 @@ pub enum ScanEvent {
 
     /// The infrared frame of a multi-frame acquisition begins. Its
     /// `DataChunk`s follow (offsets restart at 0), one grey channel.
-    IrFrameStarted {
-        width_px: u32,
-        height_px: Option<u32>,
-        bytes_per_line: usize,
-        depth: u8,
-    },
+    IrFrameStarted { width_px: u32, height_px: Option<u32>, bytes_per_line: usize, depth: u8 },
 
     /// A pass of a multi-pass acquisition begins (`index` counts from 0).
     PassStarted {

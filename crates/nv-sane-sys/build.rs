@@ -16,10 +16,7 @@ fn main() {
 
 fn try_pkg_config() -> bool {
     // pkg-config is optional; skip gracefully if not found or not configured.
-    let Ok(output) = std::process::Command::new("pkg-config")
-        .args(["--libs", "--silence-errors", "sane-backends"])
-        .output()
-    else {
+    let Ok(output) = std::process::Command::new("pkg-config").args(["--libs", "--silence-errors", "sane-backends"]).output() else {
         return false;
     };
     if !output.status.success() {
@@ -49,8 +46,7 @@ fn try_manual_link() -> bool {
             let out = std::env::var("OUT_DIR").unwrap();
             let link = format!("{out}/libsane.so");
             if !std::path::Path::new(&link).exists() {
-                std::os::unix::fs::symlink(&so1, &link)
-                    .expect("failed to create libsane.so symlink in OUT_DIR");
+                std::os::unix::fs::symlink(&so1, &link).expect("failed to create libsane.so symlink in OUT_DIR");
             }
             println!("cargo:rustc-link-search=native={out}");
             println!("cargo:rustc-link-search=native={dir}");

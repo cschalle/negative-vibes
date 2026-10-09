@@ -1,15 +1,13 @@
-use std::ffi::{CStr, CString};
-use std::os::raw::c_void;
-use std::ptr;
-use nv_sane_sys as sys;
 use crate::{
     Result, SaneError,
     error::check,
-    option::{
-        OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue, SetInfo,
-    },
+    option::{OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue, SetInfo},
     parameters::Parameters,
 };
+use nv_sane_sys as sys;
+use std::ffi::{CStr, CString};
+use std::os::raw::c_void;
+use std::ptr;
 
 /// An opened SANE device handle.
 ///
@@ -29,15 +27,7 @@ impl Handle {
     /// Number of options (reads option 0, which always gives the count).
     pub fn option_count(&self) -> Result<usize> {
         let mut count: sys::SANE_Int = 0;
-        let status = unsafe {
-            sys::sane_control_option(
-                self.raw,
-                0,
-                sys::SANE_ACTION_GET_VALUE,
-                &mut count as *mut sys::SANE_Int as *mut c_void,
-                ptr::null_mut(),
-            )
-        };
+        let status = unsafe { sys::sane_control_option(self.raw, 0, sys::SANE_ACTION_GET_VALUE, &mut count as *mut sys::SANE_Int as *mut c_void, ptr::null_mut()) };
         check(status)?;
         Ok(count as usize)
     }
@@ -45,9 +35,7 @@ impl Handle {
     /// Descriptor for option at `index`.  Returns `None` if the backend does
     /// not provide a descriptor for that slot (legal per SANE spec).
     pub fn option_descriptor(&self, index: usize) -> Option<OptionDescriptor> {
-        let raw = unsafe {
-            sys::sane_get_option_descriptor(self.raw, index as sys::SANE_Int)
-        };
+        let raw = unsafe { sys::sane_get_option_descriptor(self.raw, index as sys::SANE_Int) };
         if raw.is_null() {
             return None;
         }
@@ -72,11 +60,8 @@ impl Handle {
                     OptionConstraint::None
                 } else {
                     let r = unsafe { &*rp };
-                    let (min, max, quant) = if is_fixed {
-                        (sys::sane_unfix(r.min), sys::sane_unfix(r.max), sys::sane_unfix(r.quant))
-                    } else {
-                        (r.min as f64, r.max as f64, r.quant as f64)
-                    };
+                    let (min, max, quant) =
+                        if is_fixed { (sys::sane_unfix(r.min), sys::sane_unfix(r.max), sys::sane_unfix(r.quant)) } else { (r.min as f64, r.max as f64, r.quant as f64) };
                     OptionConstraint::Range { min, max, quant }
                 }
             }
@@ -102,10 +87,10 @@ impl Handle {
                     let mut i = 0usize;
                     loop {
                         let sp = unsafe { *lp.add(i) };
-                        if sp.is_null() { break; }
-                        let s = unsafe { CStr::from_ptr(sp) }
-                            .to_string_lossy()
-                            .into_owned();
+                        if sp.is_null() {
+                            break;
+                        }
+                        let s = unsafe { CStr::from_ptr(sp) }.to_string_lossy().into_owned();
                         strings.push(s);
                         i += 1;
                     }
@@ -132,7 +117,8 @@ impl Handle {
     pub fn all_options(&self) -> Result<Vec<OptionDescriptor>> {
         let count = self.option_count()?;
         let mut opts = Vec::with_capacity(count);
-        for i in 1..count {     // slot 0 is the count pseudo-option
+        for i in 1..count {
+            // slot 0 is the count pseudo-option
             if let Some(d) = self.option_descriptor(i) {
                 opts.push(d);
             }
@@ -146,53 +132,27 @@ impl Handle {
         match desc.kind {
             OptionKind::Bool => {
                 let mut v: sys::SANE_Bool = 0;
-                let status = unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_GET_VALUE,
-                        &mut v as *mut sys::SANE_Bool as *mut c_void,
-                        ptr::null_mut(),
-                    )
-                };
+                let status = unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_GET_VALUE, &mut v as *mut sys::SANE_Bool as *mut c_void, ptr::null_mut()) };
                 check(status)?;
                 Ok(OptionValue::Bool(v != sys::SANE_FALSE))
             }
             OptionKind::Int => {
                 let mut v: sys::SANE_Int = 0;
-                let status = unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_GET_VALUE,
-                        &mut v as *mut sys::SANE_Int as *mut c_void,
-                        ptr::null_mut(),
-                    )
-                };
+                let status = unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_GET_VALUE, &mut v as *mut sys::SANE_Int as *mut c_void, ptr::null_mut()) };
                 check(status)?;
                 Ok(OptionValue::Int(v))
             }
             OptionKind::Fixed => {
                 let mut v: sys::SANE_Fixed = 0;
-                let status = unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_GET_VALUE,
-                        &mut v as *mut sys::SANE_Fixed as *mut c_void,
-                        ptr::null_mut(),
-                    )
-                };
+                let status = unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_GET_VALUE, &mut v as *mut sys::SANE_Fixed as *mut c_void, ptr::null_mut()) };
                 check(status)?;
                 Ok(OptionValue::Fixed(sys::sane_unfix(v)))
             }
             OptionKind::String => {
                 let mut buf = vec![0u8; desc.size.max(256)];
-                let status = unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_GET_VALUE,
-                        buf.as_mut_ptr() as *mut c_void,
-                        ptr::null_mut(),
-                    )
-                };
+                let status = unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_GET_VALUE, buf.as_mut_ptr() as *mut c_void, ptr::null_mut()) };
                 check(status)?;
-                let s = CStr::from_bytes_until_nul(&buf)
-                    .map(|c| c.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+                let s = CStr::from_bytes_until_nul(&buf).map(|c| c.to_string_lossy().into_owned()).unwrap_or_default();
                 Ok(OptionValue::String(s))
             }
             OptionKind::Button | OptionKind::Group => Ok(OptionValue::Button),
@@ -206,50 +166,25 @@ impl Handle {
         let status = match value {
             OptionValue::Bool(b) => {
                 let mut v: sys::SANE_Bool = if *b { sys::SANE_TRUE } else { sys::SANE_FALSE };
-                unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_SET_VALUE,
-                        &mut v as *mut sys::SANE_Bool as *mut c_void, &mut info,
-                    )
-                }
+                unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_SET_VALUE, &mut v as *mut sys::SANE_Bool as *mut c_void, &mut info) }
             }
             OptionValue::Int(n) => {
                 let mut v: sys::SANE_Int = *n;
-                unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_SET_VALUE,
-                        &mut v as *mut sys::SANE_Int as *mut c_void, &mut info,
-                    )
-                }
+                unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_SET_VALUE, &mut v as *mut sys::SANE_Int as *mut c_void, &mut info) }
             }
             OptionValue::Fixed(f) => {
                 let mut v: sys::SANE_Fixed = sys::sane_fix(*f);
-                unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_SET_VALUE,
-                        &mut v as *mut sys::SANE_Fixed as *mut c_void, &mut info,
-                    )
-                }
+                unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_SET_VALUE, &mut v as *mut sys::SANE_Fixed as *mut c_void, &mut info) }
             }
             OptionValue::String(s) => {
                 let c = CString::new(s.as_str())?;
                 let mut buf = c.into_bytes_with_nul();
                 buf.resize(desc.size.max(buf.len()), 0);
-                unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_SET_VALUE,
-                        buf.as_mut_ptr() as *mut c_void, &mut info,
-                    )
-                }
+                unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_SET_VALUE, buf.as_mut_ptr() as *mut c_void, &mut info) }
             }
             OptionValue::Button => {
                 let mut v: sys::SANE_Int = 0;
-                unsafe {
-                    sys::sane_control_option(
-                        self.raw, index, sys::SANE_ACTION_SET_VALUE,
-                        &mut v as *mut sys::SANE_Int as *mut c_void, &mut info,
-                    )
-                }
+                unsafe { sys::sane_control_option(self.raw, index, sys::SANE_ACTION_SET_VALUE, &mut v as *mut sys::SANE_Int as *mut c_void, &mut info) }
             }
         };
         check(status)?;
@@ -257,11 +192,7 @@ impl Handle {
     }
 
     /// Set an option by name. Returns `Ok(None)` if the option does not exist.
-    pub fn set_option_by_name(
-        &self,
-        name: &str,
-        value: &OptionValue,
-    ) -> Result<Option<SetInfo>> {
+    pub fn set_option_by_name(&self, name: &str, value: &OptionValue) -> Result<Option<SetInfo>> {
         let count = self.option_count()?;
         for i in 1..count {
             if let Some(desc) = self.option_descriptor(i) {
@@ -277,20 +208,10 @@ impl Handle {
 
     /// Query scan parameters (call after `start`, when they are final).
     pub fn get_parameters(&self) -> Result<Parameters> {
-        let mut raw: sys::SANE_Parameters = sys::SANE_Parameters {
-            format: 0,
-            last_frame: sys::SANE_FALSE,
-            bytes_per_line: 0,
-            pixels_per_line: 0,
-            lines: 0,
-            depth: 0,
-        };
+        let mut raw: sys::SANE_Parameters = sys::SANE_Parameters { format: 0, last_frame: sys::SANE_FALSE, bytes_per_line: 0, pixels_per_line: 0, lines: 0, depth: 0 };
         let status = unsafe { sys::sane_get_parameters(self.raw, &mut raw) };
         check(status)?;
-        Parameters::from_raw(raw).ok_or(SaneError::Status {
-            code: 0,
-            message: "unsupported SANE frame format".into(),
-        })
+        Parameters::from_raw(raw).ok_or(SaneError::Status { code: 0, message: "unsupported SANE frame format".into() })
     }
 
     /// Begin a scan frame. Call `get_parameters` after this to get final dimensions.
@@ -302,14 +223,7 @@ impl Handle {
     /// Returns `Ok(0)` on EOF (end of frame).
     pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
         let mut len: sys::SANE_Int = 0;
-        let status = unsafe {
-            sys::sane_read(
-                self.raw,
-                buf.as_mut_ptr(),
-                buf.len() as sys::SANE_Int,
-                &mut len,
-            )
-        };
+        let status = unsafe { sys::sane_read(self.raw, buf.as_mut_ptr(), buf.len() as sys::SANE_Int, &mut len) };
         match status {
             sys::SANE_STATUS_GOOD => Ok(len as usize),
             sys::SANE_STATUS_EOF => Ok(0),
@@ -334,7 +248,5 @@ fn cstr_opt(ptr: sys::SANE_String_Const) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    unsafe { CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .into_owned()
+    unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
 }

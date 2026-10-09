@@ -8,7 +8,7 @@ use adw::subclass::prelude::ObjectSubclassIsExt;
 use gtk::gdk;
 use nv_store::{Frame, FrameState, RawReader, RawWriter, Roll, RollStore};
 
-use super::{imp, Window};
+use super::{Window, imp};
 use crate::canvas_geom as geom;
 
 /// Longest side of a sidebar thumbnail, in pixels.
@@ -33,11 +33,7 @@ pub(super) struct Source {
 }
 
 fn now_iso() -> String {
-    glib::DateTime::now_utc()
-        .ok()
-        .and_then(|d| d.format_iso8601().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_default()
+    glib::DateTime::now_utc().ok().and_then(|d| d.format_iso8601().ok()).map(|s| s.to_string()).unwrap_or_default()
 }
 
 impl Window {
@@ -79,20 +75,20 @@ impl Window {
         let roll = self.imp().roll.borrow();
         let frame = roll.as_ref()?.frame(idx)?;
         let orient = nv_process::Orientation { rotation: frame.geometry.rotation % 4, flip_h: frame.geometry.flip_h, flip_v: frame.geometry.flip_v };
-        let preview = frame.preview.as_ref().and_then(|p| Some(Source { path: self.raw_file(p)?, is_preview: true, crop: frame.geometry.crop, orientation: orient, angle: frame.geometry.angle }));
+        let preview = frame
+            .preview
+            .as_ref()
+            .and_then(|p| Some(Source { path: self.raw_file(p)?, is_preview: true, crop: frame.geometry.crop, orientation: orient, angle: frame.geometry.angle }));
         // A scanned frame shows its scan (the preview is for framing); the person can ask
         // for the preview instead, to frame it again.
-        let scan = frame
-            .raw
-            .as_ref()
-            .and_then(|r| self.raw_file(&r.filename))
-            .filter(|p| p.exists())
-            .map(|path| Source { path, is_preview: false, crop: None, orientation: orient, angle: frame.geometry.angle });
-        if self.imp().preview_view.borrow().contains(&idx) && preview.is_some() {
-            preview
-        } else {
-            scan.or(preview)
-        }
+        let scan = frame.raw.as_ref().and_then(|r| self.raw_file(&r.filename)).filter(|p| p.exists()).map(|path| Source {
+            path,
+            is_preview: false,
+            crop: None,
+            orientation: orient,
+            angle: frame.geometry.angle,
+        });
+        if self.imp().preview_view.borrow().contains(&idx) && preview.is_some() { preview } else { scan.or(preview) }
     }
 
     fn frame_index_at(&self, position: usize) -> Option<u32> {
@@ -158,8 +154,7 @@ impl Window {
         };
 
         // Frames cut from one preview share its file: only the rectangle moves.
-        let already = self.imp().displayed_file.borrow().as_deref() == Some(src.path.as_path())
-            && self.has_image();
+        let already = self.imp().displayed_file.borrow().as_deref() == Some(src.path.as_path()) && self.has_image();
         if already {
             self.show_frame_rect(&src);
             return;
@@ -209,13 +204,10 @@ impl Window {
 
     /// Put the frame's rectangle on the canvas and set the buttons for it.
     fn show_frame_rect(&self, src: &Source) {
-        let rect = src
-            .crop
-            .filter(|_| src.is_preview)
-            .and_then(|c| {
-                let (w, h) = self.scan_image_size()?;
-                geom::crop_to_rect(c, w as u32, h as u32)
-            });
+        let rect = src.crop.filter(|_| src.is_preview).and_then(|c| {
+            let (w, h) = self.scan_image_size()?;
+            geom::crop_to_rect(c, w as u32, h as u32)
+        });
         self.imp().frame_rect.set(rect);
         if let Some(a) = self.imp().frame_overlay.borrow().as_ref() {
             a.queue_draw();
@@ -256,10 +248,7 @@ impl Window {
         let text = match self.canvas_image_size() {
             None => String::new(),
             Some((w, h)) => {
-                let dpi = self
-                    .selected()
-                    .and_then(|i| imp.roll.borrow().as_ref()?.frame(i)?.raw.as_ref().map(|r| r.scan.resolution_dpi))
-                    .filter(|d| *d > 0);
+                let dpi = self.selected().and_then(|i| imp.roll.borrow().as_ref()?.frame(i)?.raw.as_ref().map(|r| r.scan.resolution_dpi)).filter(|d| *d > 0);
                 match dpi {
                     Some(d) if !imp.preview_ready.get() => format!("{d} ppi · {w:.0} × {h:.0} px"),
                     _ => format!("{w:.0} × {h:.0} px"),
@@ -301,9 +290,7 @@ impl Window {
 
     fn sync_list_selection(&self) {
         let Some(list) = self.imp().frame_list.borrow().clone() else { return };
-        let pos = self.selected().and_then(|sel| {
-            self.imp().roll.borrow().as_ref()?.frames.iter().position(|f| f.index == sel)
-        });
+        let pos = self.selected().and_then(|sel| self.imp().roll.borrow().as_ref()?.frames.iter().position(|f| f.index == sel));
         self.imp().suppress_select.set(true);
         match pos.and_then(|p| list.row_at_index(p as i32)) {
             Some(row) => list.select_row(Some(&row)),
@@ -394,13 +381,7 @@ impl Window {
                 let Some(win) = weak.upgrade() else { return };
                 if let Ok(Some((w, h, px))) = thumb {
                     if w > 0 && h > 0 {
-                        let texture = gdk::MemoryTexture::new(
-                            w as i32,
-                            h as i32,
-                            gdk::MemoryFormat::R8g8b8a8,
-                            &glib::Bytes::from_owned(px),
-                            (w * 4) as usize,
-                        );
+                        let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(px), (w * 4) as usize);
                         win.imp().thumbs.borrow_mut().insert(idx, texture.upcast());
                         win.rebuild_frame_list();
                     }
@@ -474,10 +455,7 @@ impl Window {
             return;
         };
         let preview = imp.roll.borrow().as_ref().and_then(|r| r.frame(idx)?.preview.clone());
-        let showing_it = preview
-            .as_ref()
-            .and_then(|p| self.raw_file(p))
-            .is_some_and(|p| imp.displayed_file.borrow().as_deref() == Some(p.as_path()));
+        let showing_it = preview.as_ref().and_then(|p| self.raw_file(p)).is_some_and(|p| imp.displayed_file.borrow().as_deref() == Some(p.as_path()));
         let (Some(preview), true, Some((iw, ih))) = (preview, showing_it, self.scan_image_size()) else {
             self.show_toast("Preview the film first");
             return;
@@ -488,10 +466,7 @@ impl Window {
             let buf = imp.scan_buf.borrow();
             let Some(buf) = buf.as_ref() else { return };
             let (w, h, rgba) = buf.thumbnail_rgba(1024, None);
-            let luma: Vec<u8> = rgba
-                .chunks_exact(4)
-                .map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8)
-                .collect();
+            let luma: Vec<u8> = rgba.chunks_exact(4).map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8).collect();
             nv_film::detect_frames(&luma, w as usize, h as usize, nv_film::DetectOptions::default())
         };
         let crop_of = |r: [f64; 4]| geom::rect_to_crop(r, iw as u32, ih as u32);
@@ -598,11 +573,7 @@ impl Window {
         }
         let Some(root) = self.imp().roll_root.borrow().clone() else { return };
         let store = RollStore::from_parts(root, Roll::new(""));
-        let jobs: Vec<(u32, PathBuf, PathBuf)> = sources
-            .into_iter()
-            .enumerate()
-            .map(|(i, src)| (i as u32 + 1, src, store.scan_path(i as u32 + 1)))
-            .collect();
+        let jobs: Vec<(u32, PathBuf, PathBuf)> = sources.into_iter().enumerate().map(|(i, src)| (i as u32 + 1, src, store.scan_path(i as u32 + 1))).collect();
 
         self.show_toast("Importing…");
         self.set_busy(true);

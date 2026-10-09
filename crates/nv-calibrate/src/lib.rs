@@ -29,10 +29,7 @@ const EXTRA_DIRS: [&str; 3] = ["/usr/bin", "/usr/local/bin", "/opt/argyll/bin"];
 /// Where a tool lives, if installed.
 pub fn find_tool(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path)
-        .chain(EXTRA_DIRS.iter().map(PathBuf::from))
-        .map(|d| d.join(name))
-        .find(|p| p.is_file())
+    std::env::split_paths(&path).chain(EXTRA_DIRS.iter().map(PathBuf::from)).map(|d| d.join(name)).find(|p| p.is_file())
 }
 
 /// True when both tools are installed.
@@ -42,11 +39,7 @@ pub fn available() -> bool {
 
 /// Where Argyll keeps its chart recognition files, for the user to pick from.
 pub fn chart_dirs() -> Vec<PathBuf> {
-    ["/usr/share/color/argyll/ref", "/usr/local/share/color/argyll/ref", "/usr/share/argyllcms/ref"]
-        .iter()
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .collect()
+    ["/usr/share/color/argyll/ref", "/usr/local/share/color/argyll/ref", "/usr/share/argyllcms/ref"].iter().map(PathBuf::from).filter(|p| p.is_dir()).collect()
 }
 
 /// The standard IT8.7 chart layout, if Argyll's data is installed.
@@ -89,7 +82,7 @@ pub struct Outcome {
 /// Write the scan as the plain 3-channel 16-bit TIFF `scanin` reads (ours may
 /// carry a fourth, infrared, sample).
 pub fn write_scanin_tiff(scan: &Path, out: &Path) -> Result<()> {
-    use tiff::encoder::{colortype, TiffEncoder};
+    use tiff::encoder::{TiffEncoder, colortype};
     let buf = nv_store::RawReader::read(scan).map_err(|e| Error::Input(format!("reading {}: {e}", scan.display())))?;
     let (w, h) = (buf.width as usize, buf.effective_height().min(buf.rows_available()) as usize);
     if buf.depth != 16 || buf.channels < 3 || w == 0 || h == 0 {
@@ -229,7 +222,14 @@ mod tests {
 
     #[test]
     fn bad_jobs_are_refused_before_running_anything() {
-        let job = Job { scan: "/nonexistent.tif".into(), chart: "/nonexistent.cht".into(), reference: "/nonexistent.txt".into(), out_dir: std::env::temp_dir(), name: "x".into(), corners: None };
+        let job = Job {
+            scan: "/nonexistent.tif".into(),
+            chart: "/nonexistent.cht".into(),
+            reference: "/nonexistent.txt".into(),
+            out_dir: std::env::temp_dir(),
+            name: "x".into(),
+            corners: None,
+        };
         let e = calibrate(&job);
         assert!(matches!(e, Err(Error::Input(_)) | Err(Error::NoArgyll)), "{e:?}");
     }

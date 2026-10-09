@@ -38,7 +38,11 @@ impl Window {
         let name = adw::EntryRow::builder().title("Film Name").build();
         let iso = adw::SpinRow::builder().title("ISO").adjustment(&gtk::Adjustment::new(100.0, 0.0, 6400.0, 50.0, 100.0, 0.0)).build();
         let kind = adw::ComboRow::builder().title("Type").model(&gtk::StringList::new(&KINDS.map(|k| k.0))).build();
-        let steps = adw::SpinRow::builder().title("Wedge Steps").subtitle("How many steps the wedge has in the cropped area").adjustment(&gtk::Adjustment::new(21.0, 6.0, 64.0, 1.0, 5.0, 0.0)).build();
+        let steps = adw::SpinRow::builder()
+            .title("Wedge Steps")
+            .subtitle("How many steps the wedge has in the cropped area")
+            .adjustment(&gtk::Adjustment::new(21.0, 6.0, 64.0, 1.0, 5.0, 0.0))
+            .build();
         let status = gtk::Label::builder().wrap(true).xalign(0.0).css_classes(["dim-label"]).margin_top(6).build();
 
         let group = adw::PreferencesGroup::builder()

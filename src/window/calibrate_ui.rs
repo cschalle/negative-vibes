@@ -28,9 +28,11 @@ impl Window {
         let reference: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         let chart: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(nv_calibrate::default_chart()));
 
-        let (scan_row, scan_btn) = file_row("Scan of the Target", &scan.borrow().as_ref().map_or("Choose the raw scan".into(), |p| glib::markup_escape_text(&p.display().to_string()).to_string()));
+        let (scan_row, scan_btn) =
+            file_row("Scan of the Target", &scan.borrow().as_ref().map_or("Choose the raw scan".into(), |p| glib::markup_escape_text(&p.display().to_string()).to_string()));
         let (ref_row, ref_btn) = file_row("Target Data", "The measured values file that came with the target");
-        let (chart_row, chart_btn) = file_row("Chart Layout", &chart.borrow().as_ref().map_or("Choose a .cht file".into(), |p| glib::markup_escape_text(&p.display().to_string()).to_string()));
+        let (chart_row, chart_btn) =
+            file_row("Chart Layout", &chart.borrow().as_ref().map_or("Choose a .cht file".into(), |p| glib::markup_escape_text(&p.display().to_string()).to_string()));
         let name = adw::EntryRow::builder().title("Profile Name").text("scanner-it8").build();
         let status = gtk::Label::builder().wrap(true).xalign(0.0).css_classes(["dim-label"]).margin_top(6).build();
 
@@ -50,9 +52,7 @@ impl Window {
         pick(ref_row.clone(), ref_btn, reference.clone(), dialog.clone(), "Target Data");
         pick(chart_row.clone(), chart_btn, chart.clone(), dialog.clone(), "Chart Layout");
 
-        let group = adw::PreferencesGroup::builder()
-            .description("Scan the IT8 slide target with no corrections, then give its data file. The profile is used for slides.")
-            .build();
+        let group = adw::PreferencesGroup::builder().description("Scan the IT8 slide target with no corrections, then give its data file. The profile is used for slides.").build();
         for r in [scan_row.upcast_ref::<gtk::Widget>(), ref_row.upcast_ref(), chart_row.upcast_ref(), name.upcast_ref()] {
             group.add(r);
         }

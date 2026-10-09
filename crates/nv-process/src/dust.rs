@@ -200,7 +200,19 @@ fn default_mark() -> [f32; 3] {
 
 impl Default for DustParams {
     fn default() -> Self {
-        Self { mode: DustMode::Correct, method: DustMethod::Infrared, defect: DefectType::Dark, mark: default_mark(), align: true, ir_shift: None, align_limit: MAX_SHIFT as u32, exclude: Vec::new(), include: Vec::new(), detection: 12, max_area: None }
+        Self {
+            mode: DustMode::Correct,
+            method: DustMethod::Infrared,
+            defect: DefectType::Dark,
+            mark: default_mark(),
+            align: true,
+            ir_shift: None,
+            align_limit: MAX_SHIFT as u32,
+            exclude: Vec::new(),
+            include: Vec::new(),
+            detection: 12,
+            max_area: None,
+        }
     }
 }
 
@@ -777,10 +789,12 @@ fn large_marks(mask: &[u8], w: usize, h: usize, limit: usize) -> Vec<bool> {
 
 fn touches_known(known: &[bool], p: usize, w: usize, h: usize) -> bool {
     let (px, py) = ((p % w) as isize, (p / w) as isize);
-    (-1..=1).any(|dy| (-1..=1).any(|dx| {
-        let (x, y) = (px + dx, py + dy);
-        x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
-    }))
+    (-1..=1).any(|dy| {
+        (-1..=1).any(|dx| {
+            let (x, y) = (px + dx, py + dy);
+            x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
+        })
+    })
 }
 
 /// Fill the pixels in `fill` from the known ones around them, in log
@@ -844,9 +858,11 @@ fn patch_fill(pixels: &mut [f32], known: &mut [bool], fill: &[bool], w: usize, h
             // What is known around this pixel, as offsets.
             let around: Vec<(isize, isize)> = (-P..=P)
                 .flat_map(|dy| (-P..=P).map(move |dx| (dx, dy)))
-                .filter(|(dx, dy)| (*dx, *dy) != (0, 0) && {
-                    let (x, y) = (px + dx, py + dy);
-                    x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
+                .filter(|(dx, dy)| {
+                    (*dx, *dy) != (0, 0) && {
+                        let (x, y) = (px + dx, py + dy);
+                        x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
+                    }
                 })
                 .collect();
             if around.len() < 4 {
@@ -938,7 +954,16 @@ pub fn apply(pixels: &[f32], ir: Option<&[f32]>, w: usize, h: usize, params: &Du
 /// [`apply`] for a block that sits at `origin` in a scan of `full` pixels,
 /// which is where the brush strokes are measured from.
 #[allow(clippy::too_many_arguments)]
-pub fn apply_placed(pixels: &[f32], ir: Option<&[f32]>, w: usize, h: usize, params: &DustParams, factor: usize, origin: (usize, usize), full: (usize, usize)) -> (Vec<f32>, Option<DustReport>) {
+pub fn apply_placed(
+    pixels: &[f32],
+    ir: Option<&[f32]>,
+    w: usize,
+    h: usize,
+    params: &DustParams,
+    factor: usize,
+    origin: (usize, usize),
+    full: (usize, usize),
+) -> (Vec<f32>, Option<DustReport>) {
     if params.mode == DustMode::Off {
         return (pixels.to_vec(), None);
     }
@@ -1055,7 +1080,8 @@ mod tests {
             }
         }
         // Inside, the repair is close to the picture that was there.
-        let worst = spots.iter().flat_map(|i| (0..3).map(move |c| (*i, c))).map(|(i, c)| ((fixed[i * 3 + c] - clean_px[i * 3 + c]) / clean_px[i * 3 + c]).abs()).fold(0.0f32, f32::max);
+        let worst =
+            spots.iter().flat_map(|i| (0..3).map(move |c| (*i, c))).map(|(i, c)| ((fixed[i * 3 + c] - clean_px[i * 3 + c]) / clean_px[i * 3 + c]).abs()).fold(0.0f32, f32::max);
         assert!(worst < 0.05, "repair is {:.1}% off", worst * 100.0);
     }
 
@@ -1143,7 +1169,11 @@ mod tests {
             }
         }
         repair(&mut broken, &mask, W, H);
-        let worst = (0..W * H).filter(|i| mask[*i] == 1).flat_map(|i| (0..3).map(move |c| (i, c))).map(|(i, c)| ((broken[i * 3 + c] - px[i * 3 + c]) / px[i * 3 + c]).abs()).fold(0.0f32, f32::max);
+        let worst = (0..W * H)
+            .filter(|i| mask[*i] == 1)
+            .flat_map(|i| (0..3).map(move |c| (i, c)))
+            .map(|(i, c)| ((broken[i * 3 + c] - px[i * 3 + c]) / px[i * 3 + c]).abs())
+            .fold(0.0f32, f32::max);
         assert!(worst < 0.03, "{worst}");
         let mut all = px.clone();
         repair(&mut all, &vec![1u8; W * H], W, H); // must not hang or panic
@@ -1169,7 +1199,12 @@ mod tests {
         let big = hole(70, 50, 14);
         let mut mask = vec![0u8; W * H];
         let mut broken = grainy.clone();
-        for i in &big { mask[*i] = 1; for c in 0..3 { broken[i * 3 + c] = 9.0; } }
+        for i in &big {
+            mask[*i] = 1;
+            for c in 0..3 {
+                broken[i * 3 + c] = 9.0;
+            }
+        }
         repair(&mut broken, &mask, W, H);
         let (orig, filled) = (spread(&grainy, big.iter().copied()), spread(&broken, big.iter().copied()));
         assert!(filled > 0.5 * orig, "grain lost: {filled} against {orig}");
@@ -1180,7 +1215,12 @@ mod tests {
         let tiny = hole(30, 80, 4);
         let mut mask = vec![0u8; W * H];
         let mut broken = grainy.clone();
-        for i in &tiny { mask[*i] = 1; for c in 0..3 { broken[i * 3 + c] = 9.0; } }
+        for i in &tiny {
+            mask[*i] = 1;
+            for c in 0..3 {
+                broken[i * 3 + c] = 9.0;
+            }
+        }
         repair(&mut broken, &mask, W, H);
         assert!(spread(&broken, tiny.iter().copied()) < 0.5 * spread(&grainy, tiny.iter().copied()) + 0.02, "small marks use the smooth fill");
     }
@@ -1189,10 +1229,23 @@ mod tests {
     #[test]
     fn a_line_through_a_large_mark_continues_through_it() {
         let (mut px, _) = clean();
-        for y in 0..H { for x in W / 2..W { for c in 0..3 { px[(y * W + x) * 3 + c] *= 0.4; } } }
+        for y in 0..H {
+            for x in W / 2..W {
+                for c in 0..3 {
+                    px[(y * W + x) * 3 + c] *= 0.4;
+                }
+            }
+        }
         let mut mask = vec![0u8; W * H];
         let mut broken = px.clone();
-        for y in 50..64 { for x in W / 2 - 7..W / 2 + 7 { mask[y * W + x] = 1; for c in 0..3 { broken[(y * W + x) * 3 + c] = 9.0; } } }
+        for y in 50..64 {
+            for x in W / 2 - 7..W / 2 + 7 {
+                mask[y * W + x] = 1;
+                for c in 0..3 {
+                    broken[(y * W + x) * 3 + c] = 9.0;
+                }
+            }
+        }
         repair(&mut broken, &mask, W, H);
         // The step from the left of the hole to the right of it, along its middle row.
         let row = 57 * W;
@@ -1242,7 +1295,8 @@ mod tests {
         assert!(specks.iter().all(|i| r.mask[*i] == 1), "missed a speck");
         assert!(r.covered < 0.05, "{:.1}%", r.covered * 100.0);
         let (fixed, _) = apply(&px, None, W, H, &params, 1);
-        let worst = specks.iter().flat_map(|i| (0..3).map(move |c| (*i, c))).map(|(i, c)| ((fixed[i * 3 + c] - clean_px[i * 3 + c]) / clean_px[i * 3 + c]).abs()).fold(0.0f32, f32::max);
+        let worst =
+            specks.iter().flat_map(|i| (0..3).map(move |c| (*i, c))).map(|(i, c)| ((fixed[i * 3 + c] - clean_px[i * 3 + c]) / clean_px[i * 3 + c]).abs()).fold(0.0f32, f32::max);
         assert!(worst < 0.06, "repair {:.1}% off", worst * 100.0);
     }
 
@@ -1351,7 +1405,9 @@ mod tests {
         let (clean_px, _) = clean();
         let mut marked = clean_px.clone();
         let (hx, hy) = (80usize, 60usize);
-        for c in 0..3 { marked[(hy * W + hx) * 3 + c] *= 0.2; } // a blemish nothing detects
+        for c in 0..3 {
+            marked[(hy * W + hx) * 3 + c] *= 0.2;
+        } // a blemish nothing detects
         let heal = DustParams { include: vec![Stroke { points: vec![[hx as f32 / W as f32, hy as f32 / H as f32]], radius: 3.0 / W as f32 }], ..Default::default() };
         let (healed, rep) = apply(&marked, None, W, H, &heal, 1);
         assert!(rep.is_some_and(|r| r.mask[hy * W + hx] == 1));
@@ -1464,13 +1520,19 @@ mod tests {
                 for dx in 0..3 {
                     // The speck on the film: dark in colour here, dark in the plane at (+5, -4).
                     let i = (cy + dy) * 192 + cx + dx;
-                    for c in 0..3 { px[i * 3 + c] *= 0.4; }
+                    for c in 0..3 {
+                        px[i * 3 + c] *= 0.4;
+                    }
                     let j = ((cy + dy) as isize - 4) as usize * 192 + cx + dx + 5;
                     ir[j] *= 0.25;
                 }
             }
         }
-        let hit = |p: &DustParams| { let (_, r) = apply(&px, Some(&ir), 192, 144, p, 1); let m = r.unwrap().mask; spot.iter().filter(|(cx, cy)| m[(cy + 1) * 192 + cx + 1] == 1).count() };
+        let hit = |p: &DustParams| {
+            let (_, r) = apply(&px, Some(&ir), 192, 144, p, 1);
+            let m = r.unwrap().mask;
+            spot.iter().filter(|(cx, cy)| m[(cy + 1) * 192 + cx + 1] == 1).count()
+        };
         assert_eq!(hit(&DustParams::default()), 2, "aligned detection missed the dust");
         assert!(hit(&DustParams { align: false, ..Default::default() }) < 2, "misaligned detection should lose it");
     }

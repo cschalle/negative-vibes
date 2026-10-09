@@ -11,11 +11,11 @@ pub mod encode;
 pub mod icc;
 pub mod metadata;
 pub mod naming;
-pub mod settings;
 mod resize;
+pub mod settings;
 mod tiff;
 
 pub use colour::ColourSpace;
-pub use encode::{copy_raw, export_image, export_image_straightened, export_image_with, export_image_full, write_scan_tiff, ExportError, ExportReport};
-pub use naming::{render_template, unique_path, NameContext, NameError};
+pub use encode::{ExportError, ExportReport, copy_raw, export_image, export_image_full, export_image_straightened, export_image_with, write_scan_tiff};
+pub use naming::{NameContext, NameError, render_template, unique_path};
 pub use settings::{Compression, ExportFormat, ExportSettings, OutputSize, Purpose};

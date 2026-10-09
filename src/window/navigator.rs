@@ -52,12 +52,17 @@ impl Window {
         };
         let weak = self.downgrade();
         drag.connect_drag_begin(move |g, x, y| {
-            if let (Some(win), Some(w)) = (weak.upgrade(), g.widget()) { go(&win, &w, x, y); }
+            if let (Some(win), Some(w)) = (weak.upgrade(), g.widget()) {
+                go(&win, &w, x, y);
+            }
         });
         let weak = self.downgrade();
         drag.connect_drag_update(move |g, dx, dy| {
             if let (Some(win), Some(w), Some((sx, sy))) = (weak.upgrade(), g.widget(), g.start_point()) {
-                let (tw, th, _) = match win.navigator_thumbnail() { Some(t) => t, None => return };
+                let (tw, th, _) = match win.navigator_thumbnail() {
+                    Some(t) => t,
+                    None => return,
+                };
                 let (ww, hh) = (w.width() as f64, w.height() as f64);
                 let scale = (ww / tw as f64).min(hh / th as f64);
                 let (ox, oy) = ((ww - tw as f64 * scale) / 2.0, (hh - th as f64 * scale) / 2.0);
@@ -96,7 +101,12 @@ impl Window {
             }
         }
         let o = self.orientation();
-        Some(if o.is_identity() { (tw, th, small) } else { let (ow, oh, px) = o.apply(&small, tw, th, 3); (ow, oh, px) })
+        Some(if o.is_identity() {
+            (tw, th, small)
+        } else {
+            let (ow, oh, px) = o.apply(&small, tw, th, 3);
+            (ow, oh, px)
+        })
     }
 
     /// The part of the picture on screen, as fractions `[x0, y0, x1, y1]`.

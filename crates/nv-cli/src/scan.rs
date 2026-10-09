@@ -98,10 +98,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn wait_for_device(
-    rx: &async_channel::Receiver<ScanEvent>,
-    preferred: Option<&str>,
-) -> anyhow::Result<String> {
+fn wait_for_device(rx: &async_channel::Receiver<ScanEvent>, preferred: Option<&str>) -> anyhow::Result<String> {
     loop {
         let event = rx.recv_blocking().map_err(|_| anyhow::anyhow!("worker channel closed"))?;
         match event {
@@ -110,10 +107,7 @@ fn wait_for_device(
                     return Err(anyhow::anyhow!("No SANE devices found"));
                 }
                 let chosen = match preferred {
-                    Some(name) => caps
-                        .iter()
-                        .find(|c| c.device_name == name)
-                        .ok_or_else(|| anyhow::anyhow!("device '{name}' not found"))?,
+                    Some(name) => caps.iter().find(|c| c.device_name == name).ok_or_else(|| anyhow::anyhow!("device '{name}' not found"))?,
                     None => caps.first().unwrap(),
                 };
                 return Ok(chosen.device_name.clone());
@@ -126,10 +120,7 @@ fn wait_for_device(
 
 /// Collect a scan into a FrameBuf and write the raw PNM to disk.
 /// Strips any backend scanline padding so the PNM is tightly packed.
-fn collect_scan(
-    rx: &async_channel::Receiver<ScanEvent>,
-    output: &PathBuf,
-) -> anyhow::Result<FrameBuf> {
+fn collect_scan(rx: &async_channel::Receiver<ScanEvent>, output: &PathBuf) -> anyhow::Result<FrameBuf> {
     let mut buf_opt: Option<FrameBuf> = None;
 
     loop {
@@ -173,11 +164,7 @@ fn collect_scan(
     let bpr_packed = w as usize * ch * bps;
     let raw = buf.as_bytes();
 
-    println!(
-        "Received {} bytes — {}×{} rows×{} bpr",
-        raw.len(), h, bpr_actual,
-        if bpr_actual == bpr_packed { "(packed)" } else { "(stripping padding)" }
-    );
+    println!("Received {} bytes — {}×{} rows×{} bpr", raw.len(), h, bpr_actual, if bpr_actual == bpr_packed { "(packed)" } else { "(stripping padding)" });
 
     // Write PNM — always tightly packed (strip padding if present).
     let mut f = File::create(output)?;
@@ -191,10 +178,7 @@ fn collect_scan(
     // other tool could read.
     let emit = |f: &mut File, row: &[u8]| -> std::io::Result<()> {
         if buf.depth > 8 {
-            let be: Vec<u8> = row
-                .chunks_exact(2)
-                .flat_map(|p| u16::from_ne_bytes([p[0], p[1]]).to_be_bytes())
-                .collect();
+            let be: Vec<u8> = row.chunks_exact(2).flat_map(|p| u16::from_ne_bytes([p[0], p[1]]).to_be_bytes()).collect();
             f.write_all(&be)
         } else {
             f.write_all(row)

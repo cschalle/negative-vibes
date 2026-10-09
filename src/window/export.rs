@@ -3,7 +3,7 @@
 
 use adw::prelude::*;
 use adw::subclass::prelude::ObjectSubclassIsExt;
-use nv_export::{render_template, ExportSettings, NameContext};
+use nv_export::{ExportSettings, NameContext, render_template};
 use nv_store::{ExportRecord, FrameState, Roll, RollStore};
 
 use super::Window;
@@ -28,19 +28,11 @@ pub struct JobInfo {
 }
 
 fn today() -> String {
-    glib::DateTime::now_local()
-        .ok()
-        .and_then(|d| d.format("%Y-%m-%d").ok())
-        .map(|s| s.to_string())
-        .unwrap_or_default()
+    glib::DateTime::now_local().ok().and_then(|d| d.format("%Y-%m-%d").ok()).map(|s| s.to_string()).unwrap_or_default()
 }
 
 fn now_iso() -> String {
-    glib::DateTime::now_utc()
-        .ok()
-        .and_then(|d| d.format_iso8601().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_default()
+    glib::DateTime::now_utc().ok().and_then(|d| d.format_iso8601().ok()).map(|s| s.to_string()).unwrap_or_default()
 }
 
 /// Folder names the roll's name can safely become.
@@ -123,8 +115,7 @@ impl Window {
         let weak = self.downgrade();
         show.connect_activate(move |_, target| {
             let (Some(win), Some(path)) = (weak.upgrade(), target.and_then(|t| t.get::<String>())) else { return };
-            gtk::FileLauncher::new(Some(&gio::File::for_path(path)))
-                .open_containing_folder(Some(&win), None::<&gio::Cancellable>, |_| {});
+            gtk::FileLauncher::new(Some(&gio::File::for_path(path))).open_containing_folder(Some(&win), None::<&gio::Cancellable>, |_| {});
         });
         self.add_action(&show);
 
@@ -150,12 +141,10 @@ impl Window {
 
     /// Where exports go: the chosen folder, else `~/Pictures/Scans/<roll>`.
     pub(super) fn export_folder(&self, settings: &ExportSettings) -> std::path::PathBuf {
-        settings.folder.clone().unwrap_or_else(|| {
-            glib::user_special_dir(glib::UserDirectory::Pictures)
-                .unwrap_or_else(glib::home_dir)
-                .join("Scans")
-                .join(folder_safe(&self.roll_name()))
-        })
+        settings
+            .folder
+            .clone()
+            .unwrap_or_else(|| glib::user_special_dir(glib::UserDirectory::Pictures).unwrap_or_else(glib::home_dir).join("Scans").join(folder_safe(&self.roll_name())))
     }
 
     /// The file name (no extension) `frame` would be exported under.
@@ -164,13 +153,7 @@ impl Window {
         let f = roll.as_ref().and_then(|r| r.frame(frame));
         render_template(
             template,
-            &NameContext {
-                roll: self.roll_name(),
-                frame,
-                label: f.and_then(|f| f.label.clone()),
-                film: roll.as_ref().and_then(|r| r.film_stock.clone()),
-                date: today(),
-            },
+            &NameContext { roll: self.roll_name(), frame, label: f.and_then(|f| f.label.clone()), film: roll.as_ref().and_then(|r| r.film_stock.clone()), date: today() },
         )
     }
 
@@ -246,7 +229,20 @@ impl Window {
             self.imp().next_export_id.set(id);
             let label = format!("Frame {idx}");
             self.imp().export_jobs.borrow_mut().push(JobInfo { id, frame: idx, label: label.clone(), state: JobState::Queued, fraction: 0.0 });
-            queue.enqueue(ExportJob { id, frame: idx, label, raw, params: self.effective_params(idx), orientation: self.orientation_of(idx), angle: self.angle_of(idx), xmp: self.frame_xmp(idx, &settings), dng: self.frame_dng_info(idx, &settings), settings: settings.clone(), dir: dir.clone(), stem });
+            queue.enqueue(ExportJob {
+                id,
+                frame: idx,
+                label,
+                raw,
+                params: self.effective_params(idx),
+                orientation: self.orientation_of(idx),
+                angle: self.angle_of(idx),
+                xmp: self.frame_xmp(idx, &settings),
+                dng: self.frame_dng_info(idx, &settings),
+                settings: settings.clone(),
+                dir: dir.clone(),
+                stem,
+            });
             queued += 1;
         }
         self.refresh_queue_ui();
@@ -350,18 +346,14 @@ impl Window {
         title.set_hexpand(true);
         head.append(&title);
         head.append(&clear);
-        let body = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).margin_top(12).margin_bottom(12).margin_start(12).margin_end(12).width_request(320).build();
+        let body =
+            gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).margin_top(12).margin_bottom(12).margin_start(12).margin_end(12).width_request(320).build();
         body.append(&head);
         let scroll = gtk::ScrolledWindow::builder().child(&list).max_content_height(320).propagate_natural_height(true).hscrollbar_policy(gtk::PolicyType::Never).build();
         body.append(&scroll);
         let popover = gtk::Popover::builder().child(&body).build();
 
-        let btn = gtk::MenuButton::builder()
-            .icon_name("document-send-symbolic")
-            .tooltip_text("Exports")
-            .popover(&popover)
-            .visible(false)
-            .build();
+        let btn = gtk::MenuButton::builder().icon_name("document-send-symbolic").tooltip_text("Exports").popover(&popover).visible(false).build();
         *self.imp().queue_list.borrow_mut() = Some(list);
         btn
     }

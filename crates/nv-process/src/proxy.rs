@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use nv_image::{read_sample, FrameBuf};
+use nv_image::{FrameBuf, read_sample};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -171,7 +171,10 @@ impl Proxy {
             }
         }
         let p = Self::new(w, h, factor, pixels).placed((0, 0), (rw, rh));
-        match ir { Some(ir) => p.with_ir(ir), None => p }
+        match ir {
+            Some(ir) => p.with_ir(ir),
+            None => p,
+        }
     }
 
     /// Decode the `w × h` block of `raw` at `(x0, y0)` at full resolution.
@@ -203,7 +206,10 @@ impl Proxy {
             }
         }
         let p = Self::new(w, h, 1, pixels).placed((x0, y0), (rw, rh));
-        match ir { Some(ir) => p.with_ir(ir), None => p }
+        match ir {
+            Some(ir) => p.with_ir(ir),
+            None => p,
+        }
     }
 
     /// A small RGBA8 picture of the proxy, longest side `max_side`, averaged
@@ -334,7 +340,9 @@ mod tests {
         let cropped = whole.crop([0.5, 0.5, 1.0, 1.0]);
         assert_eq!((cropped.origin, cropped.full), ((20, 16), (40, 30)));
         let mut sb = ProxyBuilder::new(40, 30, 300);
-        for y in 0..30 { sb.add_row(y, &vec![0.4; 120]); }
+        for y in 0..30 {
+            sb.add_row(y, &vec![0.4; 120]);
+        }
         assert_eq!(sb.finish().full, (40, 30));
     }
 

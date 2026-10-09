@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use nv_image::FrameBuf;
-use nv_process::tiles::{render_toned_region_straightened, TILE};
+use nv_process::tiles::{TILE, render_toned_region_straightened};
 use nv_process::{Orientation, ProcessParams};
 
 use crate::colour::{ColourSpace, GREY_GAMMA};
@@ -101,7 +101,11 @@ impl Encoder {
     fn band(&self, toned: &[f32]) -> Samples {
         let n = toned.len() / 3;
         let (mut o8, mut o16) = (Vec::new(), Vec::new());
-        if self.depth == 16 { o16.reserve(n * if self.grey { 1 } else { 3 }) } else { o8.reserve(n * if self.grey { 1 } else { 3 }) }
+        if self.depth == 16 {
+            o16.reserve(n * if self.grey { 1 } else { 3 })
+        } else {
+            o8.reserve(n * if self.grey { 1 } else { 3 })
+        }
         for px in toned.chunks_exact(3) {
             if self.grey {
                 let y = 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2];
@@ -257,7 +261,16 @@ pub fn export_image_full(
 
 /// The raw scan as a linear DNG: the frame's orientation rides along as a
 /// tag, and the scanner's profile, if the frame uses one, in the colour matrix.
-fn export_dng(raw: &FrameBuf, frozen: &ProcessParams, orientation: Orientation, xmp: Option<&[u8]>, dng: Option<&crate::dng::DngInfo>, dest: &Path, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<ExportReport, ExportError> {
+fn export_dng(
+    raw: &FrameBuf,
+    frozen: &ProcessParams,
+    orientation: Orientation,
+    xmp: Option<&[u8]>,
+    dng: Option<&crate::dng::DngInfo>,
+    dest: &Path,
+    progress: &dyn Fn(f32),
+    cancel: &AtomicBool,
+) -> Result<ExportReport, ExportError> {
     let part = temp_name(dest);
     let result = (|| {
         let file = BufWriter::new(File::create(&part)?);
@@ -343,7 +356,8 @@ type Bands<'a> = &'a mut dyn FnMut(&mut dyn FnMut(Samples, usize) -> Result<(), 
 
 fn write_tiff<W: Write + Seek>(out: W, s: &ExportSettings, w: usize, h: usize, profile: Option<&[u8]>, xmp: Option<&[u8]>, bands: Bands) -> Result<(), ExportError> {
     let channels = if s.grey { 1 } else { 3 };
-    let mut tiff = TiffWriter::new(out, w as u32, h as u32, channels, s.bit_depth as u16, s.compression, TIFF_STRIP_ROWS, profile.map(<[u8]>::to_vec))?.with_xmp(xmp.map(<[u8]>::to_vec));
+    let mut tiff =
+        TiffWriter::new(out, w as u32, h as u32, channels, s.bit_depth as u16, s.compression, TIFF_STRIP_ROWS, profile.map(<[u8]>::to_vec))?.with_xmp(xmp.map(<[u8]>::to_vec));
     bands(&mut |samples, rows| {
         match samples {
             Samples::U8(v) => tiff.write_rows_u8(rows as u32, &v)?,

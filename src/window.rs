@@ -1,6 +1,6 @@
 pub(crate) mod imp {
-    use std::cell::{Cell, RefCell};
     use adw::subclass::prelude::*;
+    use std::cell::{Cell, RefCell};
 
     #[derive(Default)]
     pub struct Window {
@@ -252,7 +252,9 @@ pub(crate) mod imp {
     pub enum ScanUiState {
         #[default]
         NoScanner,
-        Ready { device_name: String },
+        Ready {
+            device_name: String,
+        },
         #[allow(dead_code)]
         Previewing,
         #[allow(dead_code)]
@@ -282,16 +284,16 @@ pub(crate) mod imp {
 mod batch;
 mod calibrate_ui;
 mod colour_ui;
-mod film_ui;
-mod guided_ui;
 mod export;
 mod export_dialog;
+mod film_ui;
 mod frames;
+mod guided_ui;
 mod history;
 mod loupe;
+mod mask;
 mod metadata_ui;
 mod navigator;
-mod mask;
 mod orient;
 mod preferences_ui;
 mod render;
@@ -317,9 +319,7 @@ glib::wrapper! {
 
 impl Window {
     pub fn new(app: &gtk::Application) -> Self {
-        glib::Object::builder()
-            .property("application", app)
-            .build()
+        glib::Object::builder().property("application", app).build()
     }
 
     // ── Build ─────────────────────────────────────────────────────────────────
@@ -330,21 +330,11 @@ impl Window {
         // ── Header bar ────────────────────────────────────────────────────
         let header = adw::HeaderBar::new();
 
-        let sidebar_btn = gtk::ToggleButton::builder()
-            .icon_name("sidebar-show-symbolic")
-            .tooltip_text("Show Frames")
-            .build();
+        let sidebar_btn = gtk::ToggleButton::builder().icon_name("sidebar-show-symbolic").tooltip_text("Show Frames").build();
 
-        let inspector_btn = gtk::ToggleButton::builder()
-            .icon_name("view-dual-symbolic")
-            .tooltip_text("Show Inspector (Ctrl+I)")
-            .build();
+        let inspector_btn = gtk::ToggleButton::builder().icon_name("view-dual-symbolic").tooltip_text("Show Inspector (Ctrl+I)").build();
 
-        let preview_btn = gtk::Button::builder()
-            .label("Preview")
-            .tooltip_text("Preview the current frame (Ctrl+R)")
-            .sensitive(false)
-            .build();
+        let preview_btn = gtk::Button::builder().label("Preview").tooltip_text("Preview the current frame (Ctrl+R)").sensitive(false).build();
 
         let scan_menu = gio::Menu::new();
         scan_menu.append(Some("Scan Selected Frames"), Some("win.scan-selected"));
@@ -359,11 +349,7 @@ impl Window {
             .sensitive(false)
             .build();
 
-        let export_btn = gtk::Button::builder()
-            .label("Export")
-            .action_name("win.export")
-            .tooltip_text("Export frames (Ctrl+E)")
-            .build();
+        let export_btn = gtk::Button::builder().label("Export").action_name("win.export").tooltip_text("Export frames (Ctrl+E)").build();
         let queue_btn = self.build_queue_button();
 
         let main_menu = gio::Menu::new();
@@ -379,10 +365,7 @@ impl Window {
         main_menu.append(Some("Preferences"), Some("win.preferences"));
         let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&main_menu).tooltip_text("Main Menu").build();
 
-        let open_btn = gtk::Button::builder()
-            .icon_name("folder-open-symbolic")
-            .tooltip_text("Open Roll…")
-            .build();
+        let open_btn = gtk::Button::builder().icon_name("folder-open-symbolic").tooltip_text("Open Roll…").build();
 
         let title_widget = adw::WindowTitle::new("Negative Vibes", "");
 
@@ -397,46 +380,15 @@ impl Window {
         header.pack_end(&inspector_btn);
 
         // ── Bottom bar ────────────────────────────────────────────────────
-        let zoom_out = gtk::Button::builder()
-            .icon_name("zoom-out-symbolic")
-            .action_name("win.zoom-out")
-            .tooltip_text("Zoom Out (Ctrl+−)")
-            .css_classes(["flat"])
-            .build();
-        let zoom_label = gtk::Button::builder()
-            .label("Fit")
-            .action_name("win.zoom-fit")
-            .tooltip_text("Fit to Window (Ctrl+0)")
-            .css_classes(["flat"])
-            .width_request(64)
-            .build();
-        let zoom_in = gtk::Button::builder()
-            .icon_name("zoom-in-symbolic")
-            .action_name("win.zoom-in")
-            .tooltip_text("Zoom In (Ctrl++)")
-            .css_classes(["flat"])
-            .build();
-        let zoom_100 = gtk::Button::builder()
-            .label("1:1")
-            .action_name("win.zoom-100")
-            .tooltip_text("Actual Pixels (Ctrl+1)")
-            .css_classes(["flat"])
-            .build();
+        let zoom_out = gtk::Button::builder().icon_name("zoom-out-symbolic").action_name("win.zoom-out").tooltip_text("Zoom Out (Ctrl+−)").css_classes(["flat"]).build();
+        let zoom_label = gtk::Button::builder().label("Fit").action_name("win.zoom-fit").tooltip_text("Fit to Window (Ctrl+0)").css_classes(["flat"]).width_request(64).build();
+        let zoom_in = gtk::Button::builder().icon_name("zoom-in-symbolic").action_name("win.zoom-in").tooltip_text("Zoom In (Ctrl++)").css_classes(["flat"]).build();
+        let zoom_100 = gtk::Button::builder().label("1:1").action_name("win.zoom-100").tooltip_text("Actual Pixels (Ctrl+1)").css_classes(["flat"]).build();
         let info_label = gtk::Label::builder().css_classes(["dim-label", "numeric"]).build();
 
-        let progress_bar = gtk::ProgressBar::builder()
-            .hexpand(true)
-            .visible(false)
-            .build();
+        let progress_bar = gtk::ProgressBar::builder().hexpand(true).visible(false).build();
 
-        let bottom_bar = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(6)
-            .margin_start(6)
-            .margin_end(6)
-            .margin_top(3)
-            .margin_bottom(3)
-            .build();
+        let bottom_bar = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).spacing(6).margin_start(6).margin_end(6).margin_top(3).margin_bottom(3).build();
         bottom_bar.append(&zoom_out);
         bottom_bar.append(&zoom_label);
         bottom_bar.append(&zoom_in);
@@ -453,7 +405,11 @@ impl Window {
         bottom_bar.append(&turn_box);
         let loupe_btn = gtk::ToggleButton::builder().label("1:1").tooltip_text("Loupe: the picture at the scan's resolution under the pointer").margin_start(12).build();
         let weak = self.downgrade();
-        loupe_btn.connect_toggled(move |b| { if let Some(win) = weak.upgrade() { win.set_loupe(b.is_active()); } });
+        loupe_btn.connect_toggled(move |b| {
+            if let Some(win) = weak.upgrade() {
+                win.set_loupe(b.is_active());
+            }
+        });
         bottom_bar.append(&loupe_btn);
         let densi_btn = gtk::ToggleButton::builder().label("RGB").tooltip_text("Densitometer: the colour under the pointer, before and after correction").margin_start(6).build();
         let densi_label = gtk::Label::builder().margin_start(8).css_classes(["monospace", "dim-label"]).visible(false).build();
@@ -461,7 +417,9 @@ impl Window {
         densi_btn.connect_toggled(move |b| {
             if let Some(win) = weak.upgrade() {
                 win.imp().densi_on.set(b.is_active());
-                if let Some(l) = win.imp().densi_label.borrow().as_ref() { l.set_visible(b.is_active()); }
+                if let Some(l) = win.imp().densi_label.borrow().as_ref() {
+                    l.set_visible(b.is_active());
+                }
             }
         });
         bottom_bar.append(&densi_btn);
@@ -470,7 +428,11 @@ impl Window {
         *self.imp().densi_label.borrow_mut() = Some(densi_label);
         let hq_btn = gtk::ToggleButton::builder().label("HQ").tooltip_text("Full-quality view of what is on screen, at 1:1 or more").margin_start(6).build();
         let weak = self.downgrade();
-        hq_btn.connect_toggled(move |b| { if let Some(win) = weak.upgrade() { win.set_hq(b.is_active()); } });
+        hq_btn.connect_toggled(move |b| {
+            if let Some(win) = weak.upgrade() {
+                win.set_hq(b.is_active());
+            }
+        });
         bottom_bar.append(&hq_btn);
         let tool_box = gtk::Box::builder().css_classes(["linked"]).margin_start(12).build();
         let mut tool_buttons: Vec<(imp::CanvasTool, gtk::ToggleButton)> = Vec::new();
@@ -501,26 +463,11 @@ impl Window {
         let no_scanner = adw::StatusPage::new();
         no_scanner.set_icon_name(Some("scanner-symbolic"));
         no_scanner.set_title("No Scanner Found");
-        no_scanner.set_description(Some(
-            "Make sure your scanner is connected and powered on.",
-        ));
-        let try_again = gtk::Button::builder()
-            .label("Try Again")
-            .css_classes(["pill", "suggested-action"])
-            .build();
-        let open_raw = gtk::Button::builder()
-            .label("Open Raw Scans…")
-            .css_classes(["pill"])
-            .build();
-        let open_roll = gtk::Button::builder()
-            .label("Open Roll…")
-            .css_classes(["pill"])
-            .build();
-        let btn_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(8)
-            .halign(gtk::Align::Center)
-            .build();
+        no_scanner.set_description(Some("Make sure your scanner is connected and powered on."));
+        let try_again = gtk::Button::builder().label("Try Again").css_classes(["pill", "suggested-action"]).build();
+        let open_raw = gtk::Button::builder().label("Open Raw Scans…").css_classes(["pill"]).build();
+        let open_roll = gtk::Button::builder().label("Open Roll…").css_classes(["pill"]).build();
+        let btn_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).halign(gtk::Align::Center).build();
         btn_box.append(&try_again);
         btn_box.append(&open_raw);
         btn_box.append(&open_roll);
@@ -530,23 +477,11 @@ impl Window {
         insert_page.set_icon_name(Some("scanner-symbolic"));
         insert_page.set_title("Insert Film and Preview");
         insert_page.set_description(Some("Insert film and click Preview to begin."));
-        let preview_big = gtk::Button::builder()
-            .label("Preview")
-            .css_classes(["pill", "suggested-action"])
-            .halign(gtk::Align::Center)
-            .build();
+        let preview_big = gtk::Button::builder().label("Preview").css_classes(["pill", "suggested-action"]).halign(gtk::Align::Center).build();
         insert_page.set_child(Some(&preview_big));
 
-        let canvas_picture = gtk::Picture::builder()
-            .hexpand(true)
-            .vexpand(true)
-            .content_fit(gtk::ContentFit::Contain)
-            .build();
-        let frame_overlay = gtk::DrawingArea::builder()
-            .hexpand(true)
-            .vexpand(true)
-            .tooltip_text("Drag to choose the area to scan; right-click to scan the whole window")
-            .build();
+        let canvas_picture = gtk::Picture::builder().hexpand(true).vexpand(true).content_fit(gtk::ContentFit::Contain).build();
+        let frame_overlay = gtk::DrawingArea::builder().hexpand(true).vexpand(true).tooltip_text("Drag to choose the area to scan; right-click to scan the whole window").build();
         frame_overlay.set_cursor_from_name(Some("crosshair"));
         let canvas_overlay = gtk::Overlay::new();
         canvas_overlay.set_child(Some(&canvas_picture));
@@ -554,19 +489,13 @@ impl Window {
         let hq = self.build_hq();
         canvas_overlay.add_overlay(&hq);
         canvas_overlay.add_overlay(&frame_overlay);
-        let canvas_scroll = gtk::ScrolledWindow::builder()
-            .hexpand(true)
-            .vexpand(true)
-            .child(&canvas_overlay)
-            .build();
+        let canvas_scroll = gtk::ScrolledWindow::builder().hexpand(true).vexpand(true).child(&canvas_overlay).build();
 
         let advance_banner = adw::Banner::new("Move the holder to the next frame");
         advance_banner.set_button_label(Some("Scan Next Frame"));
         advance_banner.set_revealed(false);
 
-        let canvas_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .build();
+        let canvas_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
         canvas_box.append(&advance_banner);
         let loupe = self.build_loupe();
         let viewport_overlay = gtk::Overlay::new();
@@ -623,10 +552,7 @@ impl Window {
         frame_list.add_css_class("navigation-sidebar");
         frame_list.set_vexpand(true);
 
-        let add_frame_btn = gtk::Button::builder()
-            .label("Add Frame")
-            .hexpand(true)
-            .build();
+        let add_frame_btn = gtk::Button::builder().label("Add Frame").hexpand(true).build();
         let detect_btn = gtk::Button::builder()
             .label("Detect Frames")
             .action_name("win.detect-frames")
@@ -651,32 +577,15 @@ impl Window {
         frame_menu.append(Some("Keep Frame"), Some("win.toggle-keep"));
         frame_menu.append(Some("Reject Frame"), Some("win.toggle-reject"));
         frame_menu.append(Some("Delete Frame"), Some("win.delete-frame"));
-        let frame_menu_btn = gtk::MenuButton::builder()
-            .icon_name("view-more-symbolic")
-            .menu_model(&frame_menu)
-            .tooltip_text("Frame Actions")
-            .build();
+        let frame_menu_btn = gtk::MenuButton::builder().icon_name("view-more-symbolic").menu_model(&frame_menu).tooltip_text("Frame Actions").build();
 
-        let frame_buttons = gtk::Box::builder()
-            .spacing(6)
-            .margin_start(8)
-            .margin_end(8)
-            .margin_top(4)
-            .margin_bottom(8)
-            .build();
+        let frame_buttons = gtk::Box::builder().spacing(6).margin_start(8).margin_end(8).margin_top(4).margin_bottom(8).build();
         frame_buttons.append(&add_frame_btn);
         frame_buttons.append(&frame_menu_btn);
 
-        let sidebar_scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vexpand(true)
-            .child(&frame_list)
-            .build();
+        let sidebar_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&frame_list).build();
 
-        let sidebar_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .width_request(200)
-            .build();
+        let sidebar_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).width_request(200).build();
         sidebar_box.append(&sidebar_scroll);
         sidebar_box.append(&detect_btn);
         sidebar_box.append(&next_frame_btn);
@@ -731,50 +640,62 @@ impl Window {
         *self.imp().proc_params.borrow_mut() = Some(default_params);
 
         // ── Connect signals ───────────────────────────────────────────────
-        sidebar_btn.bind_property("active", &outer_split, "show-sidebar")
-            .sync_create()
-            .build();
+        sidebar_btn.bind_property("active", &outer_split, "show-sidebar").sync_create().build();
 
-        inspector_btn.bind_property("active", &inner_split, "show-sidebar")
-            .sync_create()
-            .build();
+        inspector_btn.bind_property("active", &inner_split, "show-sidebar").sync_create().build();
 
         let win_weak = self.downgrade();
         try_again.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.emit_probe(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.emit_probe();
+            }
         });
 
         let win_weak = self.downgrade();
         preview_big.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.start_preview(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.start_preview();
+            }
         });
 
         let win_weak = self.downgrade();
         preview_btn.connect_clicked(move |_| {
             if let Some(win) = win_weak.upgrade() {
                 // While the scanner is busy this button is Stop.
-                if win.imp().busy.get() { win.stop(); } else { win.start_preview(); }
+                if win.imp().busy.get() {
+                    win.stop();
+                } else {
+                    win.start_preview();
+                }
             }
         });
 
         let win_weak = self.downgrade();
         open_raw.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.open_raw_scans(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.open_raw_scans();
+            }
         });
 
         let win_weak = self.downgrade();
         open_roll.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.open_roll_dialog(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.open_roll_dialog();
+            }
         });
 
         let win_weak = self.downgrade();
         open_btn.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.open_roll_dialog(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.open_roll_dialog();
+            }
         });
 
         let win_weak = self.downgrade();
         add_frame_btn.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.add_frame(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.add_frame();
+            }
         });
 
         let win_weak = self.downgrade();
@@ -783,7 +704,9 @@ impl Window {
             if let Some(win) = win_weak.upgrade() {
                 win.imp().advance_pending.set(true);
                 // In a Scan All loop the next frame is scanned as soon as it is previewed.
-                if win.imp().batch_loop.get() { win.imp().auto_scan_next.set(true); }
+                if win.imp().batch_loop.get() {
+                    win.imp().auto_scan_next.set(true);
+                }
                 win.start_preview();
             }
         });
@@ -792,14 +715,18 @@ impl Window {
         let undo_action = gio::SimpleAction::new("undo", None);
         let win_weak = self.downgrade();
         undo_action.connect_activate(move |_, _| {
-            if let Some(win) = win_weak.upgrade() { win.do_undo(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.do_undo();
+            }
         });
         self.add_action(&undo_action);
 
         let redo_action = gio::SimpleAction::new("redo", None);
         let win_weak = self.downgrade();
         redo_action.connect_activate(move |_, _| {
-            if let Some(win) = win_weak.upgrade() { win.do_redo(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.do_redo();
+            }
         });
         self.add_action(&redo_action);
 
@@ -814,7 +741,9 @@ impl Window {
         // Write pending changes before the window goes away.
         let win_weak = self.downgrade();
         self.connect_close_request(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.flush_autosave(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.flush_autosave();
+            }
             glib::Propagation::Proceed
         });
 
@@ -824,50 +753,26 @@ impl Window {
     // ── Inspector panel builder ───────────────────────────────────────────────
 
     fn build_inspector(&self) -> gtk::Box {
-        let inspector_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .width_request(300)
-            .build();
+        let inspector_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).width_request(300).build();
 
         // Title bar
-        let title_label = gtk::Label::builder()
-            .label("Inspector")
-            .css_classes(["title-4"])
-            .margin_top(12)
-            .margin_bottom(4)
-            .margin_start(12)
-            .halign(gtk::Align::Start)
-            .build();
+        let title_label = gtk::Label::builder().label("Inspector").css_classes(["title-4"]).margin_top(12).margin_bottom(4).margin_start(12).halign(gtk::Align::Start).build();
         inspector_box.append(&title_label);
 
         // Page stack
-        let insp_stack = gtk::Stack::builder()
-            .vexpand(true)
-            .build();
+        let insp_stack = gtk::Stack::builder().vexpand(true).build();
         insp_stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
 
-        let switcher = gtk::StackSwitcher::builder()
-            .stack(&insp_stack)
-            .margin_start(8)
-            .margin_end(8)
-            .margin_bottom(4)
-            .build();
+        let switcher = gtk::StackSwitcher::builder().stack(&insp_stack).margin_start(8).margin_end(8).margin_bottom(4).build();
 
         // ── Conversion page ───────────────────────────────────────────────
-        let conv_scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vexpand(true)
-            .build();
+        let conv_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).build();
         let conv_page = adw::PreferencesPage::new();
 
         // Image group
-        let image_group = adw::PreferencesGroup::builder()
-            .title("Image")
-            .build();
+        let image_group = adw::PreferencesGroup::builder().title("Image").build();
 
-        let image_type_row = adw::ComboRow::builder()
-            .title("Type")
-            .build();
+        let image_type_row = adw::ComboRow::builder().title("Type").build();
         let type_model = gtk::StringList::new(&["Colour Negative", "B&W Negative", "Positive", "Kodachrome"]);
         image_type_row.set_model(Some(&type_model));
         image_group.add(&image_type_row);
@@ -891,66 +796,38 @@ impl Window {
         let profiles = nv_film::all_profiles();
         *self.imp().film_profiles.borrow_mut() = profiles.clone();
         let profile_names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
-        let profile_row = adw::ComboRow::builder()
-            .title("Film Profile")
-            .build();
+        let profile_row = adw::ComboRow::builder().title("Film Profile").build();
         let profile_model = gtk::StringList::new(&profile_names);
         profile_row.set_model(Some(&profile_model));
         image_group.add(&profile_row);
         conv_page.add(&image_group);
 
         // Exposure group
-        let exp_group = adw::PreferencesGroup::builder()
-            .title("Exposure")
-            .build();
+        let exp_group = adw::PreferencesGroup::builder().title("Exposure").build();
 
         let exposure_adj = gtk::Adjustment::new(0.0, -3.0, 3.0, 0.1, 0.5, 0.0);
-        let exposure_row = adw::SpinRow::builder()
-            .title("Exposure")
-            .subtitle("stops")
-            .adjustment(&exposure_adj)
-            .digits(1)
-            .build();
+        let exposure_row = adw::SpinRow::builder().title("Exposure").subtitle("stops").adjustment(&exposure_adj).digits(1).build();
         exp_group.add(&exposure_row);
 
         // Film base sub-group
-        let base_group = adw::PreferencesGroup::builder()
-            .title("Film Base")
-            .description("Auto-estimated from rebate borders")
-            .build();
+        let base_group = adw::PreferencesGroup::builder().title("Film Base").description("Auto-estimated from rebate borders").build();
 
         let fb_r_adj = gtk::Adjustment::new(0.6, 0.0, 1.0, 0.01, 0.1, 0.0);
-        let film_base_r_row = adw::SpinRow::builder()
-            .title("Red")
-            .adjustment(&fb_r_adj)
-            .digits(3)
-            .build();
+        let film_base_r_row = adw::SpinRow::builder().title("Red").adjustment(&fb_r_adj).digits(3).build();
         base_group.add(&film_base_r_row);
 
         let fb_g_adj = gtk::Adjustment::new(0.3, 0.0, 1.0, 0.01, 0.1, 0.0);
-        let film_base_g_row = adw::SpinRow::builder()
-            .title("Green")
-            .adjustment(&fb_g_adj)
-            .digits(3)
-            .build();
+        let film_base_g_row = adw::SpinRow::builder().title("Green").adjustment(&fb_g_adj).digits(3).build();
         base_group.add(&film_base_g_row);
 
         let fb_b_adj = gtk::Adjustment::new(0.18, 0.0, 1.0, 0.01, 0.1, 0.0);
-        let film_base_b_row = adw::SpinRow::builder()
-            .title("Blue")
-            .adjustment(&fb_b_adj)
-            .digits(3)
-            .build();
+        let film_base_b_row = adw::SpinRow::builder().title("Blue").adjustment(&fb_b_adj).digits(3).build();
         base_group.add(&film_base_b_row);
 
         let colour_group = adw::PreferencesGroup::builder().title("Colour").build();
         let cast_adj = gtk::Adjustment::new(1.0, 0.0, 1.0, 0.05, 0.25, 0.0);
-        let cast_row = adw::SpinRow::builder()
-            .title("Cast Removal")
-            .subtitle("Line red and blue up with green along the picture's neutral axis")
-            .adjustment(&cast_adj)
-            .digits(2)
-            .build();
+        let cast_row =
+            adw::SpinRow::builder().title("Cast Removal").subtitle("Line red and blue up with green along the picture's neutral axis").adjustment(&cast_adj).digits(2).build();
         colour_group.add(&cast_row);
 
         let roll_group = adw::PreferencesGroup::builder()
@@ -964,9 +841,17 @@ impl Window {
         analyse_row.add_suffix(&analyse_btn);
         roll_group.add(&analyse_row);
         let weak = self.downgrade();
-        analyse_btn.connect_clicked(move |_| { if let Some(win) = weak.upgrade() { win.analyse_roll(); } });
+        analyse_btn.connect_clicked(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.analyse_roll();
+            }
+        });
         let weak = self.downgrade();
-        analyse_reset.connect_clicked(move |_| { if let Some(win) = weak.upgrade() { win.set_roll_analysis(None); } });
+        analyse_reset.connect_clicked(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.set_roll_analysis(None);
+            }
+        });
 
         conv_page.add(&exp_group);
         conv_page.add(&colour_group);
@@ -976,52 +861,27 @@ impl Window {
         insp_stack.add_titled(&conv_scroll, Some("conversion"), "Conversion");
 
         // ── Tone page ─────────────────────────────────────────────────────
-        let tone_scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vexpand(true)
-            .build();
+        let tone_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).build();
         let tone_page = adw::PreferencesPage::new();
-        let tone_group = adw::PreferencesGroup::builder()
-            .title("Tone")
-            .build();
+        let tone_group = adw::PreferencesGroup::builder().title("Tone").build();
 
         let bp_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 0.01, 0.1, 0.0);
-        let black_pt_row = adw::SpinRow::builder()
-            .title("Black Point")
-            .adjustment(&bp_adj)
-            .digits(2)
-            .build();
+        let black_pt_row = adw::SpinRow::builder().title("Black Point").adjustment(&bp_adj).digits(2).build();
         tone_group.add(&black_pt_row);
 
         let wp_adj = gtk::Adjustment::new(1.0, 0.0, 1.0, 0.01, 0.1, 0.0);
-        let white_pt_row = adw::SpinRow::builder()
-            .title("White Point")
-            .adjustment(&wp_adj)
-            .digits(2)
-            .build();
+        let white_pt_row = adw::SpinRow::builder().title("White Point").adjustment(&wp_adj).digits(2).build();
         tone_group.add(&white_pt_row);
 
         let mt_adj = gtk::Adjustment::new(1.0, 0.25, 4.0, 0.05, 0.25, 0.0);
-        let midtone_row = adw::SpinRow::builder()
-            .title("Midtone")
-            .subtitle("gamma")
-            .adjustment(&mt_adj)
-            .digits(2)
-            .build();
+        let midtone_row = adw::SpinRow::builder().title("Midtone").subtitle("gamma").adjustment(&mt_adj).digits(2).build();
         tone_group.add(&midtone_row);
 
         let ct_adj = gtk::Adjustment::new(0.0, -1.0, 1.0, 0.05, 0.25, 0.0);
-        let contrast_row = adw::SpinRow::builder()
-            .title("Contrast")
-            .adjustment(&ct_adj)
-            .digits(2)
-            .build();
+        let contrast_row = adw::SpinRow::builder().title("Contrast").adjustment(&ct_adj).digits(2).build();
         tone_group.add(&contrast_row);
 
-        let auto_row = adw::ActionRow::builder()
-            .title("Auto Levels")
-            .subtitle("Set black, white and midtone from the picture")
-            .build();
+        let auto_row = adw::ActionRow::builder().title("Auto Levels").subtitle("Set black, white and midtone from the picture").build();
         let auto_btn = gtk::Button::builder().label("Auto").valign(gtk::Align::Center).css_classes(["suggested-action"]).build();
         let reset_btn = gtk::Button::builder().label("Reset").valign(gtk::Align::Center).build();
         auto_row.add_suffix(&reset_btn);
@@ -1029,17 +889,18 @@ impl Window {
         tone_group.add(&auto_row);
         let win_weak = self.downgrade();
         auto_btn.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.auto_levels(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.auto_levels();
+            }
         });
         let win_weak = self.downgrade();
         reset_btn.connect_clicked(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.reset_tone(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.reset_tone();
+            }
         });
 
-        let balance_group = adw::PreferencesGroup::builder()
-            .title("Colour Balance")
-            .description("Channel gains; the Grey pick in the bottom bar sets them")
-            .build();
+        let balance_group = adw::PreferencesGroup::builder().title("Colour Balance").description("Channel gains; the Grey pick in the bottom bar sets them").build();
         let mut balance_rows = Vec::new();
         for name in ["Red", "Green", "Blue"] {
             let adj = gtk::Adjustment::new(1.0, 0.25, 4.0, 0.01, 0.1, 0.0);
@@ -1070,11 +931,15 @@ impl Window {
         scope_box.append(&frame_btn);
         let weak = self.downgrade();
         roll_btn.connect_toggled(move |b| {
-            if let (true, Some(win)) = (b.is_active(), weak.upgrade()) { win.set_scope(imp::Scope::Roll); }
+            if let (true, Some(win)) = (b.is_active(), weak.upgrade()) {
+                win.set_scope(imp::Scope::Roll);
+            }
         });
         let weak = self.downgrade();
         frame_btn.connect_toggled(move |b| {
-            if let (true, Some(win)) = (b.is_active(), weak.upgrade()) { win.set_scope(imp::Scope::Frame); }
+            if let (true, Some(win)) = (b.is_active(), weak.upgrade()) {
+                win.set_scope(imp::Scope::Frame);
+            }
         });
         inspector_box.append(&scope_box);
 
@@ -1083,20 +948,11 @@ impl Window {
         inspector_box.append(&histogram_area);
         // ── Detail page: dust and scratches ───────────────────────────────
         let detail_page = adw::PreferencesPage::new();
-        let dust_group = adw::PreferencesGroup::builder()
-            .title("Dust and Scratches")
-            .description("Found in the infrared plane, which dust blocks and the picture does not")
-            .build();
-        let dust_mode_row = adw::ComboRow::builder()
-            .title("Mode")
-            .model(&gtk::StringList::new(&["Off", "Correct", "Mark"]))
-            .selected(1)
-            .build();
-        let dust_detection_row = adw::SpinRow::builder()
-            .title("Detection")
-            .subtitle("Higher finds smaller and fainter marks")
-            .adjustment(&gtk::Adjustment::new(12.0, 1.0, 20.0, 1.0, 4.0, 0.0))
-            .build();
+        let dust_group =
+            adw::PreferencesGroup::builder().title("Dust and Scratches").description("Found in the infrared plane, which dust blocks and the picture does not").build();
+        let dust_mode_row = adw::ComboRow::builder().title("Mode").model(&gtk::StringList::new(&["Off", "Correct", "Mark"])).selected(1).build();
+        let dust_detection_row =
+            adw::SpinRow::builder().title("Detection").subtitle("Higher finds smaller and fainter marks").adjustment(&gtk::Adjustment::new(12.0, 1.0, 20.0, 1.0, 4.0, 0.0)).build();
         let dust_note_row = adw::ActionRow::builder().title("Infrared").subtitle("This scan has no infrared plane").build();
         dust_note_row.add_css_class("property");
         let dust_method_row = adw::ComboRow::builder()
@@ -1131,7 +987,11 @@ impl Window {
         let clear_btn = gtk::Button::builder().label("Clear").valign(gtk::Align::Center).build();
         clear_row.add_suffix(&clear_btn);
         let weak = self.downgrade();
-        clear_btn.connect_clicked(move |_| { if let Some(win) = weak.upgrade() { win.clear_masks(); } });
+        clear_btn.connect_clicked(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.clear_masks();
+            }
+        });
         mask_group.add(&brush_row);
         mask_group.add(&clear_row);
         detail_page.add(&mask_group);
@@ -1140,8 +1000,13 @@ impl Window {
         let sharp_group = adw::PreferencesGroup::builder().title("Sharpening").description("Unsharp mask, on brightness only").build();
         let usm_on = adw::SwitchRow::builder().title("Unsharp Mask").build();
         let usm_amount = adw::SpinRow::builder().title("Amount").subtitle("Percent").adjustment(&gtk::Adjustment::new(150.0, 0.0, 500.0, 10.0, 50.0, 0.0)).build();
-        let usm_radius = adw::SpinRow::builder().title("Radius").subtitle("Pixels of the finished picture").adjustment(&gtk::Adjustment::new(1.4, 0.3, 10.0, 0.1, 0.5, 0.0)).digits(1).build();
-        let usm_threshold = adw::SpinRow::builder().title("Threshold").subtitle("Leave differences smaller than this alone").adjustment(&gtk::Adjustment::new(0.0, 0.0, 50.0, 1.0, 5.0, 0.0)).build();
+        let usm_radius =
+            adw::SpinRow::builder().title("Radius").subtitle("Pixels of the finished picture").adjustment(&gtk::Adjustment::new(1.4, 0.3, 10.0, 0.1, 0.5, 0.0)).digits(1).build();
+        let usm_threshold = adw::SpinRow::builder()
+            .title("Threshold")
+            .subtitle("Leave differences smaller than this alone")
+            .adjustment(&gtk::Adjustment::new(0.0, 0.0, 50.0, 1.0, 5.0, 0.0))
+            .build();
         for r in [usm_on.upcast_ref::<gtk::Widget>(), usm_amount.upcast_ref(), usm_radius.upcast_ref(), usm_threshold.upcast_ref()] {
             sharp_group.add(r);
         }
@@ -1162,28 +1027,53 @@ impl Window {
         noise_group.add(&local_contrast_row);
         *self.imp().local_contrast_row.borrow_mut() = Some(local_contrast_row.clone());
         let weak = self.downgrade();
-        local_contrast_row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        local_contrast_row.connect_value_notify(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.on_params_changed();
+            }
+        });
         detail_page.add(&noise_group);
 
         let colour_group = adw::PreferencesGroup::builder().title("Colour").build();
-        let saturation_row = adw::SpinRow::builder().title("Saturation").subtitle("-100 is grey, +100 twice the colour").adjustment(&gtk::Adjustment::new(0.0, -100.0, 100.0, 5.0, 20.0, 0.0)).build();
-        let acr_row = adw::SpinRow::builder().title("Restore Faded Colour").subtitle("Percent. Revives dull colour, leaves vivid colour alone").adjustment(&gtk::Adjustment::new(0.0, 0.0, 100.0, 5.0, 20.0, 0.0)).build();
+        let saturation_row = adw::SpinRow::builder()
+            .title("Saturation")
+            .subtitle("-100 is grey, +100 twice the colour")
+            .adjustment(&gtk::Adjustment::new(0.0, -100.0, 100.0, 5.0, 20.0, 0.0))
+            .build();
+        let acr_row = adw::SpinRow::builder()
+            .title("Restore Faded Colour")
+            .subtitle("Percent. Revives dull colour, leaves vivid colour alone")
+            .adjustment(&gtk::Adjustment::new(0.0, 0.0, 100.0, 5.0, 20.0, 0.0))
+            .build();
         let mut names: Vec<&str> = vec!["In Colour"];
         names.extend(nv_process::GREY_PRESETS.iter().map(|(n, _)| *n));
-        let grey_row = adw::ComboRow::builder().title("Convert to Grey").subtitle("With the effect of a coloured filter on black and white film").model(&gtk::StringList::new(&names)).build();
+        let grey_row =
+            adw::ComboRow::builder().title("Convert to Grey").subtitle("With the effect of a coloured filter on black and white film").model(&gtk::StringList::new(&names)).build();
         let scanner_row = adw::ComboRow::builder().title("Scanner Profile").subtitle("From an IT8 target, applied to slides").model(&gtk::StringList::new(&["None"])).build();
         for r in [saturation_row.upcast_ref::<gtk::Widget>(), acr_row.upcast_ref(), grey_row.upcast_ref(), scanner_row.upcast_ref()] {
             colour_group.add(r);
         }
         let weak = self.downgrade();
-        scanner_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        scanner_row.connect_selected_notify(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.on_params_changed();
+            }
+        });
         *self.imp().scanner_profile_row.borrow_mut() = Some(scanner_row);
         for r in [&saturation_row, &acr_row] {
             let weak = self.downgrade();
-            r.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+            r.connect_value_notify(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.on_params_changed();
+                }
+            });
         }
         let weak = self.downgrade();
-        grey_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        grey_row.connect_selected_notify(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.on_params_changed();
+            }
+        });
         *self.imp().colour_rows.borrow_mut() = Some((saturation_row, acr_row, grey_row));
         self.refresh_profile_list();
         detail_page.add(&colour_group);
@@ -1204,17 +1094,25 @@ impl Window {
         sel_group.add(&reset_sel);
         for r in [&hue_row, &sat_row, &light_row] {
             let weak = self.downgrade();
-            r.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+            r.connect_value_notify(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.on_params_changed();
+                }
+            });
         }
         {
             let weak = self.downgrade();
             range_row.connect_selected_notify(move |_| {
-                if let Some(win) = weak.upgrade() { win.show_selective_range(); }
+                if let Some(win) = weak.upgrade() {
+                    win.show_selective_range();
+                }
             });
             let weak = self.downgrade();
             preset_row.connect_selected_notify(move |r| {
                 let (Some(win), Some(i)) = (weak.upgrade(), (r.selected() as usize).checked_sub(1)) else { return };
-                if win.imp().updating_ui.get() { return; }
+                if win.imp().updating_ui.get() {
+                    return;
+                }
                 let set = nv_process::colour::SELECTIVE_PRESETS[i].1;
                 win.begin_live_edit();
                 win.update_live(|p| p.colour.selective = set);
@@ -1246,18 +1144,39 @@ impl Window {
         *self.imp().usm_rows.borrow_mut() = Some((usm_on.clone(), usm_amount.clone(), usm_radius.clone(), usm_threshold.clone()));
         *self.imp().noise_row.borrow_mut() = Some(noise_row.clone());
         let weak = self.downgrade();
-        dust_mode_row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        dust_mode_row.connect_selected_notify(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.on_params_changed();
+            }
+        });
         let weak = self.downgrade();
-        dust_detection_row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        dust_detection_row.connect_value_notify(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.on_params_changed();
+            }
+        });
         for row in [&dust_method_row, &dust_defect_row, &noise_row] {
             let weak = self.downgrade();
-            row.connect_selected_notify(move |_| { if let Some(win) = weak.upgrade() { win.update_dust_availability(); win.on_params_changed(); } });
+            row.connect_selected_notify(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.update_dust_availability();
+                    win.on_params_changed();
+                }
+            });
         }
         let weak = self.downgrade();
-        usm_on.connect_active_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+        usm_on.connect_active_notify(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.on_params_changed();
+            }
+        });
         for row in [&usm_amount, &usm_radius, &usm_threshold] {
             let weak = self.downgrade();
-            row.connect_value_notify(move |_| { if let Some(win) = weak.upgrade() { win.on_params_changed(); } });
+            row.connect_value_notify(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.on_params_changed();
+                }
+            });
         }
 
         insp_stack.add_titled(&self.build_scan_page(), Some("scan"), "Scan");
@@ -1281,52 +1200,77 @@ impl Window {
         // ── Connect inspector signals ─────────────────────────────────────
         let win_weak = self.downgrade();
         image_type_row.connect_selected_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); win.update_dust_availability(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+                win.update_dust_availability();
+            }
         });
         let win_weak = self.downgrade();
         profile_row.connect_selected_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         exposure_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         film_base_r_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         film_base_g_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         film_base_b_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         black_pt_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         white_pt_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         midtone_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         contrast_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         let win_weak = self.downgrade();
         cast_row.connect_value_notify(move |_| {
-            if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+            if let Some(win) = win_weak.upgrade() {
+                win.on_params_changed();
+            }
         });
         for row in &balance_rows {
             let win_weak = self.downgrade();
             row.connect_value_notify(move |_| {
-                if let Some(win) = win_weak.upgrade() { win.on_params_changed(); }
+                if let Some(win) = win_weak.upgrade() {
+                    win.on_params_changed();
+                }
             });
         }
 
@@ -1336,19 +1280,27 @@ impl Window {
     // ── Inspector <→ ProcessParams sync ──────────────────────────────────────
 
     fn on_params_changed(&self) {
-        if self.imp().updating_ui.get() { return; }
+        if self.imp().updating_ui.get() {
+            return;
+        }
         // Spin rows fire notify::value during widget realization; ignore those
         // until an actual scan is loaded.
-        if !self.has_image() { return; }
+        if !self.has_image() {
+            return;
+        }
 
         let Some(new_params) = self.read_params_from_inspector() else { return };
         let old = self.imp().proc_params.borrow().clone();
-        if old.as_ref() == Some(&new_params) { return; }
+        if old.as_ref() == Some(&new_params) {
+            return;
+        }
 
         self.imp().history.borrow_mut().push(new_params.clone(), self.imp().scope.get());
 
         *self.imp().proc_params.borrow_mut() = Some(new_params.clone());
-        if let Some(old) = old { self.record_edit(&old, &new_params); }
+        if let Some(old) = old {
+            self.record_edit(&old, &new_params);
+        }
         self.refresh_canvas();
     }
 
@@ -1407,7 +1359,9 @@ impl Window {
         };
         let balance = {
             let rows = self.imp().balance_rows.borrow();
-            if rows.len() != 3 { return None; }
+            if rows.len() != 3 {
+                return None;
+            }
             [rows[0].value() as f32, rows[1].value() as f32, rows[2].value() as f32]
         };
 
@@ -1482,21 +1436,49 @@ impl Window {
             r.set_value(params.conversion.exposure as f64);
         }
         let fb = params.conversion.film_base.unwrap_or(params.profile.base_rgb);
-        if let Some(r) = self.imp().film_base_r_row.borrow().as_ref() { r.set_value(fb[0] as f64); }
-        if let Some(r) = self.imp().film_base_g_row.borrow().as_ref() { r.set_value(fb[1] as f64); }
-        if let Some(r) = self.imp().film_base_b_row.borrow().as_ref() { r.set_value(fb[2] as f64); }
-        if let Some(r) = self.imp().black_pt_row.borrow().as_ref() { r.set_value(params.tone.black_point as f64); }
-        if let Some(r) = self.imp().white_pt_row.borrow().as_ref() { r.set_value(params.tone.white_point as f64); }
-        if let Some(r) = self.imp().midtone_row.borrow().as_ref() { r.set_value(params.tone.midtone as f64); }
-        if let Some(r) = self.imp().contrast_row.borrow().as_ref() { r.set_value(params.tone.contrast as f64); }
-        if let Some(r) = self.imp().cast_row.borrow().as_ref() { r.set_value(params.conversion.cast_removal as f64); }
-        if let Some(r) = self.imp().dust_mode_row.borrow().as_ref() {
-            r.set_selected(match params.dust.mode { nv_process::DustMode::Off => 0, nv_process::DustMode::Correct => 1, nv_process::DustMode::Mark => 2 });
+        if let Some(r) = self.imp().film_base_r_row.borrow().as_ref() {
+            r.set_value(fb[0] as f64);
         }
-        if let Some(r) = self.imp().dust_detection_row.borrow().as_ref() { r.set_value(params.dust.detection as f64); }
-        if let Some(r) = self.imp().dust_method_row.borrow().as_ref() { r.set_selected(u32::from(params.dust.method == nv_process::DustMethod::Software)); }
+        if let Some(r) = self.imp().film_base_g_row.borrow().as_ref() {
+            r.set_value(fb[1] as f64);
+        }
+        if let Some(r) = self.imp().film_base_b_row.borrow().as_ref() {
+            r.set_value(fb[2] as f64);
+        }
+        if let Some(r) = self.imp().black_pt_row.borrow().as_ref() {
+            r.set_value(params.tone.black_point as f64);
+        }
+        if let Some(r) = self.imp().white_pt_row.borrow().as_ref() {
+            r.set_value(params.tone.white_point as f64);
+        }
+        if let Some(r) = self.imp().midtone_row.borrow().as_ref() {
+            r.set_value(params.tone.midtone as f64);
+        }
+        if let Some(r) = self.imp().contrast_row.borrow().as_ref() {
+            r.set_value(params.tone.contrast as f64);
+        }
+        if let Some(r) = self.imp().cast_row.borrow().as_ref() {
+            r.set_value(params.conversion.cast_removal as f64);
+        }
+        if let Some(r) = self.imp().dust_mode_row.borrow().as_ref() {
+            r.set_selected(match params.dust.mode {
+                nv_process::DustMode::Off => 0,
+                nv_process::DustMode::Correct => 1,
+                nv_process::DustMode::Mark => 2,
+            });
+        }
+        if let Some(r) = self.imp().dust_detection_row.borrow().as_ref() {
+            r.set_value(params.dust.detection as f64);
+        }
+        if let Some(r) = self.imp().dust_method_row.borrow().as_ref() {
+            r.set_selected(u32::from(params.dust.method == nv_process::DustMethod::Software));
+        }
         if let Some(r) = self.imp().dust_defect_row.borrow().as_ref() {
-            r.set_selected(match params.dust.defect { nv_process::DefectType::Dark => 0, nv_process::DefectType::Bright => 1, nv_process::DefectType::Both => 2 });
+            r.set_selected(match params.dust.defect {
+                nv_process::DefectType::Dark => 0,
+                nv_process::DefectType::Bright => 1,
+                nv_process::DefectType::Both => 2,
+            });
         }
         if let Some((on, a, r, t)) = self.imp().usm_rows.borrow().as_ref() {
             on.set_active(params.detail.usm.enabled);
@@ -1504,24 +1486,28 @@ impl Window {
             r.set_value(params.detail.usm.radius as f64);
             t.set_value(params.detail.usm.threshold as f64);
         }
-        if let Some(r) = self.imp().local_contrast_row.borrow().as_ref() { r.set_value(params.detail.local_contrast as f64); }
+        if let Some(r) = self.imp().local_contrast_row.borrow().as_ref() {
+            r.set_value(params.detail.local_contrast as f64);
+        }
         self.fill_selective_rows(&params.colour.selective);
         if let Some(row) = self.imp().scanner_profile_row.borrow().as_ref() {
-            let names: Vec<String> = (0..row.model().map_or(0, |m| m.n_items())).filter_map(|i| row.model()?.item(i).and_downcast::<gtk::StringObject>().map(|s| s.string().to_string())).collect();
+            let names: Vec<String> =
+                (0..row.model().map_or(0, |m| m.n_items())).filter_map(|i| row.model()?.item(i).and_downcast::<gtk::StringObject>().map(|s| s.string().to_string())).collect();
             row.set_selected(params.input.as_ref().and_then(|i| names.iter().position(|n| *n == i.name)).unwrap_or(0) as u32);
         }
         if let Some((sat, acr, grey)) = self.imp().colour_rows.borrow().as_ref() {
             sat.set_value(params.colour.saturation as f64 * 100.0);
             acr.set_value(params.colour.acr as f64);
-            let pick = if params.colour.grey.enabled {
-                nv_process::GREY_PRESETS.iter().position(|(_, w)| *w == params.colour.grey.weights).map_or(0, |i| i + 1)
-            } else {
-                0
-            };
+            let pick = if params.colour.grey.enabled { nv_process::GREY_PRESETS.iter().position(|(_, w)| *w == params.colour.grey.weights).map_or(0, |i| i + 1) } else { 0 };
             grey.set_selected(pick as u32);
         }
         if let Some(r) = self.imp().noise_row.borrow().as_ref() {
-            r.set_selected(match params.detail.noise { nv_process::NoiseLevel::Off => 0, nv_process::NoiseLevel::Light => 1, nv_process::NoiseLevel::Medium => 2, nv_process::NoiseLevel::Strong => 3 });
+            r.set_selected(match params.detail.noise {
+                nv_process::NoiseLevel::Off => 0,
+                nv_process::NoiseLevel::Light => 1,
+                nv_process::NoiseLevel::Medium => 2,
+                nv_process::NoiseLevel::Strong => 3,
+            });
         }
         for (row, v) in self.imp().balance_rows.borrow().iter().zip(params.tone.balance) {
             row.set_value(v as f64);
@@ -1535,7 +1521,9 @@ impl Window {
         self.sync_widgets(&params);
         self.imp().history.borrow_mut().push(params.clone(), self.imp().scope.get());
         *self.imp().proc_params.borrow_mut() = Some(params.clone());
-        if let Some(old) = old { self.record_edit(&old, &params); }
+        if let Some(old) = old {
+            self.record_edit(&old, &params);
+        }
         self.refresh_canvas();
     }
 
@@ -1566,19 +1554,17 @@ impl Window {
                 }
                 None => false,
             },
-            CanvasTool::Black | CanvasTool::Grey | CanvasTool::White => {
-                match nv_process::sample_converted(&proxy, &params, fx, fy, RADIUS) {
-                    Some(s) => {
-                        params.tone = match tool {
-                            CanvasTool::Black => nv_process::pipette::black(&params.tone, s),
-                            CanvasTool::White => nv_process::pipette::white(&params.tone, s),
-                            _ => nv_process::pipette::grey(&params.tone, s),
-                        };
-                        true
-                    }
-                    None => false,
+            CanvasTool::Black | CanvasTool::Grey | CanvasTool::White => match nv_process::sample_converted(&proxy, &params, fx, fy, RADIUS) {
+                Some(s) => {
+                    params.tone = match tool {
+                        CanvasTool::Black => nv_process::pipette::black(&params.tone, s),
+                        CanvasTool::White => nv_process::pipette::white(&params.tone, s),
+                        _ => nv_process::pipette::grey(&params.tone, s),
+                    };
+                    true
                 }
-            }
+                None => false,
+            },
         };
         if ok {
             self.commit_params(params);
@@ -1607,18 +1593,24 @@ impl Window {
         let old = self.imp().proc_params.borrow().clone();
         self.sync_widgets(&params);
         *self.imp().proc_params.borrow_mut() = Some(params.clone());
-        if let Some(old) = old { self.record_edit_in(&old, &params, scope); }
+        if let Some(old) = old {
+            self.record_edit_in(&old, &params, scope);
+        }
         self.refresh_canvas();
     }
 
     fn do_undo(&self) {
         let step = self.imp().history.borrow_mut().undo();
-        if let Some((params, scope)) = step { self.apply_history_step(params, scope); }
+        if let Some((params, scope)) = step {
+            self.apply_history_step(params, scope);
+        }
     }
 
     fn do_redo(&self) {
         let step = self.imp().history.borrow_mut().redo();
-        if let Some((params, scope)) = step { self.apply_history_step(params, scope); }
+        if let Some((params, scope)) = step {
+            self.apply_history_step(params, scope);
+        }
     }
 
     // ── Frame rectangle ───────────────────────────────────────────────────────
@@ -1714,8 +1706,7 @@ impl Window {
                 }
                 return;
             }
-            let (Some(a), Some((iw, ih)), Some(widget), Some((sx, sy))) =
-                (start_c.get(), win.canvas_image_size(), g.widget(), g.start_point()) else { return };
+            let (Some(a), Some((iw, ih)), Some(widget), Some((sx, sy))) = (start_c.get(), win.canvas_image_size(), g.widget(), g.start_point()) else { return };
             let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
             if let Some(b) = geom::point_to_frac(sx + dx, sy + dy, c) {
                 win.set_frame_rect(Some(win.orientation().rect_to_source(geom::normalised(a, b))));
@@ -1857,19 +1848,11 @@ impl Window {
     /// Make a roll folder on disk (in the user's Pictures folder) and make it
     /// the open roll. With `keep_frames`, frames already in memory move into it.
     fn create_roll_folder(&self, prefix: &str, keep_frames: bool) -> bool {
-        let parent = glib::user_special_dir(glib::UserDirectory::Pictures)
-            .unwrap_or_else(glib::home_dir)
-            .join("Negative Vibes");
-        let stamp = glib::DateTime::now_local()
-            .ok()
-            .and_then(|d| d.format("%Y-%m-%d %H-%M-%S").ok())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "roll".to_owned());
+        let parent = glib::user_special_dir(glib::UserDirectory::Pictures).unwrap_or_else(glib::home_dir).join("Negative Vibes");
+        let stamp = glib::DateTime::now_local().ok().and_then(|d| d.format("%Y-%m-%d %H-%M-%S").ok()).map(|s| s.to_string()).unwrap_or_else(|| "roll".to_owned());
         let name = format!("{prefix} {stamp}");
         let existing = if keep_frames { self.imp().roll.borrow().clone() } else { None };
-        let created = std::fs::create_dir_all(&parent)
-            .map_err(nv_store::StoreError::from)
-            .and_then(|_| RollStore::create(&parent, &name));
+        let created = std::fs::create_dir_all(&parent).map_err(nv_store::StoreError::from).and_then(|_| RollStore::create(&parent, &name));
         match created {
             Ok(mut store) => {
                 // A new roll starts with the preferences.
@@ -1959,20 +1942,24 @@ impl Window {
                     *self.imp().device_resolutions.borrow_mut() = first.resolutions.clone();
                     self.imp().film_window_mm.set(first.film_window_mm);
                     self.imp().device_ir.set(matches!(first.ir, nv_device::IrStyle::MultiFrame | nv_device::IrStyle::Rgbi));
-                    if let Some(r) = self.imp().ir_row.borrow().as_ref() { r.set_visible(self.imp().device_ir.get()); }
+                    if let Some(r) = self.imp().ir_row.borrow().as_ref() {
+                        r.set_visible(self.imp().device_ir.get());
+                    }
                     self.imp().device_exposure.set(first.exposure_option.as_deref().is_some_and(|n| n.starts_with("exposure")));
                     self.update_passes_rows();
                     self.fill_resolutions();
                     let manual = first.holder == nv_device::HolderKind::ManualAdvance;
                     self.imp().manual_advance.set(manual);
-                    if let Some(b) = self.imp().detect_btn.borrow().as_ref() { b.set_visible(!manual); }
-                    if let Some(b) = self.imp().next_frame_btn.borrow().as_ref() { b.set_visible(manual); }
+                    if let Some(b) = self.imp().detect_btn.borrow().as_ref() {
+                        b.set_visible(!manual);
+                    }
+                    if let Some(b) = self.imp().next_frame_btn.borrow().as_ref() {
+                        b.set_visible(manual);
+                    }
                     if self.imp().roll.borrow().is_none() {
                         self.set_page("insert-film");
                     }
-                    *self.imp().scan_state.borrow_mut() = ScanUiState::Ready {
-                        device_name: first.device_name.clone(),
-                    };
+                    *self.imp().scan_state.borrow_mut() = ScanUiState::Ready { device_name: first.device_name.clone() };
                     if let Some(t) = self.imp().header_title.borrow().as_ref() {
                         t.set_subtitle(&format!("{} {}", first.vendor, first.model));
                     }
@@ -2027,11 +2014,7 @@ impl Window {
 
             ScanEvent::Progress(p) => {
                 // Headless hook for the cancel check (H4): press Stop at 30% of a final scan.
-                if std::env::var_os("NV_AUTOSCAN_STOP").is_some()
-                    && self.imp().scan_kind.get() == imp::ScanKind::Final
-                    && p >= 0.3
-                    && !self.imp().autostop_done.replace(true)
-                {
+                if std::env::var_os("NV_AUTOSCAN_STOP").is_some() && self.imp().scan_kind.get() == imp::ScanKind::Final && p >= 0.3 && !self.imp().autostop_done.replace(true) {
                     eprintln!("nv: NV_AUTOSCAN_STOP: stopping at {:.0}%", p * 100.0);
                     self.imp().stop_at.set(Some(std::time::Instant::now()));
                     self.stop();
@@ -2122,8 +2105,7 @@ impl Window {
         self.imp().receiving_ir.set(false);
         // A failed or cancelled final scan leaves the preview on screen, so
         // Scan can be tried again; a failed preview leaves nothing to scan.
-        let preview_ok = self.imp().scan_kind.get() == imp::ScanKind::Final
-            && self.imp().preview_ready.get();
+        let preview_ok = self.imp().scan_kind.get() == imp::ScanKind::Final && self.imp().preview_ready.get();
         self.imp().scan_kind.set(imp::ScanKind::Preview);
         self.imp().advance_pending.set(false);
         self.imp().preview_ready.set(preview_ok);
@@ -2221,11 +2203,7 @@ impl Window {
                         resolution_dpi: dpi,
                         depth,
                         channels,
-                        scanned_at: glib::DateTime::now_utc()
-                            .ok()
-                            .and_then(|d| d.format_iso8601().ok())
-                            .map(|s| s.to_string())
-                            .unwrap_or_default(),
+                        scanned_at: glib::DateTime::now_utc().ok().and_then(|d| d.format_iso8601().ok()).map(|s| s.to_string()).unwrap_or_default(),
                     },
                     has_ir,
                     width_px: w,
@@ -2254,7 +2232,9 @@ impl Window {
             let buf = self.imp().scan_buf.borrow();
             let Some(buf) = buf.as_ref() else { return };
             let h = buf.rows_available().min(buf.effective_height());
-            if buf.width == 0 || h == 0 { return; }
+            if buf.width == 0 || h == 0 {
+                return;
+            }
             (buf.width as usize, h as usize, buf.to_rgb8())
         };
         self.show_rgb8(w, h, &rgb8);
@@ -2329,8 +2309,7 @@ impl Window {
     fn save_histories(&self, root: &std::path::Path) {
         let imp = self.imp();
         const KEPT: usize = 30;
-        let mut all: std::collections::BTreeMap<u32, history::History> =
-            imp.histories.borrow().iter().map(|(k, h)| (*k, h.trimmed(KEPT))).collect();
+        let mut all: std::collections::BTreeMap<u32, history::History> = imp.histories.borrow().iter().map(|(k, h)| (*k, h.trimmed(KEPT))).collect();
         if imp.history_key.get() != 0 {
             all.insert(imp.history_key.get(), imp.history.borrow().trimmed(KEPT));
         }
@@ -2347,19 +2326,13 @@ impl Window {
     /// The undo histories saved with the roll in `root`, if any. A file that
     /// cannot be read (older version, damage) just means no history.
     fn load_histories(root: &std::path::Path) -> std::collections::HashMap<u32, history::History> {
-        std::fs::read(root.join("history.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        std::fs::read(root.join("history.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
     // ── Open Raw Scans ────────────────────────────────────────────────────────
 
     fn open_raw_scans(&self) {
-        let dialog = gtk::FileDialog::builder()
-            .title("Open Raw Scans")
-            .modal(true)
-            .build();
+        let dialog = gtk::FileDialog::builder().title("Open Raw Scans").modal(true).build();
 
         let filter = gtk::FileFilter::new();
         filter.set_name(Some("Linear TIFF / DNG / PNM"));
@@ -2386,9 +2359,7 @@ impl Window {
         });
     }
     fn load_raw_files(&self, files: gio::ListModel) {
-        let sources: Vec<std::path::PathBuf> = (0..files.n_items())
-            .filter_map(|i| files.item(i).and_downcast::<gio::File>()?.path())
-            .collect();
+        let sources: Vec<std::path::PathBuf> = (0..files.n_items()).filter_map(|i| files.item(i).and_downcast::<gio::File>()?.path()).collect();
         self.import_raw_files(sources);
     }
 
@@ -2433,10 +2404,7 @@ impl Window {
     // ── Open Roll ─────────────────────────────────────────────────────────────
 
     fn open_roll_dialog(&self) {
-        let dialog = gtk::FileDialog::builder()
-            .title("Open Roll")
-            .modal(true)
-            .build();
+        let dialog = gtk::FileDialog::builder().title("Open Roll").modal(true).build();
 
         let filter = gtk::FileFilter::new();
         filter.set_name(Some("Roll folders (*.nvroll)"));
@@ -2478,8 +2446,12 @@ impl Window {
     }
 
     fn set_scan_controls_sensitive(&self, preview: bool, scan: bool) {
-        if let Some(b) = self.imp().preview_btn.borrow().as_ref() { b.set_sensitive(preview); }
-        if let Some(b) = self.imp().scan_btn.borrow().as_ref() { b.set_sensitive(scan); }
+        if let Some(b) = self.imp().preview_btn.borrow().as_ref() {
+            b.set_sensitive(preview);
+        }
+        if let Some(b) = self.imp().scan_btn.borrow().as_ref() {
+            b.set_sensitive(scan);
+        }
     }
 
     fn show_toast(&self, msg: &str) {

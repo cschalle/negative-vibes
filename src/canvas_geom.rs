@@ -36,12 +36,7 @@ pub const MIN_SIDE: f64 = 0.02;
 /// A frame rectangle as the pixel crop `[x, y, w, h]` stored in the roll.
 pub fn rect_to_crop(rect: [f64; 4], img_w: u32, img_h: u32) -> [u32; 4] {
     let (w, h) = (img_w as f64, img_h as f64);
-    [
-        (rect[0] * w).round() as u32,
-        (rect[1] * h).round() as u32,
-        ((rect[2] - rect[0]) * w).round() as u32,
-        ((rect[3] - rect[1]) * h).round() as u32,
-    ]
+    [(rect[0] * w).round() as u32, (rect[1] * h).round() as u32, ((rect[2] - rect[0]) * w).round() as u32, ((rect[3] - rect[1]) * h).round() as u32]
 }
 
 /// The inverse of [`rect_to_crop`]: a stored crop as fractions of the image.
@@ -50,12 +45,7 @@ pub fn crop_to_rect(crop: [u32; 4], img_w: u32, img_h: u32) -> Option<[f64; 4]> 
         return None;
     }
     let (w, h) = (img_w as f64, img_h as f64);
-    Some([
-        (crop[0] as f64 / w).min(1.0),
-        (crop[1] as f64 / h).min(1.0),
-        ((crop[0] + crop[2]) as f64 / w).min(1.0),
-        ((crop[1] + crop[3]) as f64 / h).min(1.0),
-    ])
+    Some([(crop[0] as f64 / w).min(1.0), (crop[1] as f64 / h).min(1.0), ((crop[0] + crop[2]) as f64 / w).min(1.0), ((crop[1] + crop[3]) as f64 / h).min(1.0)])
 }
 
 /// Next zoom level when stepping by `factor`, given the scale that fits the

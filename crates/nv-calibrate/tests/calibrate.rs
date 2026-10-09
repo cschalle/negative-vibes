@@ -85,7 +85,9 @@ fn an_it8_scan_becomes_a_profile_that_gives_the_target_colours_back() {
     RawWriter::write_scan(&buf, &scan).unwrap();
 
     // The target's measured values: the chart's own expected ones, in the CGATS form.
-    let mut reference = String::from("IT8.7/1\nORIGINATOR \"test\"\nDESCRIPTOR \"synthetic\"\nCREATED \"2026\"\nNUMBER_OF_FIELDS 4\nBEGIN_DATA_FORMAT\nSAMPLE_ID XYZ_X XYZ_Y XYZ_Z\nEND_DATA_FORMAT\n");
+    let mut reference = String::from(
+        "IT8.7/1\nORIGINATOR \"test\"\nDESCRIPTOR \"synthetic\"\nCREATED \"2026\"\nNUMBER_OF_FIELDS 4\nBEGIN_DATA_FORMAT\nSAMPLE_ID XYZ_X XYZ_Y XYZ_Z\nEND_DATA_FORMAT\n",
+    );
     reference += &format!("NUMBER_OF_SETS {}\nBEGIN_DATA\n", ch.patches.len());
     for (id, xyz, _) in &ch.patches {
         reference += &format!("{id} {} {} {}\n", xyz[0], xyz[1], xyz[2]);

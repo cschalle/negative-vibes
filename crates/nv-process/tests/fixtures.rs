@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use nv_film::builtin_profiles;
-use nv_process::{auto_tone, default_params_for, estimate_film_base_proxy, render, Histogram, Proxy};
+use nv_process::{Histogram, Proxy, auto_tone, default_params_for, estimate_film_base_proxy, render};
 
 fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/plustek8200i")

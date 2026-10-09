@@ -365,7 +365,13 @@ mod tests {
     const WHOLE: Placement = Placement { origin: (0, 0), full: (W, H) };
 
     fn grey(v: impl Fn(usize, usize) -> f32) -> Vec<f32> {
-        (0..W * H).flat_map(|i| { let e = v(i % W, i / W); let l = decode(e); [l, l, l] }).collect()
+        (0..W * H)
+            .flat_map(|i| {
+                let e = v(i % W, i / W);
+                let l = decode(e);
+                [l, l, l]
+            })
+            .collect()
     }
 
     fn luma(p: &[f32]) -> Vec<f32> {
@@ -400,7 +406,11 @@ mod tests {
     fn amount_threshold_and_the_switch_all_matter() {
         let step = |x: usize, _| if x < 32 { 0.40 } else { 0.43 }; // a faint edge: 0.03 = 7.6 levels
         let base = grey(step);
-        let run = |d: &DetailParams| { let mut p = base.clone(); apply(&mut p, W, H, d, 1, Quality::Full, WHOLE); p };
+        let run = |d: &DetailParams| {
+            let mut p = base.clone();
+            apply(&mut p, W, H, d, 1, Quality::Full, WHOLE);
+            p
+        };
         let changed = |p: &[f32]| p.iter().zip(&base).filter(|(a, b)| (**a - **b).abs() > 1e-4).count();
         assert!(changed(&run(&usm(150.0, 1.4, 0))) > 0, "no sharpening");
         assert_eq!(changed(&run(&usm(0.0, 1.4, 0))), 0, "amount 0 changed the picture");
@@ -409,7 +419,10 @@ mod tests {
         assert_eq!(changed(&run(&off)), 0);
         assert!(off.is_off());
         // A bigger amount moves more.
-        let strength_of = |a: f32| { let p = run(&usm(a, 1.4, 0)); p.iter().zip(&base).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max) };
+        let strength_of = |a: f32| {
+            let p = run(&usm(a, 1.4, 0));
+            p.iter().zip(&base).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
+        };
         assert!(strength_of(300.0) > strength_of(100.0));
     }
 
@@ -417,7 +430,11 @@ mod tests {
     fn a_proxy_shrinks_the_radius_with_the_picture() {
         let step = |x: usize, _| if x < 32 { 0.3 } else { 0.6 };
         let base = grey(step);
-        let max_change = |factor: usize| { let mut p = base.clone(); apply(&mut p, W, H, &usm(200.0, 1.4, 0), factor, Quality::Full, WHOLE); p.iter().zip(&base).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max) };
+        let max_change = |factor: usize| {
+            let mut p = base.clone();
+            apply(&mut p, W, H, &usm(200.0, 1.4, 0), factor, Quality::Full, WHOLE);
+            p.iter().zip(&base).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max)
+        };
         assert!(max_change(1) > 0.0);
         assert_eq!(max_change(8), 0.0, "a 1.4 px radius at 1/8 scale is 0.175 px: nothing to sharpen");
     }
@@ -431,7 +448,19 @@ mod tests {
         let d = DetailParams { noise: NoiseLevel::Medium, ..Default::default() };
         apply(&mut p, W, H, &d, 1, Quality::Full, WHOLE);
         let after = luma(&p);
-        let err = |a: &[f32]| { let mut s = 0.0; let mut n = 0.0; for y in 4..H - 4 { for x in 4..W - 4 { if (x as isize - 32).abs() > 3 { s += (a[y * W + x] - clean(x, y)).powi(2); n += 1.0; } } } (s / n).sqrt() };
+        let err = |a: &[f32]| {
+            let mut s = 0.0;
+            let mut n = 0.0;
+            for y in 4..H - 4 {
+                for x in 4..W - 4 {
+                    if (x as isize - 32).abs() > 3 {
+                        s += (a[y * W + x] - clean(x, y)).powi(2);
+                        n += 1.0;
+                    }
+                }
+            }
+            (s / n).sqrt()
+        };
         assert!(err(&after) < 0.5 * err(&before), "grain {} -> {}", err(&before), err(&after));
         // The edge is still an edge: a big jump across two pixels.
         let jump = after[24 * W + 33] - after[24 * W + 30];
@@ -487,7 +516,12 @@ mod tests {
 
         let mut on = base.clone();
         apply(&mut on, W, H, &local(100.0), 1, Quality::Full, WHOLE);
-        let spread_of = |p: &[f32]| { let l = luma(p); let v: Vec<f32> = (8..40).flat_map(|y| (4..24).map(move |x| (y, x))).map(|(y, x)| l[y * W + x]).collect(); let m = v.iter().sum::<f32>() / v.len() as f32; (v.iter().map(|a| (a - m).powi(2)).sum::<f32>() / v.len() as f32).sqrt() };
+        let spread_of = |p: &[f32]| {
+            let l = luma(p);
+            let v: Vec<f32> = (8..40).flat_map(|y| (4..24).map(move |x| (y, x))).map(|(y, x)| l[y * W + x]).collect();
+            let m = v.iter().sum::<f32>() / v.len() as f32;
+            (v.iter().map(|a| (a - m).powi(2)).sum::<f32>() / v.len() as f32).sqrt()
+        };
         assert!(spread_of(&on) > 1.5 * spread_of(&base), "texture {} -> {}", spread_of(&base), spread_of(&on));
         // Half the effect is between.
         let mut half = base.clone();
@@ -536,14 +570,31 @@ mod tests {
     fn a_proxy_uses_the_same_grid_positions_as_the_scan() {
         // The same picture at half size, grid measured on each: the mapping at the same scan position agrees.
         let src = grey(|x, y| 0.2 + 0.6 * (x as f32 / W as f32) + 0.1 * (y as f32 / H as f32 * 6.0).sin());
-        let small: Vec<f32> = (0..H / 2).flat_map(|y| (0..W / 2).flat_map({ let src = &src; move |x| src[((y * 2) * W + x * 2) * 3..((y * 2) * W + x * 2) * 3 + 3].to_vec() })).collect();
+        let small: Vec<f32> = (0..H / 2)
+            .flat_map(|y| {
+                (0..W / 2).flat_map({
+                    let src = &src;
+                    move |x| src[((y * 2) * W + x * 2) * 3..((y * 2) * W + x * 2) * 3 + 3].to_vec()
+                })
+            })
+            .collect();
         let (g_full, g_small) = (measure_grid(&src, W, H), measure_grid(&small, W / 2, H / 2));
         let mut a = src.clone();
         apply(&mut a, W, H, &DetailParams { local_contrast: 100.0, aaco: Some(g_full), ..Default::default() }, 1, Quality::Full, WHOLE);
         let mut b = small.clone();
-        apply(&mut b, W / 2, H / 2, &DetailParams { local_contrast: 100.0, aaco: Some(g_small), ..Default::default() }, 2, Quality::Full, Placement { origin: (0, 0), full: (W, H) });
-        let worst = (0..H / 2).flat_map(|y| (0..W / 2).map(move |x| (y, x))).map(|(y, x)| (a[((y * 2) * W + x * 2) * 3 + 1] - b[(y * (W / 2) + x) * 3 + 1]).abs()).fold(0.0f32, f32::max);
-        let mean = (0..H / 2).flat_map(|y| (0..W / 2).map(move |x| (y, x))).map(|(y, x)| (a[((y * 2) * W + x * 2) * 3 + 1] - b[(y * (W / 2) + x) * 3 + 1]).abs()).sum::<f32>() / ((H / 2) * (W / 2)) as f32;
+        apply(
+            &mut b,
+            W / 2,
+            H / 2,
+            &DetailParams { local_contrast: 100.0, aaco: Some(g_small), ..Default::default() },
+            2,
+            Quality::Full,
+            Placement { origin: (0, 0), full: (W, H) },
+        );
+        let worst =
+            (0..H / 2).flat_map(|y| (0..W / 2).map(move |x| (y, x))).map(|(y, x)| (a[((y * 2) * W + x * 2) * 3 + 1] - b[(y * (W / 2) + x) * 3 + 1]).abs()).fold(0.0f32, f32::max);
+        let mean = (0..H / 2).flat_map(|y| (0..W / 2).map(move |x| (y, x))).map(|(y, x)| (a[((y * 2) * W + x * 2) * 3 + 1] - b[(y * (W / 2) + x) * 3 + 1]).abs()).sum::<f32>()
+            / ((H / 2) * (W / 2)) as f32;
         assert!(worst < 0.1 && mean < 0.015, "the proxy and the scan disagree: worst {worst}, mean {mean}");
     }
 }

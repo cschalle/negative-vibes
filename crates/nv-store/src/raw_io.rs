@@ -1,7 +1,7 @@
+use crate::{Result, StoreError};
+use nv_image::FrameBuf;
 use std::io::{self, Read};
 use std::path::Path;
-use nv_image::FrameBuf;
-use crate::{Result, StoreError};
 
 /// Write a FrameBuf as a 16-bit tiled TIFF (our raw / preview format).
 pub struct RawWriter;
@@ -413,7 +413,7 @@ fn read_tiff(path: &Path) -> Result<FrameBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_pnm, RawReader, RawWriter};
+    use super::{RawReader, RawWriter, read_pnm};
 
     /// `pnmtopnm`, GIMP and the SANE tools write comments into the header.
     fn scratch(name: &str) -> std::path::PathBuf {
@@ -462,7 +462,9 @@ mod tests {
                 let (mut rgb, mut ir) = (FrameBuf::new(w, Some(h), depth, 3), FrameBuf::new(w, Some(h), depth, 1));
                 for i in 0..w * h {
                     let v = i.wrapping_mul(2654435761) >> 9;
-                    for c in 0..3u32 { rgb.append(&(v.wrapping_add(c) as u16).to_ne_bytes()) }
+                    for c in 0..3u32 {
+                        rgb.append(&(v.wrapping_add(c) as u16).to_ne_bytes())
+                    }
                     ir.append(&((v >> 2) as u16).to_ne_bytes());
                 }
                 RawWriter::write_scan_with_ir(&rgb, Some(&ir), &path).unwrap();
@@ -473,7 +475,11 @@ mod tests {
             for (x0, y0, bw, bh) in [(0, 0, 20, 20), (13, 37, 31, 29), (w - 10, h - 5, 50, 50), (5, 33, 1, 1), (0, 0, w, h)] {
                 let got = RawReader::region(&path, x0, y0, bw, bh).unwrap();
                 let want = whole.crop(x0, y0, bw, bh);
-                assert_eq!((got.width, got.effective_height(), got.channels, got.depth), (want.width, want.effective_height(), want.channels, want.depth), "{channels}x{depth} {x0},{y0}");
+                assert_eq!(
+                    (got.width, got.effective_height(), got.channels, got.depth),
+                    (want.width, want.effective_height(), want.channels, want.depth),
+                    "{channels}x{depth} {x0},{y0}"
+                );
                 assert_eq!(got.as_bytes(), want.as_bytes(), "{channels}x{depth} block {x0},{y0} {bw}x{bh}");
             }
             assert_eq!(RawReader::region(&path, w + 5, 0, 10, 10).unwrap().width, 0);
@@ -576,7 +582,7 @@ mod tests {
         let buf = read_pnm(&data).unwrap();
         assert_eq!(buf.as_bytes(), &[b'#', b'\n']);
     }
-    use nv_image::{read_sample, FrameBuf};
+    use nv_image::{FrameBuf, read_sample};
 
     /// A 16-bit scan written to disk must read back sample for sample,
     /// including when the backend pads each line.

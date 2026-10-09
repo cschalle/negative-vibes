@@ -2,7 +2,7 @@
 //! blobs: small matrix/TRC profiles (ICC v2.4) that every colour-managed
 //! program reads. The numbers are the published D50-adapted colorants.
 
-use crate::colour::{ColourSpace, ADOBE_GAMMA, GREY_GAMMA};
+use crate::colour::{ADOBE_GAMMA, ColourSpace, GREY_GAMMA};
 
 /// D50, the profile connection space white.
 const D50: [f64; 3] = [0.9642, 1.0, 0.8249];
@@ -156,12 +156,7 @@ pub fn grey_profile() -> Vec<u8> {
     assemble(
         b"mntr",
         b"GRAY",
-        vec![
-            (*b"desc", desc_tag("Grey gamma 2.2")),
-            (*b"cprt", text_tag("No copyright, use freely")),
-            (*b"wtpt", xyz_tag(D50)),
-            (*b"kTRC", gamma_curve(GREY_GAMMA)),
-        ],
+        vec![(*b"desc", desc_tag("Grey gamma 2.2")), (*b"cprt", text_tag("No copyright, use freely")), (*b"wtpt", xyz_tag(D50)), (*b"kTRC", gamma_curve(GREY_GAMMA))],
     )
 }
 

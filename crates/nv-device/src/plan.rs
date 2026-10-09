@@ -40,10 +40,7 @@ pub enum OptionSetting {
 impl AcquisitionPlan {
     /// Build a preview plan at the device's recommended preview resolution.
     pub fn preview(caps: &DeviceCapabilities) -> Self {
-        let resolution_dpi = caps
-            .recommended_dpi
-            .or_else(|| caps.resolutions.iter().copied().find(|&r| r >= 300))
-            .unwrap_or(300);
+        let resolution_dpi = caps.recommended_dpi.or_else(|| caps.resolutions.iter().copied().find(|&r| r >= 300)).unwrap_or(300);
         let mode = preview_mode_string(caps);
         Self {
             kind: PlanKind::Plain,
@@ -57,30 +54,10 @@ impl AcquisitionPlan {
     }
 
     /// Build a full-resolution scan plan.
-    pub fn scan(
-        caps: &DeviceCapabilities,
-        resolution_dpi: u32,
-        with_ir: bool,
-    ) -> Self {
-        let mode = if with_ir && caps.ir != IrStyle::None {
-            ir_mode_string(caps)
-        } else {
-            "Color".to_owned()
-        };
-        let kind = if with_ir && caps.ir != IrStyle::None {
-            PlanKind::RgbPlusIr
-        } else {
-            PlanKind::Plain
-        };
-        Self {
-            kind,
-            resolution_dpi,
-            depth: *caps.depths.iter().max().unwrap_or(&8),
-            mode,
-            options: vec![],
-            neutralise: caps.neutralise.clone(),
-            preview_mode: false,
-        }
+    pub fn scan(caps: &DeviceCapabilities, resolution_dpi: u32, with_ir: bool) -> Self {
+        let mode = if with_ir && caps.ir != IrStyle::None { ir_mode_string(caps) } else { "Color".to_owned() };
+        let kind = if with_ir && caps.ir != IrStyle::None { PlanKind::RgbPlusIr } else { PlanKind::Plain };
+        Self { kind, resolution_dpi, depth: *caps.depths.iter().max().unwrap_or(&8), mode, options: vec![], neutralise: caps.neutralise.clone(), preview_mode: false }
     }
 }
 

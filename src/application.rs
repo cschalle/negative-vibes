@@ -61,7 +61,9 @@ mod imp {
                         gio::prelude::ActionGroupExt::activate_action(&w, name, None);
                     }
                     glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
-                        if let Some(a) = gtk::prelude::GtkWindowExt::application(&w) { gio::prelude::ApplicationExt::quit(&a); }
+                        if let Some(a) = gtk::prelude::GtkWindowExt::application(&w) {
+                            gio::prelude::ApplicationExt::quit(&a);
+                        }
                     });
                 });
             }
@@ -139,9 +141,7 @@ mod imp {
                     let Some(win) = app.main_window() else { return };
 
                     // Get device name from window state.
-                    if let crate::window::imp::ScanUiState::Ready { device_name } =
-                        &*win.imp().scan_state.borrow()
-                    {
+                    if let crate::window::imp::ScanUiState::Ready { device_name } = &*win.imp().scan_state.borrow() {
                         worker.start_scan(device_name.clone(), win.preview_dpi(), false, None);
                     } else {
                         win.scanner_not_ready();
@@ -158,9 +158,7 @@ mod imp {
                     let Some(worker) = app.imp().worker.get() else { return };
                     let Some(win) = app.main_window() else { return };
 
-                    if let crate::window::imp::ScanUiState::Ready { device_name } =
-                        &*win.imp().scan_state.borrow()
-                    {
+                    if let crate::window::imp::ScanUiState::Ready { device_name } = &*win.imp().scan_state.borrow() {
                         worker.start_scan_with(device_name.clone(), win.final_scan_dpi(), win.scan_with_ir(), win.scan_area(), win.scan_passes());
                     } else {
                         win.scanner_not_ready();
@@ -212,10 +210,7 @@ impl Application {
     }
 
     fn new() -> Self {
-        glib::Object::builder()
-            .property("application-id", crate::config::APP_ID)
-            .property("flags", gio::ApplicationFlags::empty())
-            .build()
+        glib::Object::builder().property("application-id", crate::config::APP_ID).property("flags", gio::ApplicationFlags::empty()).build()
     }
 
     pub fn run() -> ExitCode {
@@ -227,7 +222,9 @@ impl Application {
 fn quirks_file_path() -> std::path::PathBuf {
     if let Some(cfg_dir) = glib::user_config_dir().to_str().map(std::path::PathBuf::from) {
         let user = cfg_dir.join("negative-vibes").join("devices.toml");
-        if user.exists() { return user; }
+        if user.exists() {
+            return user;
+        }
     }
     std::path::PathBuf::from(crate::config::PKGDATADIR).join("devices.toml")
 }

@@ -17,9 +17,7 @@ pub struct ProbeArgs {
 pub fn run(args: ProbeArgs) -> anyhow::Result<()> {
     let quirks = Quirks::load(&args.quirks);
     let session = nv_sane::Session::new().map_err(|e| anyhow::anyhow!("sane_init: {e}"))?;
-    let devices = session
-        .get_devices(!args.network)
-        .map_err(|e| anyhow::anyhow!("sane_get_devices: {e}"))?;
+    let devices = session.get_devices(!args.network).map_err(|e| anyhow::anyhow!("sane_get_devices: {e}"))?;
 
     if devices.is_empty() {
         println!("No SANE devices found.");
@@ -37,8 +35,7 @@ pub fn run(args: ProbeArgs) -> anyhow::Result<()> {
 
         let backend = nv_device::quirks::backend_name(&dev.name);
         let qk = quirks.find(backend, &dev.model);
-        let caps = DeviceCapabilities::detect(&dev.name, &dev.vendor, &dev.model, &handle, qk)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let caps = DeviceCapabilities::detect(&dev.name, &dev.vendor, &dev.model, &handle, qk).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         print_caps(&caps);
 
@@ -46,7 +43,9 @@ pub fn run(args: ProbeArgs) -> anyhow::Result<()> {
             println!("  Options:");
             let opts = handle.all_options().map_err(|e| anyhow::anyhow!("{e}"))?;
             for opt in opts {
-                if !opt.is_active() { continue; }
+                if !opt.is_active() {
+                    continue;
+                }
                 println!("    [{}] {}  ({:?}) cap={:#010x}", opt.index, opt.name, opt.kind, opt.cap);
                 if let Ok(val) = handle.get_option(&opt) {
                     println!("        value = {val:?}");
@@ -77,4 +76,3 @@ fn print_caps(caps: &DeviceCapabilities) {
     }
     println!();
 }
-

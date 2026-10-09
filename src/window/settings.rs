@@ -5,11 +5,11 @@
 use adw::prelude::*;
 use adw::subclass::prelude::ObjectSubclassIsExt;
 use nv_film::builtin_profiles;
-use nv_process::{analyse_frame, analysis_fields, default_params_for, roll_analysis, FrameAnalysis, ProcessParams, Settings};
+use nv_process::{FrameAnalysis, ProcessParams, Settings, analyse_frame, analysis_fields, default_params_for, roll_analysis};
 use nv_store::RawReader;
 
 use super::history::{History, Scope};
-use super::{imp, Window};
+use super::{Window, imp};
 use crate::canvas_geom as geom;
 
 /// The look every roll starts from: generic colour negative, all defaults.
@@ -102,7 +102,13 @@ impl Window {
         let kodachrome = imp.proc_params.borrow().as_ref().is_some_and(|p| p.image_type == nv_process::params::ImageType::Kodachrome);
         // Kodachrome's dyes block infrared, so the plane cannot show its dust.
         let usable = (has_ir && !kodachrome) || software;
-        for r in [imp.dust_mode_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone()), imp.dust_detection_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone())].into_iter().flatten() {
+        for r in [
+            imp.dust_mode_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone()),
+            imp.dust_detection_row.borrow().as_ref().map(|r| r.upcast_ref::<gtk::Widget>().clone()),
+        ]
+        .into_iter()
+        .flatten()
+        {
             r.set_sensitive(usable);
         }
         if let Some(n) = imp.dust_note_row.borrow().as_ref() {

@@ -114,7 +114,13 @@ fn to_hsl([r, g, b]: [f32; 3]) -> (f32, f32, f32) {
         return (0.0, 0.0, l);
     }
     let s = d / (1.0 - (2.0 * l - 1.0).abs()).max(1e-6);
-    let h = if max == r { ((g - b) / d).rem_euclid(6.0) } else if max == g { (b - r) / d + 2.0 } else { (r - g) / d + 4.0 };
+    let h = if max == r {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
     (h * 60.0, s.clamp(0.0, 1.0), l)
 }
 
@@ -340,7 +346,11 @@ mod tests {
     #[test]
     fn grey_filters_lighten_their_own_colour() {
         let preset = |name: &str| GREY_PRESETS.iter().find(|(n, _)| *n == name).unwrap().1;
-        let grey_of = |c: [f32; 3], name: &str| { let mut p = c.to_vec(); to_grey(&mut p, preset(name)); p[0] };
+        let grey_of = |c: [f32; 3], name: &str| {
+            let mut p = c.to_vec();
+            to_grey(&mut p, preset(name));
+            p[0]
+        };
         let (red, green, blue) = ([0.8, 0.05, 0.05], [0.05, 0.8, 0.05], [0.05, 0.05, 0.8]);
         assert!(grey_of(red, "Red filter") > grey_of(red, "Green filter") + 0.4);
         assert!(grey_of(green, "Green filter") > grey_of(green, "Red filter") + 0.4);
@@ -439,7 +449,13 @@ mod tests {
             assert!(set.iter().flatten().all(|v| (-1.0..=1.0).contains(v)), "{name}");
             let p = ColourParams { selective: set, ..Default::default() };
             assert!(!p.is_neutral(), "{name}");
-            let mut sample: Vec<f32> = (0..12).flat_map(|i| { let (h, _) = (i as f32 * 30.0, 0); let c = from_hsl(h, 0.6, 0.5); [decode(c[0]), decode(c[1]), decode(c[2])] }).collect();
+            let mut sample: Vec<f32> = (0..12)
+                .flat_map(|i| {
+                    let (h, _) = (i as f32 * 30.0, 0);
+                    let c = from_hsl(h, 0.6, 0.5);
+                    [decode(c[0]), decode(c[1]), decode(c[2])]
+                })
+                .collect();
             let before = sample.clone();
             apply(&mut sample, &p);
             assert_ne!(sample, before, "{name} changed nothing");
@@ -450,7 +466,16 @@ mod tests {
     #[test]
     fn output_stays_in_range_and_finite() {
         let mut p: Vec<f32> = (0..300).map(|i| (i % 11) as f32 / 10.0).collect();
-        apply(&mut p, &ColourParams { saturation: 1.0, acr: 100.0, wheel: [[1.0, 0.3], [-0.7, 0.7], [0.2, -1.0]], selective: [[1.0, 1.0, 1.0], [-1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]], ..Default::default() });
+        apply(
+            &mut p,
+            &ColourParams {
+                saturation: 1.0,
+                acr: 100.0,
+                wheel: [[1.0, 0.3], [-0.7, 0.7], [0.2, -1.0]],
+                selective: [[1.0, 1.0, 1.0], [-1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]],
+                ..Default::default()
+            },
+        );
         assert!(p.iter().all(|v| v.is_finite() && (0.0..=1.0001).contains(v)), "out of range");
     }
 }

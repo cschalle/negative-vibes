@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{builtin_profiles, FilmProfile};
+use crate::{FilmProfile, builtin_profiles};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

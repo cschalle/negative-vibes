@@ -49,7 +49,40 @@ pub struct Settings {
 
 macro_rules! each_field {
     ($m:ident) => {
-        $m!(image_type, profile, film_base, d_max, cast_fit, exposure, cast_removal, black_point, white_point, midtone, contrast, balance, curves, dust_mode, dust_detection, dust_method, dust_defect, dust_exclude, dust_include, usm_enabled, usm_amount, usm_radius, usm_threshold, noise, local_contrast, saturation, acr, wheel, selective, grey_enabled, grey_weights, input)
+        $m!(
+            image_type,
+            profile,
+            film_base,
+            d_max,
+            cast_fit,
+            exposure,
+            cast_removal,
+            black_point,
+            white_point,
+            midtone,
+            contrast,
+            balance,
+            curves,
+            dust_mode,
+            dust_detection,
+            dust_method,
+            dust_defect,
+            dust_exclude,
+            dust_include,
+            usm_enabled,
+            usm_amount,
+            usm_radius,
+            usm_threshold,
+            noise,
+            local_contrast,
+            saturation,
+            acr,
+            wheel,
+            selective,
+            grey_enabled,
+            grey_weights,
+            input
+        )
     };
 }
 
@@ -60,48 +93,114 @@ impl Settings {
 
     /// Put these settings on top of `p`.
     pub fn apply_to(&self, p: &mut ProcessParams) {
-        if let Some(v) = self.image_type { p.image_type = v; }
+        if let Some(v) = self.image_type {
+            p.image_type = v;
+        }
         if let Some(id) = &self.profile {
             if let Some(profile) = nv_film::find_profile(id) {
                 p.profile = profile;
             }
         }
-        if let Some(v) = self.film_base { p.conversion.film_base = Some(v); }
-        if let Some(v) = self.d_max { p.conversion.d_max = Some(v); }
-        if let Some(v) = self.cast_fit { p.conversion.cast_fit = Some(v); }
-        if let Some(v) = self.exposure { p.conversion.exposure = v; }
-        if let Some(v) = self.cast_removal { p.conversion.cast_removal = v; }
-        if let Some(v) = self.black_point { p.tone.black_point = v; }
-        if let Some(v) = self.white_point { p.tone.white_point = v; }
-        if let Some(v) = self.midtone { p.tone.midtone = v; }
-        if let Some(v) = self.contrast { p.tone.contrast = v; }
-        if let Some(v) = self.balance { p.tone.balance = v; }
-        if let Some(v) = &self.curves { p.tone.curves = v.clone(); }
-        if let Some(v) = self.dust_mode { p.dust.mode = v; }
-        if let Some(v) = self.dust_detection { p.dust.detection = v; }
-        if let Some(v) = self.dust_method { p.dust.method = v; }
-        if let Some(v) = self.dust_defect { p.dust.defect = v; }
-        if let Some(v) = &self.dust_exclude { p.dust.exclude = v.clone(); }
-        if let Some(v) = &self.dust_include { p.dust.include = v.clone(); }
-        if let Some(v) = self.usm_enabled { p.detail.usm.enabled = v; }
-        if let Some(v) = self.usm_amount { p.detail.usm.amount = v; }
-        if let Some(v) = self.usm_radius { p.detail.usm.radius = v; }
-        if let Some(v) = self.usm_threshold { p.detail.usm.threshold = v; }
-        if let Some(v) = self.noise { p.detail.noise = v; }
-        if let Some(v) = self.local_contrast { p.detail.local_contrast = v; }
-        if let Some(v) = self.saturation { p.colour.saturation = v; }
-        if let Some(v) = self.acr { p.colour.acr = v; }
-        if let Some(v) = self.wheel { p.colour.wheel = v; }
-        if let Some(v) = self.selective { p.colour.selective = v; }
-        if let Some(v) = self.grey_enabled { p.colour.grey.enabled = v; }
-        if let Some(v) = self.grey_weights { p.colour.grey.weights = v; }
-        if let Some(v) = &self.input { p.input = Some(v.clone()); }
+        if let Some(v) = self.film_base {
+            p.conversion.film_base = Some(v);
+        }
+        if let Some(v) = self.d_max {
+            p.conversion.d_max = Some(v);
+        }
+        if let Some(v) = self.cast_fit {
+            p.conversion.cast_fit = Some(v);
+        }
+        if let Some(v) = self.exposure {
+            p.conversion.exposure = v;
+        }
+        if let Some(v) = self.cast_removal {
+            p.conversion.cast_removal = v;
+        }
+        if let Some(v) = self.black_point {
+            p.tone.black_point = v;
+        }
+        if let Some(v) = self.white_point {
+            p.tone.white_point = v;
+        }
+        if let Some(v) = self.midtone {
+            p.tone.midtone = v;
+        }
+        if let Some(v) = self.contrast {
+            p.tone.contrast = v;
+        }
+        if let Some(v) = self.balance {
+            p.tone.balance = v;
+        }
+        if let Some(v) = &self.curves {
+            p.tone.curves = v.clone();
+        }
+        if let Some(v) = self.dust_mode {
+            p.dust.mode = v;
+        }
+        if let Some(v) = self.dust_detection {
+            p.dust.detection = v;
+        }
+        if let Some(v) = self.dust_method {
+            p.dust.method = v;
+        }
+        if let Some(v) = self.dust_defect {
+            p.dust.defect = v;
+        }
+        if let Some(v) = &self.dust_exclude {
+            p.dust.exclude = v.clone();
+        }
+        if let Some(v) = &self.dust_include {
+            p.dust.include = v.clone();
+        }
+        if let Some(v) = self.usm_enabled {
+            p.detail.usm.enabled = v;
+        }
+        if let Some(v) = self.usm_amount {
+            p.detail.usm.amount = v;
+        }
+        if let Some(v) = self.usm_radius {
+            p.detail.usm.radius = v;
+        }
+        if let Some(v) = self.usm_threshold {
+            p.detail.usm.threshold = v;
+        }
+        if let Some(v) = self.noise {
+            p.detail.noise = v;
+        }
+        if let Some(v) = self.local_contrast {
+            p.detail.local_contrast = v;
+        }
+        if let Some(v) = self.saturation {
+            p.colour.saturation = v;
+        }
+        if let Some(v) = self.acr {
+            p.colour.acr = v;
+        }
+        if let Some(v) = self.wheel {
+            p.colour.wheel = v;
+        }
+        if let Some(v) = self.selective {
+            p.colour.selective = v;
+        }
+        if let Some(v) = self.grey_enabled {
+            p.colour.grey.enabled = v;
+        }
+        if let Some(v) = self.grey_weights {
+            p.colour.grey.weights = v;
+        }
+        if let Some(v) = &self.input {
+            p.input = Some(v.clone());
+        }
     }
 
     /// The fields that differ between `old` and `new`.
     pub fn diff(old: &ProcessParams, new: &ProcessParams) -> Settings {
-        fn ch<T: PartialEq + Copy>(a: T, b: T) -> Option<T> { (a != b).then_some(b) }
-        fn chf(a: f32, b: f32) -> Option<f32> { ((a - b).abs() > 1e-6).then_some(b) }
+        fn ch<T: PartialEq + Copy>(a: T, b: T) -> Option<T> {
+            (a != b).then_some(b)
+        }
+        fn chf(a: f32, b: f32) -> Option<f32> {
+            ((a - b).abs() > 1e-6).then_some(b)
+        }
         fn ch3(a: [f32; 3], b: [f32; 3]) -> Option<[f32; 3]> {
             // Spin rows show three decimals; anything finer is rounding.
             a.iter().zip(&b).any(|(x, y)| (x - y).abs() > 5e-4).then_some(b)

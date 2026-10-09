@@ -47,12 +47,18 @@ impl Window {
         let mut first: Option<gtk::ToggleButton> = None;
         for (i, name) in REGIONS.iter().enumerate() {
             let b = gtk::ToggleButton::builder().label(*name).active(i == 1).build();
-            if let Some(f) = &first { b.set_group(Some(f)); } else { first = Some(b.clone()); }
+            if let Some(f) = &first {
+                b.set_group(Some(f));
+            } else {
+                first = Some(b.clone());
+            }
             let weak = self.downgrade();
             b.connect_toggled(move |b| {
                 if let (true, Some(win)) = (b.is_active(), weak.upgrade()) {
                     win.imp().wheel_region.set(i);
-                    if let Some(a) = win.imp().wheel_area.borrow().as_ref() { a.queue_draw(); }
+                    if let Some(a) = win.imp().wheel_area.borrow().as_ref() {
+                        a.queue_draw();
+                    }
                 }
             });
             tabs.append(&b);
@@ -164,7 +170,9 @@ impl Window {
                 win.begin_live_edit();
                 win.update_live(|p| p.colour.wheel = [[0.0; 2]; 3]);
                 win.end_live_edit();
-                if let Some(a) = win.imp().wheel_area.borrow().as_ref() { a.queue_draw(); }
+                if let Some(a) = win.imp().wheel_area.borrow().as_ref() {
+                    a.queue_draw();
+                }
             }
         });
 

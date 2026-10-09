@@ -14,8 +14,8 @@
 use std::io::{self, Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use nv_image::frame_buf::read_sample;
 use nv_image::FrameBuf;
+use nv_image::frame_buf::read_sample;
 use nv_process::{InputProfile, Orientation};
 
 use crate::encode::ExportError;
@@ -404,28 +404,28 @@ pub fn write_dng<W: Write + Seek>(
     }
     let exif_at = write_ifd(&mut out, exif)?;
     let mut tags = vec![
-            long(254, &[1]),
-            long(256, &[tw]),
-            long(257, &[th]),
-            short(258, &[8, 8, 8]),
-            short(259, &[1]),
-            short(262, &[2]),
-            ascii(271, &info.make),
-            ascii(272, &info.model),
-            long(273, &[thumb_at]),
-            short(274, &[exif_orientation(orientation)]),
-            short(277, &[3]),
-            long(278, &[th]),
-            long(279, &[thumb.len() as u32]),
-            short(284, &[1]),
-            ascii(305, &info.software),
-            long(330, &[sub]),
-            bytes(50706, &[1, 4, 0, 0]),
-            bytes(50707, &[1, 1, 0, 0]),
-            ascii(50708, &format!("{} {}", info.make, info.model)),
-            rationals(50721, &m.iter().flatten().cloned().collect::<Vec<_>>()),
-            unsigned_rationals(50728, &[1, 1, 1]),
-            short(50778, &[21]), // CalibrationIlluminant1: D65
+        long(254, &[1]),
+        long(256, &[tw]),
+        long(257, &[th]),
+        short(258, &[8, 8, 8]),
+        short(259, &[1]),
+        short(262, &[2]),
+        ascii(271, &info.make),
+        ascii(272, &info.model),
+        long(273, &[thumb_at]),
+        short(274, &[exif_orientation(orientation)]),
+        short(277, &[3]),
+        long(278, &[th]),
+        long(279, &[thumb.len() as u32]),
+        short(284, &[1]),
+        ascii(305, &info.software),
+        long(330, &[sub]),
+        bytes(50706, &[1, 4, 0, 0]),
+        bytes(50707, &[1, 1, 0, 0]),
+        ascii(50708, &format!("{} {}", info.make, info.model)),
+        rationals(50721, &m.iter().flatten().cloned().collect::<Vec<_>>()),
+        unsigned_rationals(50728, &[1, 1, 1]),
+        short(50778, &[21]), // CalibrationIlluminant1: D65
     ];
     tags.push(long(34665, &[exif_at]));
     for (tag, text) in [(270u16, &info.description), (315, &info.artist), (33432, &info.copyright)] {
@@ -466,8 +466,22 @@ mod tests {
     #[test]
     fn the_tags_come_from_the_metadata_and_empty_ones_stay_out() {
         use crate::metadata::{FrameInfo, Metadata};
-        let meta = Metadata { creator: "Ann".into(), title: "Harbour".into(), caption: "Boats at dawn".into(), copyright: "© Ann".into(), camera: "Nikon FM2".into(), lens: "50mm f/1.8".into(), date_taken: "1987-06-15".into(), ..Default::default() };
-        let frame = FrameInfo { scanner: "Plustek OpticFilm 8200i plustek8200i:libusb:005:033".into(), scan_date: "2026-10-08T12:00:00Z".into(), film_profile: "Kodak Portra 400".into(), ..Default::default() };
+        let meta = Metadata {
+            creator: "Ann".into(),
+            title: "Harbour".into(),
+            caption: "Boats at dawn".into(),
+            copyright: "© Ann".into(),
+            camera: "Nikon FM2".into(),
+            lens: "50mm f/1.8".into(),
+            date_taken: "1987-06-15".into(),
+            ..Default::default()
+        };
+        let frame = FrameInfo {
+            scanner: "Plustek OpticFilm 8200i plustek8200i:libusb:005:033".into(),
+            scan_date: "2026-10-08T12:00:00Z".into(),
+            film_profile: "Kodak Portra 400".into(),
+            ..Default::default()
+        };
         let i = DngInfo::from_metadata(&meta, &frame, Some(400));
         assert_eq!(i.model, "Plustek OpticFilm 8200i");
         assert_eq!(i.description, "Harbour. Boats at dawn — Nikon FM2, Kodak Portra 400");
@@ -566,11 +580,29 @@ mod tests {
     #[test]
     fn an_empty_scan_is_refused_and_cancelling_stops() {
         let empty = FrameBuf::new(0, Some(0), 16, 3);
-        let r = write_dng(Cursor::new(Vec::new()), &empty, Orientation::IDENTITY, None, &DngInfo { make: "M".into(), model: "m".into(), software: "s".into(), ..Default::default() }, None, &|_| {}, &AtomicBool::new(false));
+        let r = write_dng(
+            Cursor::new(Vec::new()),
+            &empty,
+            Orientation::IDENTITY,
+            None,
+            &DngInfo { make: "M".into(), model: "m".into(), software: "s".into(), ..Default::default() },
+            None,
+            &|_| {},
+            &AtomicBool::new(false),
+        );
         assert!(matches!(r, Err(ExportError::Empty)));
         let mut b = FrameBuf::new(4, Some(4), 8, 3);
         b.append(&[7u8; 48]);
-        let r = write_dng(Cursor::new(Vec::new()), &b, Orientation::IDENTITY, None, &DngInfo { make: "M".into(), model: "m".into(), software: "s".into(), ..Default::default() }, None, &|_| {}, &AtomicBool::new(true));
+        let r = write_dng(
+            Cursor::new(Vec::new()),
+            &b,
+            Orientation::IDENTITY,
+            None,
+            &DngInfo { make: "M".into(), model: "m".into(), software: "s".into(), ..Default::default() },
+            None,
+            &|_| {},
+            &AtomicBool::new(true),
+        );
         assert!(matches!(r, Err(ExportError::Cancelled)));
     }
 }

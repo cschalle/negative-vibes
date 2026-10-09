@@ -1,36 +1,36 @@
 pub mod analysis;
-pub mod params;
-mod conversion;
 pub mod colour;
-pub mod densitometer;
-pub mod input;
-pub mod straighten;
+mod conversion;
 pub mod curves;
+pub mod densitometer;
 pub mod detail;
 pub mod dust;
-pub mod orient;
-pub mod settings;
-pub mod tiles;
 pub mod histogram;
+pub mod input;
+pub mod orient;
+pub mod params;
 pub mod proxy;
+pub mod settings;
+pub mod straighten;
+pub mod tiles;
 mod tone;
 
-pub use histogram::Histogram;
-pub use analysis::{analyse_frame, analysis_fields, roll_analysis, FrameAnalysis};
-pub use params::{ImageType, ProcessParams};
-pub use settings::{Look, Settings};
-pub use params::ToneParams;
+pub use analysis::{FrameAnalysis, analyse_frame, analysis_fields, roll_analysis};
+pub use colour::{ColourParams, GREY_PRESETS, GreyMix};
 pub use curves::{Curve, Curves};
-pub use input::InputProfile;
-pub use colour::{ColourParams, GreyMix, GREY_PRESETS};
 pub use detail::{AacoGrid, DetailParams, NoiseLevel, Placement, Quality, UsmParams};
 pub use dust::{DefectType, DustMethod, DustMode, DustParams, Stroke};
+pub use histogram::Histogram;
+pub use input::InputProfile;
 pub use orient::{DisplayOp, Orientation};
+pub use params::ToneParams;
+pub use params::{ImageType, ProcessParams};
+pub use proxy::{DEFAULT_PROXY_PIXELS, Proxy, ProxyBuilder};
+pub use settings::{Look, Settings};
 pub use tiles::render_toned_region_straightened;
-pub use proxy::{Proxy, ProxyBuilder, DEFAULT_PROXY_PIXELS};
 
-use nv_image::FrameBuf;
 use nv_film::FilmProfile;
+use nv_image::FrameBuf;
 
 /// Run the pipeline on a raw scan at full resolution and return display-ready
 /// u8 sRGB pixels (`w × h × 3`, R8G8B8).
@@ -90,13 +90,7 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
     if proxy.is_empty() {
         return Rendered { rgb: Vec::new(), levels: [0; 256] };
     }
-    let key = ConvKey {
-        proxy: proxy.id,
-        image_type: params.image_type,
-        profile: params.profile.clone(),
-        conversion: params.conversion.clone(),
-        dust: params.dust.clone(),
-    };
+    let key = ConvKey { proxy: proxy.id, image_type: params.image_type, profile: params.profile.clone(), conversion: params.conversion.clone(), dust: params.dust.clone() };
     let converted = {
         let mut last = cache.last.lock().unwrap_or_else(|e| e.into_inner());
         match last.as_ref() {
@@ -154,8 +148,7 @@ fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec
         params
     };
     // Infrared detection needs the plane; software detection needs only the picture.
-    let usable = params.dust.mode != dust::DustMode::Off
-        && (params.dust.method == dust::DustMethod::Software || proxy.ir.is_some() || !params.dust.include.is_empty());
+    let usable = params.dust.mode != dust::DustMode::Off && (params.dust.method == dust::DustMethod::Software || proxy.ir.is_some() || !params.dust.include.is_empty());
     let (repaired, mask) = if usable {
         let (px, report) = dust::apply_placed(&proxy.pixels, proxy.ir.as_deref(), proxy.width, proxy.height, &params.dust, proxy.factor, proxy.origin, proxy.full);
         match params.dust.mode {
@@ -245,7 +238,9 @@ pub fn estimate_film_base_proxy(proxy: &Proxy) -> [f32; 3] {
 }
 
 fn percentile_98(vals: &mut Vec<f32>) -> f32 {
-    if vals.is_empty() { return 1.0; }
+    if vals.is_empty() {
+        return 1.0;
+    }
     vals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     let idx = ((vals.len() as f32 * 0.98) as usize).min(vals.len() - 1);
     vals[idx].max(0.01)
@@ -348,10 +343,7 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
         detail: DetailParams::default(),
         colour: ColourParams::default(),
         input: None,
-        dust: params::DustParams {
-            mode: if image_type == ImageType::BwNegative { dust::DustMode::Off } else { dust::DustMode::Correct },
-            ..Default::default()
-        },
+        dust: params::DustParams { mode: if image_type == ImageType::BwNegative { dust::DustMode::Off } else { dust::DustMode::Correct }, ..Default::default() },
     }
 }
 

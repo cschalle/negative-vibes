@@ -3,10 +3,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use nv_export::{copy_raw, export_image, icc, ColourSpace, Compression, ExportError, ExportFormat, ExportSettings, OutputSize};
+use nv_export::{ColourSpace, Compression, ExportError, ExportFormat, ExportSettings, OutputSize, copy_raw, export_image, icc};
 use nv_film::builtin_profiles;
 use nv_image::FrameBuf;
-use nv_process::{default_params_for, render, tiles::freeze, Orientation, ProcessParams, Proxy};
+use nv_process::{Orientation, ProcessParams, Proxy, default_params_for, render, tiles::freeze};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -188,7 +188,13 @@ fn an_independent_colour_engine_agrees_with_our_profiles() {
 
     let out = dir.join("converted.tif");
     let status = std::process::Command::new("magick")
-        .arg(&adobe).arg("-intent").arg("relative").arg("+black-point-compensation").arg("-profile").arg(dir.join("srgb.icc")).arg(&out)
+        .arg(&adobe)
+        .arg("-intent")
+        .arg("relative")
+        .arg("+black-point-compensation")
+        .arg("-profile")
+        .arg(dir.join("srgb.icc"))
+        .arg(&out)
         .output()
         .expect("run magick");
     assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
@@ -196,7 +202,10 @@ fn an_independent_colour_engine_agrees_with_our_profiles() {
     let a = tiff_pixels(&out).3;
     let b = tiff_pixels(&srgb).3;
     // Both are 8 bit; ImageMagick may promote to 16: bring both to 0..255.
-    let to8 = |v: &[u16]| -> Vec<f64> { let hi = v.iter().copied().max().unwrap_or(255) > 255; v.iter().map(|x| if hi { *x as f64 / 257.0 } else { *x as f64 }).collect() };
+    let to8 = |v: &[u16]| -> Vec<f64> {
+        let hi = v.iter().copied().max().unwrap_or(255) > 255;
+        v.iter().map(|x| if hi { *x as f64 / 257.0 } else { *x as f64 }).collect()
+    };
     let d = mean_abs_diff(to8(&a).into_iter(), to8(&b).into_iter());
     assert!(d < 1.5, "an independent engine disagrees by {d} levels on average");
 }
@@ -229,7 +238,19 @@ fn cancelling_leaves_no_file_behind() {
 
     // Cancel after the first band: the partial file is removed too.
     let cancel = AtomicBool::new(false);
-    let r = export_image(&raw, &frozen, Orientation::IDENTITY, &ExportSettings::default(), &dest, &|f| if f > 0.0 { cancel.store(true, Ordering::Relaxed) }, &cancel);
+    let r = export_image(
+        &raw,
+        &frozen,
+        Orientation::IDENTITY,
+        &ExportSettings::default(),
+        &dest,
+        &|f| {
+            if f > 0.0 {
+                cancel.store(true, Ordering::Relaxed)
+            }
+        },
+        &cancel,
+    );
     assert!(matches!(r, Err(ExportError::Cancelled)));
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
 }
@@ -298,10 +319,7 @@ fn a_7200_dpi_frame_exports_in_bounded_memory() {
         eprintln!("tiff16-deflate with sharpening and noise reduction: {}x{} in {:?}, peak RSS {} MB", r.width, r.height, t.elapsed(), peak_rss_mb());
         let _ = std::fs::remove_file(&r.path);
     }
-    for (name, s) in [
-        ("tiff16-deflate", ExportSettings::default()),
-        ("tiff8-none", ExportSettings { bit_depth: 8, compression: Compression::None, ..Default::default() }),
-    ] {
+    for (name, s) in [("tiff16-deflate", ExportSettings::default()), ("tiff8-none", ExportSettings { bit_depth: 8, compression: Compression::None, ..Default::default() })] {
         let t = std::time::Instant::now();
         let r = export_image(&raw, &frozen, Orientation::IDENTITY, &s, &dir.join(format!("{name}.tif")), &|_| {}, &AtomicBool::new(false)).unwrap();
         eprintln!("{name}: {}x{} in {:?}, {} MB written, peak RSS {} MB (raw and proxy alone: {} MB)", r.width, r.height, t.elapsed(), r.bytes >> 20, peak_rss_mb(), before);
@@ -350,7 +368,10 @@ fn a_smaller_export_has_the_size_asked_and_the_same_look() {
         assert_eq!((w, h), want, "{size:?}");
         assert_eq!(px.len(), w as usize * h as usize * 3);
         // Averaging keeps the picture's brightness.
-        let mean = |v: &mut dyn Iterator<Item = f64>| { let (s, n) = v.fold((0.0, 0.0), |(s, n), x| (s + x, n + 1.0)); s / n };
+        let mean = |v: &mut dyn Iterator<Item = f64>| {
+            let (s, n) = v.fold((0.0, 0.0), |(s, n), x| (s + x, n + 1.0));
+            s / n
+        };
         let (a, b) = (mean(&mut px.iter().map(|v| *v as f64)), mean(&mut reference.iter().map(|v| *v as f64)));
         assert!((a - b).abs() < 3.0, "{size:?}: mean {a} vs {b}");
     }
@@ -367,7 +388,13 @@ fn an_independent_resampler_agrees_on_the_look_of_a_smaller_picture() {
     let (raw, frozen, _) = tulip();
     let dir = scratch("magick-resize");
     let full = export(&raw, &frozen, &ExportSettings { bit_depth: 8, compression: Compression::None, ..Default::default() }, &dir, "full.tif");
-    let small = export(&raw, &frozen, &ExportSettings { bit_depth: 8, compression: Compression::None, size: OutputSize::LongEdge { pixels: 288 }, ..Default::default() }, &dir, "small.tif");
+    let small = export(
+        &raw,
+        &frozen,
+        &ExportSettings { bit_depth: 8, compression: Compression::None, size: OutputSize::LongEdge { pixels: 288 }, ..Default::default() },
+        &dir,
+        "small.tif",
+    );
     let theirs = dir.join("theirs.tif");
     let out = std::process::Command::new("magick").arg(&full).args(["-filter", "box", "-resize", "288x215!", "-depth", "8"]).arg(&theirs).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -396,7 +423,11 @@ fn every_format_handles_a_resized_picture() {
     let dir = scratch("formats");
     let size = OutputSize::Percent { percent: 40.0 };
     let jpg = export(&raw, &frozen, &ExportSettings { format: ExportFormat::Jpeg, size, ..Default::default() }, &dir, "a.jpg");
-    let info = { let mut d = jpeg_decoder::Decoder::new(std::fs::File::open(&jpg).unwrap()); d.read_info().unwrap(); d.info().unwrap() };
+    let info = {
+        let mut d = jpeg_decoder::Decoder::new(std::fs::File::open(&jpg).unwrap());
+        d.read_info().unwrap();
+        d.info().unwrap()
+    };
     assert_eq!((info.width, info.height), (346, 258));
     let png_path = export(&raw, &frozen, &ExportSettings { format: ExportFormat::Png, bit_depth: 16, size, ..Default::default() }, &dir, "a.png");
     let r = png::Decoder::new(std::fs::File::open(&png_path).unwrap()).read_info().unwrap();
@@ -515,7 +546,7 @@ fn independent_readers_accept_the_dng_and_see_its_orientation() {
 /// Every format carries the XMP packet, and an independent reader (exiv2) finds the fields.
 #[test]
 fn metadata_is_embedded_in_every_format_and_read_back_by_exiv2() {
-    use nv_export::metadata::{xmp_packet, FrameInfo, Metadata};
+    use nv_export::metadata::{FrameInfo, Metadata, xmp_packet};
     let (raw, frozen, _) = tulip();
     let dir = scratch("xmp");
     let meta = Metadata {
@@ -530,9 +561,18 @@ fn metadata_is_embedded_in_every_format_and_read_back_by_exiv2() {
         film_stock: "Kodak Portra 400".into(),
         ..Default::default()
     };
-    let info = FrameInfo { roll: "Roll 7".into(), frame_number: Some(12), scanner: "Plustek OpticFilm 8200i".into(), resolution_dpi: Some(600), scan_date: "2026-10-08T12:00:00Z".into(), ..Default::default() };
+    let info = FrameInfo {
+        roll: "Roll 7".into(),
+        frame_number: Some(12),
+        scanner: "Plustek OpticFilm 8200i".into(),
+        resolution_dpi: Some(600),
+        scan_date: "2026-10-08T12:00:00Z".into(),
+        ..Default::default()
+    };
     let xmp = xmp_packet(&meta, &info);
-    for (format, ext) in [(nv_export::ExportFormat::Tiff, "tif"), (nv_export::ExportFormat::Jpeg, "jpg"), (nv_export::ExportFormat::Png, "png"), (nv_export::ExportFormat::Dng, "dng")] {
+    for (format, ext) in
+        [(nv_export::ExportFormat::Tiff, "tif"), (nv_export::ExportFormat::Jpeg, "jpg"), (nv_export::ExportFormat::Png, "png"), (nv_export::ExportFormat::Dng, "dng")]
+    {
         let s = ExportSettings { format, bit_depth: if format == nv_export::ExportFormat::Jpeg { 8 } else { 16 }, ..Default::default() };
         let dest = dir.join(format!("m.{ext}"));
         nv_export::export_image_with(&raw, &frozen, Orientation::IDENTITY, 0.0, Some(&xmp), &s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap_or_else(|e| panic!("{ext}: {e}"));
@@ -543,7 +583,21 @@ fn metadata_is_embedded_in_every_format_and_read_back_by_exiv2() {
         if !tags.contains("Xmp.") {
             panic!("{ext}: exiv2 sees no XMP:\n{tags}");
         }
-        for want in ["Xmp.dc.creator", "Ann Example", "Xmp.dc.subject", "boats", "Xmp.photoshop.City", "Oslo", "Xmp.dc.title", "Harbour", "Xmp.photoshop.DateCreated", "1987-06-15", "Xmp.nv.FilmStock", "Kodak Portra 400", "Xmp.nv.ScanResolution"] {
+        for want in [
+            "Xmp.dc.creator",
+            "Ann Example",
+            "Xmp.dc.subject",
+            "boats",
+            "Xmp.photoshop.City",
+            "Oslo",
+            "Xmp.dc.title",
+            "Harbour",
+            "Xmp.photoshop.DateCreated",
+            "1987-06-15",
+            "Xmp.nv.FilmStock",
+            "Kodak Portra 400",
+            "Xmp.nv.ScanResolution",
+        ] {
             assert!(tags.contains(want), "{ext}: exiv2 does not report {want}:\n{tags}");
         }
         // The file is still the picture.
@@ -565,15 +619,46 @@ fn a_dng_carries_its_camera_data_and_opens_cropped_to_the_picture() {
     use nv_export::metadata::{FrameInfo, Metadata};
     let (raw, frozen, _) = tulip();
     let dir = scratch("dng-info");
-    let meta = Metadata { creator: "Ann Example".into(), title: "Tulips".into(), copyright: "© Ann".into(), lens: "50mm f/1.8".into(), date_taken: "1987-06-15".into(), camera: "Nikon FM2".into(), ..Default::default() };
-    let frame = FrameInfo { scanner: "Plustek OpticFilm 8200i plustek8200i:libusb:005:033".into(), scan_date: "2026-10-08T12:00:00Z".into(), film_profile: "Kodak Portra 400".into(), ..Default::default() };
+    let meta = Metadata {
+        creator: "Ann Example".into(),
+        title: "Tulips".into(),
+        copyright: "© Ann".into(),
+        lens: "50mm f/1.8".into(),
+        date_taken: "1987-06-15".into(),
+        camera: "Nikon FM2".into(),
+        ..Default::default()
+    };
+    let frame = FrameInfo {
+        scanner: "Plustek OpticFilm 8200i plustek8200i:libusb:005:033".into(),
+        scan_date: "2026-10-08T12:00:00Z".into(),
+        film_profile: "Kodak Portra 400".into(),
+        ..Default::default()
+    };
     let info = DngInfo::from_metadata(&meta, &frame, Some(400));
     let dest = dir.join("info.dng");
     let s = ExportSettings { format: nv_export::ExportFormat::Dng, ..Default::default() };
     nv_export::export_image_full(&raw, &frozen, Orientation::IDENTITY, 0.0, None, Some(&info), &s, &dest, &|_| {}, &AtomicBool::new(false)).unwrap();
 
     let Some(tags) = run("exiv2", &["-pa", dest.to_str().unwrap()]) else { return };
-    for want in ["Exif.Image.Artist", "Ann Example", "Exif.Image.Copyright", "© Ann", "Exif.Image.Model", "Plustek OpticFilm 8200i", "Exif.Image.ImageDescription", "Tulips", "Nikon FM2", "Exif.Photo.ISOSpeedRatings", "400", "Exif.Photo.DateTimeOriginal", "1987:06:15 00:00:00", "Exif.Photo.DateTimeDigitized", "2026:10:08 12:00:00", "Exif.Photo.LensModel", "50mm f/1.8"] {
+    for want in [
+        "Exif.Image.Artist",
+        "Ann Example",
+        "Exif.Image.Copyright",
+        "© Ann",
+        "Exif.Image.Model",
+        "Plustek OpticFilm 8200i",
+        "Exif.Image.ImageDescription",
+        "Tulips",
+        "Nikon FM2",
+        "Exif.Photo.ISOSpeedRatings",
+        "400",
+        "Exif.Photo.DateTimeOriginal",
+        "1987:06:15 00:00:00",
+        "Exif.Photo.DateTimeDigitized",
+        "2026:10:08 12:00:00",
+        "Exif.Photo.LensModel",
+        "50mm f/1.8",
+    ] {
         assert!(tags.contains(want), "exiv2 does not report {want}:\n{tags}");
     }
     assert!(!tags.contains("plustek8200i:libusb"), "the device path must not leak into the model");

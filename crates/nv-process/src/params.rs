@@ -72,14 +72,7 @@ pub struct ToneParams {
 
 impl Default for ToneParams {
     fn default() -> Self {
-        Self {
-            black_point: 0.0,
-            white_point: 1.0,
-            midtone: 1.0,
-            contrast: 0.0,
-            balance: [1.0; 3],
-            curves: Curves::default(),
-        }
+        Self { black_point: 0.0, white_point: 1.0, midtone: 1.0, contrast: 0.0, balance: [1.0; 3], curves: Curves::default() }
     }
 }
 

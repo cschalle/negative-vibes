@@ -63,10 +63,7 @@ impl Window {
         let scroll = imp.canvas_scroll.borrow().clone();
         let centre = scroll.as_ref().map(|s| {
             let (h, v) = (s.hadjustment(), s.vadjustment());
-            (
-                (h.value() + h.page_size() / 2.0) / h.upper().max(1.0),
-                (v.value() + v.page_size() / 2.0) / v.upper().max(1.0),
-            )
+            ((h.value() + h.page_size() / 2.0) / h.upper().max(1.0), (v.value() + v.page_size() / 2.0) / v.upper().max(1.0))
         });
 
         imp.zoom.set(zoom);
@@ -92,14 +89,14 @@ impl Window {
         // The full-quality view follows what is on screen.
         for adj in [scroll.hadjustment(), scroll.vadjustment()] {
             let weak = self.downgrade();
-            adj.connect_value_changed(move |_| { if let Some(win) = weak.upgrade() { win.schedule_hq(); } });
+            adj.connect_value_changed(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.schedule_hq();
+                }
+            });
         }
-        let actions: [(&str, fn(&Window)); 4] = [
-            ("zoom-in", |w| w.zoom_by(STEP)),
-            ("zoom-out", |w| w.zoom_by(1.0 / STEP)),
-            ("zoom-fit", |w| w.set_zoom(None)),
-            ("zoom-100", |w| w.set_zoom(Some(1.0))),
-        ];
+        let actions: [(&str, fn(&Window)); 4] =
+            [("zoom-in", |w| w.zoom_by(STEP)), ("zoom-out", |w| w.zoom_by(1.0 / STEP)), ("zoom-fit", |w| w.set_zoom(None)), ("zoom-100", |w| w.set_zoom(Some(1.0)))];
         for (name, f) in actions {
             let action = gio::SimpleAction::new(name, None);
             let weak = self.downgrade();

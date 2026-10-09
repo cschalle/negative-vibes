@@ -126,10 +126,7 @@ pub fn is_dng(data: &[u8]) -> bool {
         _ => return false,
     };
     let b = Bytes { d: data, little };
-    b.u16(2) == Some(42)
-        && b.u32(4)
-            .and_then(|o| b.ifd(o as usize))
-            .is_some_and(|e| find(&e, TAG_DNG_VERSION).is_some())
+    b.u16(2) == Some(42) && b.u32(4).and_then(|o| b.ifd(o as usize)).is_some_and(|e| find(&e, TAG_DNG_VERSION).is_some())
 }
 
 /// Read the largest picture in a linear DNG.
@@ -228,9 +225,7 @@ pub fn read_dng(data: &[u8]) -> Result<FrameBuf> {
         if (*count as usize) < want {
             return Err(err("strip is shorter than its rows"));
         }
-        let strip = data
-            .get(*off as usize..(*off as usize).checked_add(want).ok_or_else(|| err("bad strip offset"))?)
-            .ok_or_else(|| err("strip lies outside the file"))?;
+        let strip = data.get(*off as usize..(*off as usize).checked_add(want).ok_or_else(|| err("bad strip offset"))?).ok_or_else(|| err("strip lies outside the file"))?;
         chunk.clear();
         if bps == 1 {
             chunk.extend_from_slice(strip);
