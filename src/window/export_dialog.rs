@@ -271,6 +271,10 @@ impl Window {
                 }
                 if let Some(roll) = win.imp().roll.borrow_mut().as_mut() {
                     roll.settings.export = settings;
+                } else {
+                    // No roll yet: the one made by the first scan starts from the preferences,
+                    // so hold the choice there for this session (it is not saved to disk).
+                    win.imp().prefs.borrow_mut().export = settings;
                 }
                 win.schedule_autosave();
                 let targets: Vec<u32> = if frames.selected() == 1 {

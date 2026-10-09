@@ -1988,6 +1988,8 @@ impl Window {
                 if let Some(old) = existing {
                     store.roll.frames = old.frames;
                     store.roll.settings.process = old.settings.process;
+                    // What the person chose before the folder existed (the Export dialog, say) stays.
+                    store.roll.settings.export = old.settings.export;
                 }
                 *self.imp().roll_root.borrow_mut() = Some(store.root().to_owned());
                 *self.imp().roll.borrow_mut() = Some(store.roll);
