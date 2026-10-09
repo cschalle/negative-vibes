@@ -1255,9 +1255,10 @@ one sets it on the roll), **Scan** (Scan All, with the manual-advance banner doi
 prompting on one-frame scanners; Finish enables once a frame is scanned) and **Done** (counts,
 Open Folder, Scan Another Roll). The pure parts (purposes, looks, resolution fitting, stock
 lists, the reduced proxy) are tested; the window itself has been started but not clicked
-through, and the preview and scan steps need the scanner. Opening the app prints about two
-dozen GTK allocation warnings (negative sizes) with or without the guide; they were there
-before this slice and have not been chased down.
+through, and the preview and scan steps need the scanner. Opening the app used to print about
+two dozen GTK allocation warnings (negative sizes); the cause was the bottom bar, which had
+grown wider than a narrow window and left the side panels no room. It now scrolls, and
+starting the app prints no warnings.
 
 Early implementation order inside M1 to M3, to reach a demo quickly:
 

@@ -578,7 +578,15 @@ impl Window {
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
         toolbar_view.set_content(Some(&main_stack));
-        toolbar_view.add_bottom_bar(&bottom_bar);
+        // The bar has grown wider than a narrow window; letting it scroll keeps its minimum
+        // width small, so the side panels are not squeezed to nothing.
+        let bottom_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Automatic)
+            .vscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .child(&bottom_bar)
+            .build();
+        toolbar_view.add_bottom_bar(&bottom_scroll);
 
         let toast_overlay = adw::ToastOverlay::new();
         toast_overlay.set_child(Some(&toolbar_view));
