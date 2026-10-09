@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="colour">
+  <info>
+    <link type="guide" xref="index" group="develop"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Saturation, colour balance, selective colour and black and white filters.</desc>
+  </info>
+  <title>Adjust colour</title>
+  <p>These controls are on the <gui>Detail</gui> page of the inspector, under <gui>Colour</gui>, <gui>Selective Colour</gui> and <gui>Colour Balance</gui>.</p>
+  <terms>
+    <item><title><gui>Saturation</gui></title><p>From grey (−100) to twice the colour (+100).</p></item>
+    <item><title><gui>Restore Faded Colour</gui></title><p>Revives dull colour of old film and leaves vivid colour alone.</p></item>
+    <item><title><gui>Convert to Grey</gui></title><p>Makes the picture grey as a coloured filter on black and white film would: a red filter lightens reds and darkens skies, a green one lightens foliage, and so on.</p></item>
+    <item><title><gui>Colour Balance</gui></title><p>A wheel for each of the shadows, the midtones and the highlights. Drag the dot towards the colour to add, or use the arrow keys. <key>Home</key> puts it back in the middle.</p></item>
+    <item><title><gui>Selective Colour</gui></title><p>Choose one of six ranges (red, yellow, green, cyan, blue, magenta) and change its hue, saturation and lightness without touching the others. A few presets, such as <gui>Deeper skies</gui>, are a place to start.</p></item>
+    <item><title><gui>Scanner Profile</gui></title><p>A profile made from a scan of an IT8 target. It makes the colours of slides true to the scanner. See <link xref="profiles"/>.</p></item>
+  </terms>
+</page>

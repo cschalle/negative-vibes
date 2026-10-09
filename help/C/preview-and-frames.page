@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="preview-and-frames">
+  <info>
+    <link type="guide" xref="index" group="scan"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Find the frames, and scan strips one frame at a time.</desc>
+  </info>
+  <title>Preview the film and choose the frames</title>
+  <p>A preview is a quick, small scan of the whole scanning window. You use it to see the film and to say which part of it to scan at full quality.</p>
+  <section id="preview"><title>Making a preview</title>
+    <p>Press <gui>Preview</gui> in the header bar (or <keyseq><key>Ctrl</key><key>R</key></keyseq>). While the scanner works, the button becomes <gui>Stop</gui>. The preview resolution can be changed in <guiseq><gui>Preferences</gui><gui>Scanning</gui></guiseq>.</p>
+  </section>
+  <section id="frames"><title>Frames</title>
+    <p>Each picture on the film is a frame in the list on the left. Press <gui>Detect Frames</gui> (<keyseq><key>Ctrl</key><key>Shift</key><key>F</key></keyseq>) to find them on a preview, or <gui>Add Frame</gui> to add one yourself. Choose the <gui>Frame</gui> tool in the bottom bar and drag on the picture to draw or redraw the rectangle that will be scanned.</p>
+    <p>The frame menu (the three dots under the list) can duplicate, keep, reject or delete a frame. A duplicate has the same rectangle but no scan, which is useful to scan a frame again with other settings.</p>
+  </section>
+  <section id="one-at-a-time"><title>Scanners that take one frame at a time</title>
+    <p>Some scanners, such as the OpticFilm 8100, 8200i and 8300i, see one frame of the strip at a time. After each scan a banner asks you to move the film to the next frame. Move it, then press <gui>Scan Next Frame</gui>. The next preview is made and, when you are scanning all frames, scanned at once.</p>
+  </section>
+  <section id="scan-or-preview"><title>Preview or scan on the screen</title>
+    <p>After a frame has been scanned, the picture shows the scan, not the preview. To go back to the preview, for instance to draw the rectangle again, choose <gui>Show Preview or Scan</gui> in the frame menu. Choose it again to return to the scan.</p>
+  </section>
+</page>

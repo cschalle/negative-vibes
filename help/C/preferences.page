@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="preferences">
+  <info>
+    <link type="guide" xref="index" group="reference"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>What the application does, and what a new roll starts with.</desc>
+  </info>
+  <title>Preferences</title>
+  <p>Choose <gui>Preferences</gui> in the main menu (<keyseq><key>Ctrl</key><key>,</key></keyseq>). Changes are saved as you make them.</p>
+  <terms>
+    <item><title><gui>General</gui></title><p>Whether the guide opens at the start, whether to preview as soon as the scanner is ready, whether to export after each scan and open the picture, a sound when a scan is finished, the colour of dust marks, and a button to restore the defaults.</p></item>
+    <item><title><gui>Scanning</gui></title><p>The preview and scan resolutions, infrared, samples and multi-exposure, and how far out of line the infrared and separate scans may be put right, in pixels.</p></item>
+    <item><title><gui>Output</gui></title><p>The format, file name, folder, colour space and what to embed.</p></item>
+    <item><title><gui>Colour</gui></title><p>The scanner profile new rolls start with.</p></item>
+    <item><title><gui>Film Profiles</gui></title><p>Your own film profiles, and importing, exporting, deleting and creating them.</p></item>
+  </terms>
+</page>

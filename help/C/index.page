@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="guide" id="index">
+  <info>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Scan and develop colour and black and white film negatives and slides.</desc>
+  </info>
+  <title>Negative Vibes</title>
+  <p>Negative Vibes scans film negatives and slides on a film scanner, keeps the scan exactly as the scanner delivered it, and lets you develop it into a picture without changing the scan. Change your mind about the look at any time and export again.</p>
+  <links type="topic" group="start"><title>Getting started</title></links>
+  <links type="topic" group="scan"><title>Scanning</title></links>
+  <links type="topic" group="develop"><title>Developing the picture</title></links>
+  <links type="topic" group="output"><title>Saving and sharing</title></links>
+  <links type="topic" group="reference"><title>Reference and help</title></links>
+</page>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="film-types">
+  <info>
+    <link type="guide" xref="index" group="develop"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Tell the application what is on the film.</desc>
+  </info>
+  <title>Negatives, slides, black and white and Kodachrome</title>
+  <p>On the <gui>Conversion</gui> page of the inspector, <gui>Type</gui> says how the scan is turned into a picture.</p>
+  <terms>
+    <item><title>Colour Negative</title><p>The scan is inverted, the orange mask of the film is taken out and the colours are put right.</p></item>
+    <item><title>B&amp;W Negative</title><p>The scan is inverted and made a single grey channel.</p></item>
+    <item><title>Positive</title><p>A slide. It is shown as scanned and stretched to full range.</p></item>
+    <item><title>Kodachrome</title><p>A slide, with dust looked for in the colour of the picture and never in the infrared, which Kodachrome does not let through.</p></item>
+  </terms>
+  <section id="film-profile"><title>Film profiles</title>
+    <p>A film profile describes a kind of film: the colour of its base, how its colour layers respond and how dense it can get. Choose the one that matches your film under <gui>Film Profile</gui>. The generic profiles work for any film of their type.</p>
+    <p>You can make a profile for a film you use often, see <link xref="profiles"/>.</p>
+  </section>
+  <section id="film-base"><title>Film base</title>
+    <p>The film base is the colour of unexposed film. It is found automatically from the edges of the frame. If the edges are not clear, choose the <gui>Base</gui> tool in the bottom bar and click on unexposed film, such as the rebate between the frames.</p>
+  </section>
+  <section id="roll"><title>One look for the whole roll</title>
+    <p><gui>Roll Analysis</gui> measures all the frames of a roll together and makes them start from the same conversion, which is what makes a roll consistent. Press <gui>Analyse</gui> once the frames are scanned, and <gui>Reset</gui> to forget it.</p>
+  </section>
+</page>

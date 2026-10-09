@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="tone">
+  <info>
+    <link type="guide" xref="index" group="develop"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Black and white points, midtones, contrast and curves.</desc>
+  </info>
+  <title>Adjust tone</title>
+  <p>The <gui>Tone</gui> page of the inspector sets how light and dark the picture is.</p>
+  <steps>
+    <item><p>Press <gui>Auto</gui> next to <gui>Auto Levels</gui>. The black point, the white point and the midtone are set from the picture.</p></item>
+    <item><p>Adjust <gui>Black Point</gui>, <gui>White Point</gui> and <gui>Midtone</gui>, or drag the three handles on the <gui>Levels</gui> histogram. <gui>Contrast</gui> adds or removes contrast.</p></item>
+    <item><p>To set a point from the picture itself, use the <gui>Black</gui>, <gui>Grey</gui> and <gui>White</gui> tools in the bottom bar and click on something that should be black, a neutral grey, or white.</p></item>
+    <item><p>For finer control, use <gui>Curves</gui>. Click on the curve to add a point, drag a point to move it, and right-click a point to remove it. The tabs choose all the colours together or one colour.</p></item>
+  </steps>
+  <section id="scope"><title>This frame or the whole roll</title>
+    <p>The buttons <gui>Whole Roll</gui> and <gui>This Frame</gui> at the top of the inspector say where your changes go. A change made for the whole roll applies to every frame that has not set its own. A change made for this frame applies to this frame only.</p>
+  </section>
+  <section id="undo"><title>Undo</title>
+    <p>Every change can be undone with <keyseq><key>Ctrl</key><key>Z</key></keyseq> and redone with <keyseq><key>Ctrl</key><key>Y</key></keyseq>. Each frame has its own history.</p>
+  </section>
+</page>

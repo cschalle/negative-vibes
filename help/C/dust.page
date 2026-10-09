@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="dust">
+  <info>
+    <link type="guide" xref="index" group="develop"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Use the infrared scan or the picture to find and repair dust.</desc>
+  </info>
+  <title>Remove dust and scratches</title>
+  <p>The <gui>Detail</gui> page of the inspector has <gui>Dust and Scratches</gui>.</p>
+  <terms>
+    <item><title><gui>Mode</gui></title><p><gui>Off</gui> does nothing. <gui>Correct</gui> repairs what it finds. <gui>Mark</gui> paints what it finds in the colour chosen in the preferences, so that you can see it, without repairing it.</p></item>
+    <item><title><gui>Detection</gui></title><p>A higher number finds smaller and fainter marks, and starts to find things that are not dust.</p></item>
+    <item><title><gui>Method</gui></title><p><gui>Infrared</gui> uses the infrared scan, which sees dust but not the picture. <gui>Software</gui> looks for specks in the picture itself, and is the method for black and white film, Kodachrome and scans with no infrared. <gui>Defect Type</gui> says whether dust is dark or light in the scan.</p></item>
+  </terms>
+  <p>Small marks are filled in smoothly from what is around them. Scratches and hairs are filled in from matching parts of the picture, so that the grain carries on through the repair.</p>
+  <section id="masks"><title>Painting masks</title>
+    <p>With the <gui>Protect</gui> tool, paint where dust removal must leave the picture alone, for instance on fine detail it takes for dust. With <gui>Heal</gui>, paint where it must repair, for a mark it did not find. With <gui>Unmask</gui>, paint over a stroke to remove it. <gui>Brush Size</gui> sets the size of the brush, and <gui>Clear</gui> removes every stroke from the frame.</p>
+  </section>
+  <note style="tip"><p>Turn on the <gui>1:1</gui> button in the bottom bar and move the pointer over the picture to see the finished result at the scan's own size.</p></note>
+</page>

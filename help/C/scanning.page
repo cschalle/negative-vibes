@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="scanning">
+  <info>
+    <link type="guide" xref="index" group="scan"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Resolution, infrared, noise reduction and scanning many frames.</desc>
+  </info>
+  <title>Choose scan settings and scan</title>
+  <p>The <gui>Scan</gui> page of the inspector (open it with the button at the right of the header bar, or <keyseq><key>Shift</key><key>F9</key></keyseq>) sets how the next scan is made. The page shows the size of the picture and of the file the scan will make.</p>
+  <terms>
+    <item><title><gui>Scan Resolution</gui></title><p>How many pixels the scanner makes per inch. More pixels show more of the film, take longer and make larger files. Slides and negatives of 35 mm are usually scanned at 3600 to 7200 ppi for archiving, and at 1200 to 2400 for sharing.</p></item>
+    <item><title><gui>Capture Infrared</gui></title><p>Scans a second picture with infrared light, which sees dust and scratches but not the picture. It is used by dust removal. Silver black and white film and Kodachrome block infrared, so infrared dust removal does not work on them.</p></item>
+    <item><title><gui>Samples</gui></title><p>Scans the frame several times and averages the scans, lining them up first. Four samples halve the noise of the scanner. Each sample is a full scan, so it takes that much longer.</p></item>
+    <item><title><gui>Multi-Exposure</gui> and <gui>Long Exposure</gui></title><p>On scanners that can change their exposure, adds a scan with more light and merges it in. It makes the darkest parts of dense film cleaner. It also takes a scan longer than the normal one.</p></item>
+  </terms>
+  <note><p>Several samples and multi-exposure are available up to 3600 ppi, because the passes have to be held in memory while they are merged.</p></note>
+  <section id="buttons"><title>Scan buttons</title>
+    <list>
+      <item><p><gui>Scan</gui> scans the selected frame (<keyseq><key>Ctrl</key><key>Enter</key></keyseq>).</p></item>
+      <item><p>The arrow next to it offers <gui>Scan All Frames</gui> (<keyseq><key>Ctrl</key><key>Shift</key><key>Enter</key></keyseq>), which scans every previewed frame that has no scan yet, and <gui>Scan Raw Only</gui>, which keeps the scan without exporting a picture from it.</p></item>
+      <item><p><gui>Stop</gui> stops the scanner and a batch that is under way.</p></item>
+    </list>
+  </section>
+  <p>A scan is saved in the roll the moment it is finished, exactly as the scanner delivered it. Nothing you do afterwards changes it.</p>
+</page>

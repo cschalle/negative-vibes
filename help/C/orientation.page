@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="orientation">
+  <info>
+    <link type="guide" xref="index" group="develop"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Turn the picture, and put a tilted horizon level.</desc>
+  </info>
+  <title>Rotate, flip and straighten</title>
+  <p>The buttons in the bottom bar turn the picture left or right by a quarter and flip it horizontally and vertically (<keyseq><key>Ctrl</key><key>←</key></keyseq> and <keyseq><key>Ctrl</key><key>→</key></keyseq> turn it). The scan is never changed; the turn is a setting of the frame.</p>
+  <p>To straighten a tilted picture, set <gui>Straighten</gui> on the <gui>Conversion</gui> page, in degrees clockwise. The picture is enlarged a little so that it fills the frame and no empty corners show.</p>
+  <note><p>The full-quality view (<gui>HQ</gui>) is switched off while a picture is straightened.</p></note>
+</page>

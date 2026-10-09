@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" style="task" id="getting-started">
+  <info>
+    <link type="guide" xref="index" group="start"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Let the guide take you from film to finished pictures.</desc>
+  </info>
+  <title>Scan your first roll</title>
+  <p>The quickest way to scan is the <gui>Scan a Roll</gui> guide. It opens when the application starts, and you can open it again from the main menu.</p>
+  <steps>
+    <item><p>Put the film in its holder and the holder in the scanner. Switch the scanner on and wait until the window says the scanner is ready.</p></item>
+    <item><p>In <gui>Film</gui>, choose the type of film (colour negative, black and white negative, slide or Kodachrome slide), the film stock if it is listed, and how many frames there are. Press <gui>Next</gui>.</p></item>
+    <item><p>In <gui>Purpose</gui>, choose what the scans are for. <gui>Archive</gui> scans at the highest resolution and makes 16-bit TIFF files. <gui>Share</gui> makes small JPEG files for the web. <gui>Print</gui> makes 16-bit TIFF files that are big enough for a large print. <gui>Custom</gui> keeps the settings as they are.</p></item>
+    <item><p>In <gui>Preview</gui>, press <gui>Preview Film</gui>. The scanner makes a quick, small scan of the whole window and the frames are found for you. Check the rectangles on the picture.</p></item>
+    <item><p>In <gui>Look</gui>, choose between three renderings of the picture: <gui>Lighter</gui>, <gui>Neutral</gui> and <gui>Warmer</gui>. You can change everything afterwards.</p></item>
+    <item><p>In <gui>Scan</gui>, press <gui>Scan</gui>. When the scan is finished the picture on the screen changes from the preview to the scan, and the pictures are exported to the folder shown at the end.</p></item>
+  </steps>
+  <note style="tip"><p>The guide uses the same buttons and settings as the rest of the application. Everything it does can be done, and changed, by hand.</p></note>
+</page>

@@ -30,6 +30,7 @@ dependency('gtk4', version: '>= 4.14')
 dependency('libadwaita-1', version: '>= 1.4')
 
 subdir('data')
+subdir('help')
 subdir('po')
 subdir('src')
 

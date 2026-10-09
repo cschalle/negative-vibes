@@ -42,7 +42,7 @@ const SHORTCUTS: [(&str, &[(&str, &str)]); 5] = [
             ("<Shift>F9", "Show or hide the inspector"),
         ],
     ),
-    ("General", &[("<Primary>comma", "Preferences"), ("<Primary>question", "Keyboard shortcuts"), ("<Primary>q", "Quit")]),
+    ("General", &[("F1", "Help"), ("<Primary>comma", "Preferences"), ("<Primary>question", "Keyboard shortcuts"), ("<Primary>q", "Quit")]),
 ];
 
 /// The names a button has for a screen reader: its text when it has some, else
@@ -190,6 +190,7 @@ impl Window {
         let (sb, ib) = (sidebar_btn.clone(), inspector_btn.clone());
         simple("toggle-frames", Box::new(move |_| sb.set_active(!sb.is_active())));
         simple("toggle-inspector", Box::new(move |_| ib.set_active(!ib.is_active())));
+        simple("help", Box::new(|w| w.show_help()));
         simple("about", Box::new(|w| w.show_about()));
         simple("shortcuts", Box::new(|w| w.show_shortcuts()));
     }
@@ -221,6 +222,24 @@ impl Window {
         dialog.set_default_response(Some("ok"));
         dialog.set_close_response("ok");
         dialog.present();
+    }
+
+    /// Open the help in Yelp: the installed manual, or, when run from the source tree, its pages.
+    fn show_help(&self) {
+        let source = std::path::Path::new(crate::config::PKGDATADIR).join("../help/C/index.page");
+        if source.is_file() {
+            match std::process::Command::new("yelp").arg(&source).spawn() {
+                Ok(_) => return,
+                Err(e) => eprintln!("nv: could not start yelp: {e}"),
+            }
+        }
+        let launcher = gtk::UriLauncher::new("help:negative-vibes");
+        let weak = self.downgrade();
+        launcher.launch(Some(self), None::<&gio::Cancellable>, move |r| {
+            if let (Err(_), Some(win)) = (r, weak.upgrade()) {
+                win.show_error("The help could not be opened", "Install Yelp, the GNOME help viewer, to read the help.");
+            }
+        });
     }
 
     fn show_about(&self) {

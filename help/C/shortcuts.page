@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="shortcuts">
+  <info>
+    <link type="guide" xref="index" group="reference"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Every shortcut in one place.</desc>
+  </info>
+  <title>Keyboard shortcuts</title>
+  <p>The same list is in the main menu under <gui>Keyboard Shortcuts</gui> (<keyseq><key>Ctrl</key><key>?</key></keyseq>).</p>
+  <table frame="all" rules="rows">
+    <thead><tr><td><p>Shortcut</p></td><td><p>What it does</p></td></tr></thead>
+    <tbody>
+      <tr><td><p><keyseq><key>Ctrl</key><key>O</key></keyseq></p></td><td><p>Open a roll</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>R</key></keyseq></p></td><td><p>Preview the film</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>Enter</key></keyseq></p></td><td><p>Scan the selected frame</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>Shift</key><key>Enter</key></keyseq></p></td><td><p>Scan all frames</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>Shift</key><key>F</key></keyseq></p></td><td><p>Detect frames</p></td></tr>
+      <tr><td><p><key>Page Down</key>, <key>Page Up</key></p></td><td><p>Next and previous frame</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>D</key></keyseq></p></td><td><p>Duplicate the frame</p></td></tr>
+      <tr><td><p><key>Delete</key></p></td><td><p>Delete the frame</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>←</key></keyseq>, <keyseq><key>Ctrl</key><key>→</key></keyseq></p></td><td><p>Rotate left, right</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>Z</key></keyseq>, <keyseq><key>Ctrl</key><key>Y</key></keyseq></p></td><td><p>Undo, redo</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>E</key></keyseq></p></td><td><p>Export</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>I</key></keyseq></p></td><td><p>Metadata</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>+</key></keyseq>, <keyseq><key>Ctrl</key><key>-</key></keyseq></p></td><td><p>Zoom in, out</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>0</key></keyseq>, <keyseq><key>Ctrl</key><key>1</key></keyseq></p></td><td><p>Fit to window, actual pixels</p></td></tr>
+      <tr><td><p><key>F9</key>, <keyseq><key>Shift</key><key>F9</key></keyseq></p></td><td><p>Show or hide the frames, the inspector</p></td></tr>
+      <tr><td><p><key>F1</key></p></td><td><p>Help</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>,</key></keyseq></p></td><td><p>Preferences</p></td></tr>
+      <tr><td><p><keyseq><key>Ctrl</key><key>Q</key></keyseq></p></td><td><p>Quit</p></td></tr>
+    </tbody>
+  </table>
+</page>

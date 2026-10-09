@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="detail">
+  <info>
+    <link type="guide" xref="index" group="develop"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Bring out detail and take away noise.</desc>
+  </info>
+  <title>Sharpen, reduce grain and add local contrast</title>
+  <p>These controls are on the <gui>Detail</gui> page of the inspector.</p>
+  <terms>
+    <item><title><gui>Unsharp Mask</gui></title><p>Sharpens the picture. <gui>Amount</gui> is how much, <gui>Radius</gui> how wide an edge is sharpened, in pixels of the finished picture, and <gui>Threshold</gui> leaves small differences, such as grain, alone.</p></item>
+    <item><title><gui>Reduction</gui></title><p>Takes away grain and noise, lightly or strongly. It works on the picture at its full size, so it is not applied to the picture on the screen as a whole. Use the <gui>1:1</gui> button to see it.</p></item>
+    <item><title><gui>Local Contrast</gui></title><p>Brings out detail in flat regions, shadows and highlights.</p></item>
+  </terms>
+  <p>The <gui>HQ</gui> button in the bottom bar shows the part of the picture on the screen at full quality, with all of these applied, when you zoom in to 1:1 or more.</p>
+</page>

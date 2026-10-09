@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="profiles">
+  <info>
+    <link type="guide" xref="index" group="output"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Make colours true to your scanner and to your film.</desc>
+  </info>
+  <title>Calibrate with an IT8 target and make film profiles</title>
+  <section id="it8"><title>Calibrate the scanner with an IT8 target</title>
+    <p>An IT8 target is a slide with a set of colour patches that have been measured. Scanning it lets the application learn how your scanner sees colour, and make a scanner profile. This needs ArgyllCMS (<app>scanin</app> and <app>colprof</app>) to be installed.</p>
+    <steps>
+      <item><p>Scan the target with no corrections and save the scan.</p></item>
+      <item><p>Choose <gui>Calibrate with IT8 Target…</gui> in the main menu.</p></item>
+      <item><p>Choose the scan, the data file that came with your target, and the chart layout (the standard IT8 layout is offered). Give the profile a name and press <gui>Build Profile</gui>.</p></item>
+      <item><p>When it is done the dialog says how well the profile fits the target. Choose the profile in <gui>Scanner Profile</gui> on the <gui>Detail</gui> page; it is used for slides.</p></item>
+    </steps>
+  </section>
+  <section id="film"><title>Make a film profile</title>
+    <p>Scan unexposed film base together with a grey step wedge exposed on the same film. Open the scan, set the film base with the <gui>Base</gui> tool, and crop the frame around the wedge so that it fills the frame end to end. Then choose <gui>Create Film Profile…</gui> in the main menu, enter the maker, the film's name and speed and the number of steps of the wedge, and press <gui>Create</gui>.</p>
+    <p>The profile appears in the list of film profiles. <gui>Import</gui>, <gui>Export</gui> and <gui>Delete</gui> for your own profiles are in the main menu and in <guiseq><gui>Preferences</gui><gui>Film Profiles</gui></guiseq>.</p>
+  </section>
+</page>

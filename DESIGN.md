@@ -1391,6 +1391,18 @@ small wobbles on a few edges; a designer's redraw would be cleaner. The SVG is t
 exact-size PNG in preference to the scalable image, and the original 1024 px picture stays in
 `data/icons/source/` for making a raster again if one is ever needed.
 
+**Help (first draft).** The manual is sixteen Mallard pages in `help/C/` for Yelp: a guide index and
+topics on the first roll (the guide), previews and frames, scan settings, film types and profiles,
+tone, dust, colour, detail, rotating and straightening, export and file names, metadata, IT8
+calibration and film profiles, preferences, a table of shortcuts and troubleshooting, each
+written from what the application does now, using the names on the buttons. F1 and *Help* in
+the main menu open it: from the installed copy (`help:negative-vibes`), or, when run from the
+source tree, the pages there. Meson installs the pages to `share/help/C/negative-vibes/`; it does
+not use `gnome.yelp()`, which needs itstool, until there are translations. The pages are
+well-formed XML and Yelp opens them without complaint, but they have not been checked against
+the Mallard schema (not installed here) or proofread in Yelp's window, and there are no
+screenshots. The status of every page is "draft".
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

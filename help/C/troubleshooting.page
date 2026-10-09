@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="troubleshooting">
+  <info>
+    <link type="guide" xref="index" group="reference"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>The scanner is not found, a scan stops, or nothing happens.</desc>
+  </info>
+  <title>When something does not work</title>
+  <section id="no-scanner"><title>The scanner is not found</title>
+    <p>Negative Vibes uses the scanner drivers of SANE. Check that the scanner is switched on and connected, that its SANE backend is installed, and that your user may use it. On most systems the command <cmd>scanimage -L</cmd> in a terminal lists the scanners SANE can see; if it does not list yours, the problem is in the drivers and not in this application. Press <gui>Try Again</gui> after fixing it.</p>
+  </section>
+  <section id="silent"><title>The scanner does not answer</title>
+    <p>If <gui>Previewing…</gui> or a scan goes on for more than half a minute without anything happening, the guide says that the scanner has not answered. Press <gui>Stop</gui>, switch the scanner off and on again, and try again. A scan that was cut off, for example because the application was killed while it was scanning, can leave a scanner in a state that only switching it off clears.</p>
+  </section>
+  <section id="no-infrared"><title>Dust removal does nothing</title>
+    <p>Infrared dust removal needs the infrared scan. Turn on <gui>Capture Infrared</gui> on the <gui>Scan</gui> page before scanning. Silver black and white film and Kodachrome block infrared; for those, choose <gui>Software</gui> as the method.</p>
+  </section>
+  <section id="no-scan-button"><title>Scan is greyed out</title>
+    <p>Scan needs a preview of the film on the screen. If the picture shows a finished scan, choose <gui>Show Preview or Scan</gui> in the frame menu, or press <gui>Preview</gui> again.</p>
+  </section>
+  <section id="memory"><title>A scan is very large</title>
+    <p>A 7200 ppi scan of a 35 mm frame is about half a gigabyte. The application reads it in pieces, so it does not need that much memory to edit it, but exports and several samples do. Use a lower resolution when you do not need all of it.</p>
+  </section>
+</page>

@@ -51,6 +51,7 @@ mod imp {
             app.set_accels_for_action("win.toggle-frames", &["F9"]);
             app.set_accels_for_action("win.toggle-inspector", &["<Shift>F9"]);
             app.set_accels_for_action("win.shortcuts", &["<Ctrl>question"]);
+            app.set_accels_for_action("win.help", &["F1"]);
             app.set_accels_for_action("app.quit", &["<Ctrl>q"]);
             app.set_accels_for_action("win.preferences", &["<Ctrl>comma"]);
             app.set_accels_for_action("win.rotate-left", &["<Ctrl>Left"]);

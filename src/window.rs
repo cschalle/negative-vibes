@@ -377,6 +377,7 @@ impl Window {
         let app_menu = gio::Menu::new();
         app_menu.append(Some("Preferences"), Some("win.preferences"));
         app_menu.append(Some("Keyboard Shortcuts"), Some("win.shortcuts"));
+        app_menu.append(Some("Help"), Some("win.help"));
         app_menu.append(Some("About Negative Vibes"), Some("win.about"));
         app_menu.append(Some("Quit"), Some("app.quit"));
         main_menu.append_section(None, &app_menu);

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<page xmlns="http://projectmallard.org/1.0/" type="topic" id="metadata">
+  <info>
+    <link type="guide" xref="index" group="output"/>
+    <revision pkgversion="0.1.0" date="2026-10-09" status="draft"/>
+    <credit type="author"><name>Christian Schaller</name></credit>
+    <desc>Photographer, caption, keywords, place and date.</desc>
+  </info>
+  <title>Add details to your pictures</title>
+  <p>Choose <gui>Metadata</gui> in the main menu (<keyseq><key>Ctrl</key><key>I</key></keyseq>) to enter who took the picture and what it shows: the photographer, a title, headline and caption, keywords, copyright, credit and source, instructions, the place, the date it was taken, and the camera, lens and film. Press <gui>Apply to Roll</gui> to save them for the whole roll.</p>
+  <p>The details go into every file you export, in the XMP form that photo programs read. The scanner, resolution, roll, frame and the scan's date are added without your typing them. The label of a frame is used as its title when you have not written one.</p>
+  <p>Save the details you use again and again as a <gui>Preset</gui>, and choose it in the dialog next time. To leave the details out of the files, turn off <gui>Embed Metadata</gui> in the export dialog.</p>
+</page>
