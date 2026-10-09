@@ -63,10 +63,10 @@ impl Window {
             });
             tabs.append(&b);
         }
+        super::chrome::let_buttons_shrink(&tabs);
         root.append(&tabs);
 
         let area = gtk::DrawingArea::builder().content_width(220).content_height(220).halign(gtk::Align::Center).build();
-        area.set_tooltip_text(Some("Drag the dot towards the colour to add; the centre is no change"));
 
         let weak = self.downgrade();
         area.set_draw_func(move |area, cr, w, h| {
@@ -162,6 +162,41 @@ impl Window {
             }
         });
         area.add_controller(drag);
+
+        // From the keyboard: arrows move the dot (Shift for bigger steps), Home or Delete centres it.
+        area.set_focusable(true);
+        area.set_tooltip_text(Some("Drag the dot towards the colour to add, or use the arrow keys; Home puts it back in the centre"));
+        let keys = gtk::EventControllerKey::new();
+        let weak = self.downgrade();
+        keys.connect_key_pressed(move |ctrl, key, _, state| {
+            use gtk::gdk::Key;
+            let Some(win) = weak.upgrade() else { return glib::Propagation::Proceed };
+            let step = if state.contains(gtk::gdk::ModifierType::SHIFT_MASK) { 0.2 } else { 0.05 };
+            let (dx, dy, reset) = match key {
+                Key::Left => (-step, 0.0, false),
+                Key::Right => (step, 0.0, false),
+                Key::Up => (0.0, -step, false),
+                Key::Down => (0.0, step, false),
+                Key::Home | Key::Delete | Key::BackSpace => (0.0, 0.0, true),
+                _ => return glib::Propagation::Proceed,
+            };
+            let region = win.imp().wheel_region.get();
+            let at = win.imp().proc_params.borrow().as_ref().map(|p| p.colour.wheel[region]).unwrap_or_default();
+            let (mut x, mut y) = if reset { (0.0, 0.0) } else { (at[0] + dx as f32, at[1] + dy as f32) };
+            let len = x.hypot(y);
+            if len > 1.0 {
+                x /= len;
+                y /= len;
+            }
+            win.begin_live_edit();
+            win.update_live(|p| p.colour.wheel[region] = [x, y]);
+            win.end_live_edit();
+            if let Some(w) = ctrl.widget() {
+                w.queue_draw();
+            }
+            glib::Propagation::Stop
+        });
+        area.add_controller(keys);
 
         let reset = gtk::Button::builder().label("Reset Colour Balance").halign(gtk::Align::End).build();
         let weak = self.downgrade();

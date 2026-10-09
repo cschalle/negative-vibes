@@ -38,6 +38,12 @@ mod imp {
             app.set_accels_for_action("win.redo", &["<Ctrl>y", "<Ctrl><Shift>z"]);
             app.set_accels_for_action("win.export", &["<Ctrl>e"]);
             app.set_accels_for_action("win.metadata", &["<Ctrl>i"]);
+            app.set_accels_for_action("win.open-roll", &["<Ctrl>o"]);
+            app.set_accels_for_action("win.preview-film", &["<Ctrl>r"]);
+            app.set_accels_for_action("win.toggle-frames", &["F9"]);
+            app.set_accels_for_action("win.toggle-inspector", &["<Shift>F9"]);
+            app.set_accels_for_action("win.shortcuts", &["<Ctrl>question"]);
+            app.set_accels_for_action("app.quit", &["<Ctrl>q"]);
             app.set_accels_for_action("win.preferences", &["<Ctrl>comma"]);
             app.set_accels_for_action("win.rotate-left", &["<Ctrl>Left"]);
             app.set_accels_for_action("win.rotate-right", &["<Ctrl>Right"]);
@@ -53,11 +59,25 @@ mod imp {
             app.set_accels_for_action("win.delete-frame", &["Delete"]);
             app.set_accels_for_action("win.duplicate-frame", &["<Ctrl>d"]);
             window.present();
+            if let Some(limit) = std::env::var("NV_DEBUG_MINWIDTH").ok().and_then(|v| v.parse().ok()) {
+                let w = window.clone();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(2500), move || {
+                    crate::window::print_wide_widgets(w.upcast_ref(), limit);
+                    crate::window::print_min_widths(&w);
+                    if let Some(a) = gtk::prelude::GtkWindowExt::application(&w) {
+                        gio::prelude::ApplicationExt::quit(&a);
+                    }
+                });
+            }
+            {
+                let w = window.clone();
+                glib::idle_add_local_once(move || w.label_for_screen_readers());
+            }
             // Headless check that the dialogs build without GTK complaints: NV_OPEN_DIALOGS=1.
             if std::env::var_os("NV_OPEN_DIALOGS").is_some() {
                 let w = window.clone();
                 glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
-                    for name in ["preferences", "guided", "metadata", "film-create", "calibrate"] {
+                    for name in ["preferences", "guided", "metadata", "film-create", "calibrate", "about", "shortcuts"] {
                         gio::prelude::ActionGroupExt::activate_action(&w, name, None);
                     }
                     glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
@@ -119,6 +139,18 @@ mod imp {
 
         fn setup_actions(&self) {
             let app = self.obj();
+
+            // quit: close every window, so each saves what it has pending
+            let quit = gio::SimpleAction::new("quit", None);
+            let app_weak = app.downgrade();
+            quit.connect_activate(move |_, _| {
+                if let Some(app) = app_weak.upgrade() {
+                    for w in gtk::prelude::GtkApplicationExt::windows(&app) {
+                        gtk::prelude::GtkWindowExt::close(&w);
+                    }
+                }
+            });
+            app.add_action(&quit);
 
             // probe: re-enumerate SANE devices
             let probe = gio::SimpleAction::new("probe", None);

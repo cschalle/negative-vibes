@@ -283,6 +283,8 @@ pub(crate) mod imp {
 
 mod batch;
 mod calibrate_ui;
+mod chrome;
+pub use chrome::{print_min_widths, print_wide_widgets};
 mod colour_ui;
 mod export;
 mod export_dialog;
@@ -325,16 +327,18 @@ impl Window {
     // ── Build ─────────────────────────────────────────────────────────────────
 
     fn build_ui(&self) {
-        self.set_default_size(1280, 800);
+        // NV_WINDOW_SIZE=WxH starts the window at that size, to check narrow layouts.
+        let (dw, dh) = std::env::var("NV_WINDOW_SIZE").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))).unwrap_or((1280, 800));
+        self.set_default_size(dw, dh);
 
         // ── Header bar ────────────────────────────────────────────────────
         let header = adw::HeaderBar::new();
 
-        let sidebar_btn = gtk::ToggleButton::builder().icon_name("sidebar-show-symbolic").tooltip_text("Show Frames").build();
+        let sidebar_btn = gtk::ToggleButton::builder().icon_name("sidebar-show-symbolic").tooltip_text("Show Frames (F9)").build();
 
-        let inspector_btn = gtk::ToggleButton::builder().icon_name("view-dual-symbolic").tooltip_text("Show Inspector (Ctrl+I)").build();
+        let inspector_btn = gtk::ToggleButton::builder().icon_name("view-dual-symbolic").tooltip_text("Show Inspector (Shift+F9)").build();
 
-        let preview_btn = gtk::Button::builder().label("Preview").tooltip_text("Preview the current frame (Ctrl+R)").sensitive(false).build();
+        let preview_btn = gtk::Button::builder().label("Preview").tooltip_text("Preview the film (Ctrl+R)").sensitive(false).build();
 
         let scan_menu = gio::Menu::new();
         scan_menu.append(Some("Scan Selected Frames"), Some("win.scan-selected"));
@@ -353,8 +357,16 @@ impl Window {
         let queue_btn = self.build_queue_button();
 
         let main_menu = gio::Menu::new();
-        main_menu.append(Some("Scan a Roll…"), Some("win.guided"));
-        main_menu.append(Some("Metadata…"), Some("win.metadata"));
+        let roll_menu = gio::Menu::new();
+        roll_menu.append(Some("Scan a Roll…"), Some("win.guided"));
+        roll_menu.append(Some("Open Roll…"), Some("win.open-roll"));
+        roll_menu.append(Some("Export…"), Some("win.export"));
+        roll_menu.append(Some("Metadata…"), Some("win.metadata"));
+        main_menu.append_section(None, &roll_menu);
+        let view_menu = gio::Menu::new();
+        view_menu.append(Some("Show Frames"), Some("win.toggle-frames"));
+        view_menu.append(Some("Show Inspector"), Some("win.toggle-inspector"));
+        main_menu.append_section(None, &view_menu);
         main_menu.append(Some("Calibrate with IT8 Target…"), Some("win.calibrate"));
         let film_menu = gio::Menu::new();
         film_menu.append(Some("Create Film Profile…"), Some("win.film-create"));
@@ -362,10 +374,15 @@ impl Window {
         film_menu.append(Some("Export Current Film Profile…"), Some("win.film-export"));
         film_menu.append(Some("Delete Current Film Profile"), Some("win.film-delete"));
         main_menu.append_section(None, &film_menu);
-        main_menu.append(Some("Preferences"), Some("win.preferences"));
+        let app_menu = gio::Menu::new();
+        app_menu.append(Some("Preferences"), Some("win.preferences"));
+        app_menu.append(Some("Keyboard Shortcuts"), Some("win.shortcuts"));
+        app_menu.append(Some("About Negative Vibes"), Some("win.about"));
+        app_menu.append(Some("Quit"), Some("app.quit"));
+        main_menu.append_section(None, &app_menu);
         let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&main_menu).tooltip_text("Main Menu").build();
 
-        let open_btn = gtk::Button::builder().icon_name("folder-open-symbolic").tooltip_text("Open Roll…").build();
+        let open_btn = gtk::Button::builder().icon_name("folder-open-symbolic").tooltip_text("Open Roll… (Ctrl+O)").build();
 
         let title_widget = adw::WindowTitle::new("Negative Vibes", "");
 
@@ -544,7 +561,7 @@ impl Window {
         inner_split.set_sidebar(Some(inspector_box.upcast_ref::<gtk::Widget>()));
         inner_split.set_show_sidebar(false);
         inner_split.set_sidebar_width_fraction(0.28);
-        inner_split.set_min_sidebar_width(280.0);
+        inner_split.set_min_sidebar_width(240.0);
 
         // ── Frames sidebar ────────────────────────────────────────────────
         let frame_list = gtk::ListBox::new();
@@ -601,6 +618,18 @@ impl Window {
 
         self.set_content(Some(&outer_split));
 
+        // Narrow windows (a phone, a small tile): the side panels slide over the picture
+        // instead of taking room from it (HIG: adaptive down to 360 px).
+        let narrow = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 860sp").expect("a valid condition"));
+        narrow.add_setter(&outer_split, "collapsed", Some(&true.to_value()));
+        narrow.add_setter(&inner_split, "collapsed", Some(&true.to_value()));
+        narrow.add_setter(&outer_split, "show-sidebar", Some(&false.to_value()));
+        // The header bar keeps what is needed to preview and scan; the rest is in the main menu.
+        for w in [title_widget.upcast_ref::<gtk::Widget>(), export_btn.upcast_ref(), open_btn.upcast_ref(), inspector_btn.upcast_ref()] {
+            narrow.add_setter(w, "visible", Some(&false.to_value()));
+        }
+        self.add_breakpoint(narrow);
+
         // ── Store widget handles ──────────────────────────────────────────
         *self.imp().outer_split.borrow_mut() = Some(outer_split.clone());
         *self.imp().inner_split.borrow_mut() = Some(inner_split.clone());
@@ -640,9 +669,11 @@ impl Window {
         *self.imp().proc_params.borrow_mut() = Some(default_params);
 
         // ── Connect signals ───────────────────────────────────────────────
-        sidebar_btn.bind_property("active", &outer_split, "show-sidebar").sync_create().build();
+        // Both ways: a sidebar that slides over the picture closes itself when it is clicked away.
+        sidebar_btn.bind_property("active", &outer_split, "show-sidebar").sync_create().bidirectional().build();
 
-        inspector_btn.bind_property("active", &inner_split, "show-sidebar").sync_create().build();
+        inspector_btn.bind_property("active", &inner_split, "show-sidebar").sync_create().bidirectional().build();
+        self.setup_chrome(&sidebar_btn, &inspector_btn);
 
         let win_weak = self.downgrade();
         try_again.connect_clicked(move |_| {
@@ -753,7 +784,7 @@ impl Window {
     // ── Inspector panel builder ───────────────────────────────────────────────
 
     fn build_inspector(&self) -> gtk::Box {
-        let inspector_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).width_request(300).build();
+        let inspector_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).width_request(240).build();
 
         // Title bar
         let title_label = gtk::Label::builder().label("Inspector").css_classes(["title-4"]).margin_top(12).margin_bottom(4).margin_start(12).halign(gtk::Align::Start).build();
@@ -929,6 +960,7 @@ impl Window {
         let frame_btn = gtk::ToggleButton::builder().label("This Frame").tooltip_text("Edits apply to this frame only").group(&roll_btn).build();
         scope_box.append(&roll_btn);
         scope_box.append(&frame_btn);
+        chrome::let_buttons_shrink(&scope_box);
         let weak = self.downgrade();
         roll_btn.connect_toggled(move |b| {
             if let (true, Some(win)) = (b.is_active(), weak.upgrade()) {
@@ -1180,7 +1212,14 @@ impl Window {
         }
 
         insp_stack.add_titled(&self.build_scan_page(), Some("scan"), "Scan");
-        inspector_box.append(&switcher);
+        // The page tabs scroll rather than set the least width of the whole window.
+        let switcher_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Automatic)
+            .vscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .child(&switcher)
+            .build();
+        inspector_box.append(&switcher_scroll);
         inspector_box.append(&insp_stack);
 
         // ── Store inspector handles ───────────────────────────────────────
@@ -1886,7 +1925,7 @@ impl Window {
                 true
             }
             Err(e) => {
-                self.show_toast(&format!("Could not create roll folder: {e}"));
+                self.show_error("The roll folder could not be created", &e.to_string());
                 false
             }
         }
@@ -2054,7 +2093,7 @@ impl Window {
             }
 
             ScanEvent::Error(msg) => {
-                self.show_toast(&format!("Scanner error: {msg}"));
+                self.show_error("The scanner reported a problem", &msg);
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(false);
                 }
@@ -2171,8 +2210,8 @@ impl Window {
                         win.application().map(|a| a.quit());
                     }
                 }
-                Ok(Err(e)) => win.show_toast(&format!("Could not save scan: {e}")),
-                Err(_) => win.show_toast("Could not save scan: writer thread panicked"),
+                Ok(Err(e)) => win.show_error("The scan could not be saved", &e.to_string()),
+                Err(_) => win.show_error("The scan could not be saved", "The writer stopped unexpectedly."),
             }
             win.abort_acquisition();
             win.update_info_label();
@@ -2255,7 +2294,7 @@ impl Window {
                 self.rebuild_frame_list();
                 self.set_page("insert-film");
             }
-            Err(e) => self.show_toast(&format!("Could not create roll: {e}")),
+            Err(e) => self.show_error("The roll could not be created", &e.to_string()),
         }
     }
 
@@ -2297,7 +2336,7 @@ impl Window {
         let root = self.imp().roll_root.borrow().clone()?;
         let roll = self.imp().roll.borrow().clone()?;
         if let Err(e) = RollStore::from_parts(root.clone(), roll).save() {
-            self.show_toast(&format!("Could not save roll: {e}"));
+            self.show_error("The roll could not be saved", &e.to_string());
             return None;
         }
         self.save_histories(&root);
@@ -2423,7 +2462,7 @@ impl Window {
                     }
                 }
                 Err(e) if e.matches(gtk::DialogError::Dismissed) => {}
-                Err(e) => win.show_toast(&format!("Could not open roll: {e}")),
+                Err(e) => win.show_error("The roll could not be opened", &e.to_string()),
             }
         });
     }
@@ -2433,7 +2472,7 @@ impl Window {
                 let root = store.root().to_owned();
                 self.load_roll(store.roll, Some(root));
             }
-            Err(e) => self.show_toast(&format!("Could not open roll: {e}")),
+            Err(e) => self.show_error("The roll could not be opened", &e.to_string()),
         }
     }
 

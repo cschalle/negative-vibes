@@ -405,5 +405,7 @@ impl Window {
         let active = jobs.iter().filter(|j| matches!(j.state, JobState::Queued | JobState::Running)).count();
         btn.set_icon_name(if active > 0 { "emblem-synchronizing-symbolic" } else { "document-send-symbolic" });
         btn.set_tooltip_text(Some(&if active > 0 { format!("{active} export(s) in progress") } else { "Exports".to_owned() }));
+        super::chrome::label_icon_buttons(btn.upcast_ref());
+        super::chrome::label_icon_buttons(list.upcast_ref());
     }
 }

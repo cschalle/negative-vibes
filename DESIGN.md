@@ -1350,6 +1350,32 @@ preview, says so. Checked headless on the scanner: after the final scan the canv
 `raw/frame-01.tif`. Scanning again from a displayed scan needs the preview, which is what the
 swap or a new Preview gives.
 
+**HIG review (§11.7), first pass.** Checked and fixed: *Tools*: `cargo fmt --check` is clean (a
+`rustfmt.toml` keeps the existing dense style); the desktop file and AppStream metadata validate
+once `@APP_ID@` is substituted, as Meson does; clippy is not installed here, so it has not
+been run. *Adaptive widths*: the window could not go below 558 px; it now goes to 360. Below
+860 sp both side panels slide over the picture, and the header bar keeps Preview, Scan and the
+menu (the title, Export, Open Roll and the inspector toggle move into the primary menu, which now
+also lists Show Frames, Show Inspector, Keyboard Shortcuts, About and Quit); the inspector's page
+tabs scroll, the Curves, Colour Balance and Whole Roll/This Frame button rows shorten their labels
+instead of widening the window, and the inspector's least width fell from 364 to 264 px. Opening
+every dialog at 360, 480, 800, 1280 and 1920 px wide gives no GTK or libadwaita warning
+(`NV_WINDOW_SIZE=WxH NV_OPEN_DIALOGS=1`; `NV_DEBUG_MINWIDTH=<px>` prints what keeps a
+window wide). *Keyboard*: Ctrl+O, Ctrl+R, F9 and Shift+F9 (the frames and the inspector), Ctrl+?
+and Ctrl+Q are bound, tooltips no longer claim shortcuts that did not exist (the inspector's
+said Ctrl+I, which is Metadata), a Keyboard Shortcuts window lists them (a test checks that
+every listed shortcut is bound), Escape closes our dialogs, and the colour wheel works from the
+arrow keys. Pointer-only still: the tone curve points, the levels handles (their numbers are in
+spin rows), brush strokes and the frame rectangle. *Screen readers*: icon-only buttons get the name
+of their tooltip, and the picture, histogram, levels, curve, wheel, overlay and navigator
+areas have names; Orca itself has not been run. *Toasts versus dialogs*: a scan, preview or roll
+that could not be saved or opened, and scanner errors, now wait for an answer in a dialog;
+confirmations stay toasts. *Capitalisation*: titles and labels audited by script for title
+case; long hints moved out of the metadata field titles. Primary menu has About (the
+website and issue links are the placeholders from the metadata file). Not done: dark and
+light styles, high contrast and large text were not looked at (no way to see them here), and
+the screen reader pass.
+
 Early implementation order inside M1 to M3, to reach a demo quickly:
 
 1. `nv-sane` with the test backend, from a unit test;

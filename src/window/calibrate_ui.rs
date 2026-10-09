@@ -106,7 +106,7 @@ impl Window {
                 }
             });
         });
-        dialog.present();
+        super::chrome::present_labelled(&dialog);
     }
 
     /// Fill the scanner-profile row with the profiles built so far.

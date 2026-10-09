@@ -165,6 +165,7 @@ impl Window {
             });
             tabs.append(&b);
         }
+        super::chrome::let_buttons_shrink(&tabs);
         root.append(&tabs);
 
         let area = gtk::DrawingArea::builder().content_width(240).content_height(240).halign(gtk::Align::Center).build();

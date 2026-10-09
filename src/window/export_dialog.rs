@@ -286,6 +286,6 @@ impl Window {
                 }
             });
         }
-        dialog.present();
+        super::chrome::present_labelled(&dialog);
     }
 }

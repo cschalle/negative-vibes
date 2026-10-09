@@ -301,7 +301,7 @@ impl Window {
         });
         *self.imp().guide.borrow_mut() = Some(dialog.clone());
         show(0);
-        dialog.present();
+        super::chrome::present_labelled(&dialog);
     }
 
     /// Do what leaving `step` means. False keeps the person on the step.

@@ -271,7 +271,7 @@ impl Window {
                 }
                 let user = nv_film::library::user_profiles_in(&nv_film::library::user_dir());
                 if user.is_empty() {
-                    let empty = adw::ActionRow::builder().title("None yet").subtitle("Create one from a scan of film base and a step wedge, or import a file").build();
+                    let empty = adw::ActionRow::builder().title("None Yet").subtitle("Create one from a scan of film base and a step wedge, or import a file").build();
                     list.add(&empty);
                     rows.borrow_mut().push(empty);
                 }
@@ -361,6 +361,6 @@ impl Window {
         for p in [&general, &scanning, &output, &cms, &film] {
             win.add(p);
         }
-        win.present();
+        super::chrome::present_labelled(&win);
     }
 }

@@ -110,7 +110,7 @@ impl Window {
                 Err(e) => status2.set_label(&format!("Could not create the profile: {e}")),
             }
         });
-        dialog.present();
+        super::chrome::present_labelled(&dialog);
     }
 
     pub(super) fn import_film_profile(&self) {

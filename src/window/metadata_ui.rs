@@ -22,7 +22,7 @@ impl Window {
         let title = entry("Title", &current.title);
         let headline = entry("Headline", &current.headline);
         let caption = entry("Caption", &current.caption);
-        let keywords = entry("Keywords (separated by commas)", &current.keywords.join(", "));
+        let keywords = entry("Keywords", &current.keywords.join(", "));
         let copyright = entry("Copyright", &current.copyright);
         let credit = entry("Credit", &current.credit);
         let source = entry("Source", &current.source);
@@ -30,10 +30,10 @@ impl Window {
         let city = entry("City", &current.city);
         let province = entry("State or Province", &current.province);
         let country = entry("Country", &current.country);
-        let date = entry("Date Taken (2024, 2024-06 or 2024-06-15)", &current.date_taken);
+        let date = entry("Date Taken", &current.date_taken);
         let camera = entry("Camera", &current.camera);
         let lens = entry("Lens", &current.lens);
-        let film = entry("Film (blank: from the film profile)", &current.film_stock);
+        let film = entry("Film", &current.film_stock);
 
         let read: Rc<dyn Fn() -> Metadata> = {
             let f = (
@@ -147,11 +147,14 @@ impl Window {
         preset_group.add(&preset_name);
         preset_group.add(&delete_preset);
 
-        let people = adw::PreferencesGroup::builder().title("Picture").build();
+        keywords.set_tooltip_text(Some("Separate the keywords with commas"));
+        date.set_tooltip_text(Some("A year, a month or a whole date: 2024, 2024-06 or 2024-06-15"));
+        film.set_tooltip_text(Some("Leave empty to use the film profile's name"));
+        let people = adw::PreferencesGroup::builder().title("Picture").description("Separate keywords with commas. Leave Film empty to use the film profile.").build();
         for r in [&creator, &title, &headline, &caption, &keywords, &copyright, &credit, &source, &instructions] {
             people.add(r);
         }
-        let place = adw::PreferencesGroup::builder().title("Place and Time").build();
+        let place = adw::PreferencesGroup::builder().title("Place and Time").description("The date can be a year, a month or a whole date: 2024, 2024-06 or 2024-06-15.").build();
         for r in [&city, &province, &country, &date] {
             place.add(r);
         }
@@ -225,6 +228,6 @@ impl Window {
             win.show_toast("Metadata saved for this roll");
             dialog2.close();
         });
-        dialog.present();
+        super::chrome::present_labelled(&dialog);
     }
 }

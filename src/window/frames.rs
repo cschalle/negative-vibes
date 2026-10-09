@@ -439,8 +439,8 @@ impl Window {
                     win.spawn_thumbnails(vec![idx]);
                     win.schedule_autosave();
                 }
-                Ok(Err(e)) => win.show_toast(&format!("Could not save the preview: {e}")),
-                Err(_) => win.show_toast("Could not save the preview"),
+                Ok(Err(e)) => win.show_error("The preview could not be saved", &e.to_string()),
+                Err(_) => win.show_error("The preview could not be saved", "The writer stopped unexpectedly."),
             }
         });
     }
