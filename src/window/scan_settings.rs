@@ -47,10 +47,16 @@ impl Window {
         self.imp().roll.borrow().as_ref().and_then(|r| r.settings.resolution_dpi).unwrap_or_else(|| self.imp().scan_dpi.get())
     }
 
+    /// Kodachrome's dyes block infrared as the picture does, so its infrared
+    /// plane cannot find dust and capturing it only costs a second pass.
+    fn film_blocks_ir(&self) -> bool {
+        self.imp().proc_params.borrow().as_ref().is_some_and(|p| p.image_type == nv_process::params::ImageType::Kodachrome)
+    }
+
     /// Whether the next final scan also captures infrared: the scanner can,
-    /// and the roll (else the session) wants it.
+    /// the film lets infrared through, and the roll (else the session) wants it.
     pub fn scan_with_ir(&self) -> bool {
-        self.imp().device_ir.get() && self.imp().roll.borrow().as_ref().and_then(|r| r.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get())
+        self.imp().device_ir.get() && !self.film_blocks_ir() && self.imp().roll.borrow().as_ref().and_then(|r| r.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get())
     }
 
     /// How the next final scan is made up of passes: the roll's choice, else the
@@ -237,9 +243,17 @@ impl Window {
     pub(super) fn update_scan_size(&self) {
         self.update_passes_rows();
         if let Some(r) = self.imp().ir_row.borrow().as_ref() {
+            // The roll's choice is kept while Kodachrome is selected, and comes back with other film.
+            let blocked = self.film_blocks_ir();
             self.imp().updating_ui.set(true);
-            r.set_active(self.imp().roll.borrow().as_ref().and_then(|x| x.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get()));
+            r.set_active(!blocked && self.imp().roll.borrow().as_ref().and_then(|x| x.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get()));
             self.imp().updating_ui.set(false);
+            r.set_sensitive(!blocked);
+            r.set_subtitle(if blocked {
+                "Not used for Kodachrome: its dyes block infrared, so the plane cannot show dust. Use software dust removal."
+            } else {
+                "For dust and scratch removal. Adds a second pass; silver black and white film blocks infrared."
+            });
         }
         let Some(row) = self.imp().scan_size_row.borrow().clone() else { return };
         let Some(window) = self.imp().film_window_mm.get() else {

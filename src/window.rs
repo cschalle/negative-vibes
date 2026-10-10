@@ -825,7 +825,7 @@ impl Window {
         let image_group = adw::PreferencesGroup::builder().title("Image").build();
 
         let image_type_row = adw::ComboRow::builder().title("Type").build();
-        let type_model = gtk::StringList::new(&["Colour Negative", "B&W Negative", "Positive", "Kodachrome"]);
+        let type_model = gtk::StringList::new(&["Colour Negative", "B&W Negative", "Slide (Ektachrome, other E-6)", "Kodachrome Slide"]);
         image_type_row.set_model(Some(&type_model));
         image_group.add(&image_type_row);
         let angle_row = adw::SpinRow::builder()
@@ -1263,6 +1263,8 @@ impl Window {
             if let Some(win) = win_weak.upgrade() {
                 win.on_params_changed();
                 win.update_dust_availability();
+                // Kodachrome has no use for the infrared pass.
+                win.update_scan_size();
             }
         });
         let win_weak = self.downgrade();

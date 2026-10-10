@@ -11,8 +11,8 @@
   <terms>
     <item><title>Colour Negative</title><p>The scan is inverted, the orange mask of the film is taken out and the colours are put right.</p></item>
     <item><title>B&amp;W Negative</title><p>The scan is inverted and made a single grey channel.</p></item>
-    <item><title>Positive</title><p>A slide. It is shown as scanned and stretched to full range.</p></item>
-    <item><title>Kodachrome</title><p>A slide, with dust looked for in the colour of the picture and never in the infrared, which Kodachrome does not let through.</p></item>
+    <item><title>Slide (Ektachrome, other E-6)</title><p>A slide on Ektachrome or another E-6 film. It is shown as scanned and stretched to full range. These films let infrared through, so infrared dust removal works.</p></item>
+    <item><title>Kodachrome Slide</title><p>A slide on Kodachrome, a different film from Ektachrome. Its dyes block infrared as they block light, so the infrared scan shows the picture and not just the dust. Dust is looked for in the colour of the picture and never in the infrared, and <gui>Capture Infrared</gui> is turned off for it.</p></item>
   </terms>
   <section id="film-profile"><title>Film profiles</title>
     <p>A film profile describes a kind of film: the colour of its base, how its colour layers respond and how dense it can get. Choose the one that matches your film under <gui>Film Profile</gui>. The generic profiles work for any film of their type.</p>

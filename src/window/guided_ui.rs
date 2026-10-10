@@ -20,7 +20,7 @@ const STEPS: [&str; 6] = ["Film", "Purpose", "Preview", "Look", "Scan", "Done"];
 const TYPES: [(&str, ImageType); 4] = [
     ("Colour negative", ImageType::ColourNegative),
     ("Black and white negative", ImageType::BwNegative),
-    ("Slide", ImageType::Positive),
+    ("Slide (Ektachrome, other E-6)", ImageType::Positive),
     ("Kodachrome slide", ImageType::Kodachrome),
 ];
 
