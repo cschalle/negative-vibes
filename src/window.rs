@@ -1263,8 +1263,11 @@ impl Window {
             if let Some(win) = win_weak.upgrade() {
                 win.on_params_changed();
                 win.update_dust_availability();
-                // Kodachrome has no use for the infrared pass.
-                win.update_scan_size();
+                // Kodachrome has no use for the infrared pass. While the widgets are
+                // being filled from a frame, load_params_for refreshes this itself.
+                if !win.imp().updating_ui.get() {
+                    win.update_scan_size();
+                }
             }
         });
         let win_weak = self.downgrade();

@@ -245,9 +245,9 @@ impl Window {
         if let Some(r) = self.imp().ir_row.borrow().as_ref() {
             // The roll's choice is kept while Kodachrome is selected, and comes back with other film.
             let blocked = self.film_blocks_ir();
-            self.imp().updating_ui.set(true);
+            let was_updating = self.imp().updating_ui.replace(true);
             r.set_active(!blocked && self.imp().roll.borrow().as_ref().and_then(|x| x.settings.with_ir).unwrap_or_else(|| self.imp().with_ir.get()));
-            self.imp().updating_ui.set(false);
+            self.imp().updating_ui.set(was_updating);
             r.set_sensitive(!blocked);
             r.set_subtitle(if blocked {
                 "Not used for Kodachrome: its dyes block infrared, so the plane cannot show dust. Use software dust removal."

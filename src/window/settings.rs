@@ -86,8 +86,10 @@ impl Window {
         }
 
         self.sync_widgets(&params);
-        self.update_dust_availability();
         *imp.proc_params.borrow_mut() = Some(params);
+        // Both read the film type from proc_params, so they follow its assignment.
+        self.update_dust_availability();
+        self.update_scan_size();
         imp.film_base_ready.set(true);
         self.refresh_canvas();
     }
