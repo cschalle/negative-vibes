@@ -45,6 +45,15 @@ pub struct ScanArgs {
     /// save a rendered PPM alongside the raw PNM.
     #[arg(long)]
     render: bool,
+
+    /// Image type for --render: colour-negative | bw-negative | positive | kodachrome.
+    /// Use `positive` for slides.
+    #[arg(long, default_value = "colour-negative")]
+    image_type: String,
+
+    /// Built-in film profile id for --render.
+    #[arg(long, default_value = "generic-colour-negative")]
+    profile: String,
 }
 
 fn parse_area(s: &str) -> Result<[f64; 4], String> {
@@ -78,8 +87,8 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
         let render_args = crate::render::RenderArgs {
             input: args.output.clone(),
             output: Some(rendered_path),
-            image_type: "colour-negative".into(),
-            profile: "generic-colour-negative".into(),
+            image_type: args.image_type.clone(),
+            profile: args.profile.clone(),
             dust: "off".into(), // a scan from this command has no infrared plane
             film_base: None,
             exposure: 0.0,
