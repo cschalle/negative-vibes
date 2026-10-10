@@ -18,6 +18,8 @@ const READ_BUF: usize = 65536;
 pub struct AcquireWorker {
     cmd_tx: Sender<WorkerCmd>,
     pub evt_rx: Receiver<ScanEvent>,
+    /// Joined on drop; see the `Drop` impl.
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl AcquireWorker {
@@ -26,9 +28,10 @@ impl AcquireWorker {
         let (cmd_tx, cmd_rx) = async_channel::unbounded::<WorkerCmd>();
         let (evt_tx, evt_rx) = async_channel::unbounded::<ScanEvent>();
 
-        std::thread::Builder::new().name("nv-sane-worker".to_owned()).spawn(move || run_worker(cmd_rx, evt_tx, quirks_path)).expect("failed to spawn SANE worker thread");
+        let thread =
+            std::thread::Builder::new().name("nv-sane-worker".to_owned()).spawn(move || run_worker(cmd_rx, evt_tx, quirks_path)).expect("failed to spawn SANE worker thread");
 
-        Self { cmd_tx, evt_rx }
+        Self { cmd_tx, evt_rx, thread: Some(thread) }
     }
 
     pub fn probe(&self) {
@@ -50,6 +53,22 @@ impl AcquireWorker {
 
     pub fn quit(&self) {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::Quit);
+    }
+}
+
+impl Drop for AcquireWorker {
+    /// Stop the worker and wait for it to finish.
+    ///
+    /// The worker owns the SANE session, so `sane_exit` (which unloads the backend
+    /// libraries) runs on its thread when it ends. If the process were allowed to
+    /// exit first, the C library's exit-time teardown would race that unloading and
+    /// abort inside some backend's destructor. A running scan treats `Quit` as a
+    /// cancel, so this does not wait for the scan to complete.
+    fn drop(&mut self) {
+        let _ = self.cmd_tx.send_blocking(WorkerCmd::Quit);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
