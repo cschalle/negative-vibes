@@ -29,3 +29,6 @@ cargo-target/
 
 # Generated bindings (regenerated with `cargo build --features regenerate-bindings`)
 # crates/nv-sane-sys/src/bindings.rs
+
+# Local test scan
+/scan-1200dpi-positive.png
