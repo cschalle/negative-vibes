@@ -122,6 +122,8 @@ fn wait_for_device(rx: &async_channel::Receiver<ScanEvent>, preferred: Option<&s
 /// Strips any backend scanline padding so the PNM is tightly packed.
 fn collect_scan(rx: &async_channel::Receiver<ScanEvent>, output: &PathBuf) -> anyhow::Result<FrameBuf> {
     let mut buf_opt: Option<FrameBuf> = None;
+    let mut ir_opt: Option<FrameBuf> = None;
+    let mut in_ir = false;
 
     loop {
         let event = rx.recv_blocking().map_err(|_| anyhow::anyhow!("worker channel closed"))?;
@@ -136,11 +138,19 @@ fn collect_scan(rx: &async_channel::Receiver<ScanEvent>, output: &PathBuf) -> an
                 );
                 buf_opt = Some(FrameBuf::with_stride(width_px, height_px, d, ch, bytes_per_line));
             }
+            ScanEvent::IrFrameStarted { width_px, height_px, bytes_per_line, depth: d } => {
+                println!("\r  Infrared frame: {width_px}×{height_px:?} {d}-bit bytes_per_line={bytes_per_line}");
+                ir_opt = Some(FrameBuf::with_stride(width_px, height_px, d, 1, bytes_per_line));
+                in_ir = true;
+            }
             ScanEvent::DataChunk { data, .. } => {
-                if let Some(buf) = buf_opt.as_mut() {
+                // The infrared plane follows the colour frame; keep it apart.
+                let target = if in_ir { ir_opt.as_mut() } else { buf_opt.as_mut() };
+                if let Some(buf) = target {
                     buf.append(&data);
                 }
             }
+            ScanEvent::IrFrameDone => in_ir = false,
             ScanEvent::Progress(p) => {
                 print!("\r  {:.0}%   ", p * 100.0);
                 std::io::stdout().flush().ok();
@@ -156,6 +166,16 @@ fn collect_scan(rx: &async_channel::Receiver<ScanEvent>, output: &PathBuf) -> an
     }
 
     let buf = buf_opt.ok_or_else(|| anyhow::anyhow!("ScanStarted event never received"))?;
+    write_pnm(&buf, output)?;
+    if let Some(ir) = ir_opt {
+        let stem = output.file_stem().unwrap_or_default().to_string_lossy();
+        write_pnm(&ir, &output.with_file_name(format!("{stem}-ir.pgm")))?;
+    }
+    Ok(buf)
+}
+
+/// Write a frame as a tightly packed PNM (P5 for one channel, P6 for three).
+fn write_pnm(buf: &FrameBuf, output: &PathBuf) -> anyhow::Result<()> {
     let w = buf.width;
     let h = buf.effective_height();
     let bpr_actual = buf.bytes_per_row;
@@ -191,5 +211,5 @@ fn collect_scan(rx: &async_channel::Receiver<ScanEvent>, output: &PathBuf) -> an
     }
 
     println!("Saved {w}×{h} {}-bit raw image to {}", buf.depth, output.display());
-    Ok(buf)
+    Ok(())
 }
