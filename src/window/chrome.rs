@@ -226,7 +226,9 @@ impl Window {
 
     /// Open the help in Yelp: the installed manual, or, when run from the source tree, its pages.
     fn show_help(&self) {
-        let source = std::path::Path::new(crate::config::PKGDATADIR).join("../help/C/index.page");
+        // The manual is installed under <datadir>/help/C/negative-vibes. A Flatpak does not export
+        // it to the host's Yelp, so it is opened with the Yelp the GNOME runtime carries.
+        let source = std::path::Path::new(crate::config::PKGDATADIR).join("../help/C/negative-vibes/index.page");
         if source.is_file() {
             match std::process::Command::new("yelp").arg(&source).spawn() {
                 Ok(_) => return,

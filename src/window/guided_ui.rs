@@ -81,8 +81,8 @@ impl Window {
     }
 
     pub(super) fn open_guided(&self) {
-        if let Some(w) = self.imp().guide.borrow().as_ref() {
-            w.present();
+        if self.imp().guide.borrow().is_some() {
+            self.show_guide_panel(true);
             return;
         }
         let page = |title: &str, description: &str| {
@@ -154,13 +154,32 @@ impl Window {
         let back = gtk::Button::builder().label("Back").build();
         let next = gtk::Button::builder().label("Next").css_classes(["suggested-action"]).build();
         let title = gtk::Label::builder().css_classes(["heading"]).build();
-        let header = adw::HeaderBar::builder().show_end_title_buttons(true).show_start_title_buttons(false).title_widget(&title).build();
+        let close = gtk::Button::builder().icon_name("window-close-symbolic").tooltip_text("Close Guide (Esc)").css_classes(["flat"]).build();
+        close.update_property(&[gtk::accessible::Property::Label("Close Guide")]);
+        let header = adw::HeaderBar::builder().show_end_title_buttons(false).show_start_title_buttons(false).title_widget(&title).build();
         header.pack_start(&back);
+        header.pack_end(&close);
         header.pack_end(&next);
-        let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        content.append(&header);
-        content.append(&stack);
-        let dialog = adw::Window::builder().transient_for(self).modal(false).title("Scan a Roll").default_width(620).default_height(560).content(&content).build();
+        let content = adw::ToolbarView::new();
+        content.add_top_bar(&header);
+        content.set_content(Some(&stack));
+        // Escape closes the guide while focus is inside it.
+        let keys = gtk::EventControllerKey::new();
+        let weak = self.downgrade();
+        keys.connect_key_pressed(move |_, key, _, _| match (key == gdk::Key::Escape, weak.upgrade()) {
+            (true, Some(win)) => {
+                win.close_guide();
+                glib::Propagation::Stop
+            }
+            _ => glib::Propagation::Proceed,
+        });
+        content.add_controller(keys);
+        let weak = self.downgrade();
+        close.connect_clicked(move |_| {
+            if let Some(win) = weak.upgrade() {
+                win.close_guide();
+            }
+        });
 
         let g = Rc::new(Guide {
             stack,
@@ -292,16 +311,24 @@ impl Window {
                 glib::ControlFlow::Continue
             });
         }
-        let weak = self.downgrade();
-        dialog.connect_close_request(move |_| {
-            if let Some(win) = weak.upgrade() {
-                *win.imp().guide.borrow_mut() = None;
-            }
-            glib::Propagation::Proceed
-        });
-        *self.imp().guide.borrow_mut() = Some(dialog.clone());
+        *self.imp().guide.borrow_mut() = Some(content.clone().upcast());
+        if let Some(split) = self.imp().guide_split.borrow().as_ref() {
+            split.set_sidebar(Some(&content));
+        }
         show(0);
-        super::chrome::present_labelled(&dialog);
+        self.show_guide_panel(true);
+    }
+
+    fn show_guide_panel(&self, show: bool) {
+        if let Some(split) = self.imp().guide_split.borrow().as_ref() {
+            split.set_show_sidebar(show);
+        }
+    }
+
+    /// Hide the guide and forget it; opening it again starts from the first step.
+    pub(super) fn close_guide(&self) {
+        self.show_guide_panel(false);
+        *self.imp().guide.borrow_mut() = None;
     }
 
     /// Do what leaving `step` means. False keeps the person on the step.

@@ -1,3 +1,6 @@
+const FILM_TYPE_LABELS: [&str; 4] = ["Colour Negative", "B&W Negative", "Slide (Ektachrome, other E-6)", "Kodachrome Slide"];
+const FILM_TYPE_SHORT_LABELS: [&str; 4] = ["Colour Negative", "B&W Negative", "Slide", "Kodachrome"];
+
 pub(crate) mod imp {
     use adw::subclass::prelude::*;
     use std::cell::{Cell, RefCell};
@@ -23,6 +26,9 @@ pub(crate) mod imp {
 
         // ── Inspector widget handles ───────────────────────────────────────
         pub image_type_row: RefCell<Option<adw::ComboRow>>,
+        /// Header dropdown and empty-state toggles that mirror `image_type_row`.
+        pub film_type_btn: RefCell<Option<gtk::DropDown>>,
+        pub film_type_toggles: RefCell<Vec<gtk::ToggleButton>>,
         pub profile_row: RefCell<Option<adw::ComboRow>>,
         pub exposure_row: RefCell<Option<adw::SpinRow>>,
         pub film_base_r_row: RefCell<Option<adw::SpinRow>>,
@@ -129,7 +135,9 @@ pub(crate) mod imp {
         pub wheel_area: RefCell<Option<gtk::DrawingArea>>,
         pub wheel_region: Cell<usize>,
         pub film_profiles: RefCell<Vec<nv_film::FilmProfile>>,
-        pub guide: RefCell<Option<adw::Window>>,
+        /// The Scan a Roll panel while it is open, docked in `guide_split`.
+        pub guide: RefCell<Option<gtk::Widget>>,
+        pub guide_split: RefCell<Option<adw::OverlaySplitView>>,
         pub scanner_profile_row: RefCell<Option<adw::ComboRow>>,
         pub navigator_area: RefCell<Option<gtk::DrawingArea>>,
         pub densi_on: Cell<bool>,
@@ -354,6 +362,10 @@ impl Window {
 
         let preview_btn = gtk::Button::builder().label("Preview").tooltip_text("Preview the film (Ctrl+R)").sensitive(false).build();
 
+        // Film type is the first choice for every roll, so it sits beside Preview. It is a view of
+        // the Inspector's Type row, bound to it below.
+        let film_type_btn = gtk::DropDown::builder().model(&gtk::StringList::new(&FILM_TYPE_LABELS)).tooltip_text("Film type").build();
+
         let scan_menu = gio::Menu::new();
         scan_menu.append(Some("Scan Selected Frames"), Some("win.scan-selected"));
         scan_menu.append(Some("Scan All Frames"), Some("win.scan-all"));
@@ -402,6 +414,8 @@ impl Window {
         let title_widget = adw::WindowTitle::new("Negative Vibes", "");
 
         header.pack_start(&sidebar_btn);
+        header.pack_start(&film_type_btn);
+        *self.imp().film_type_btn.borrow_mut() = Some(film_type_btn.clone());
         header.pack_start(&preview_btn);
         header.set_title_widget(Some(&title_widget));
         header.pack_end(&menu_btn);
@@ -515,7 +529,20 @@ impl Window {
         insert_page.set_title("Insert Film and Preview");
         insert_page.set_description(Some("Insert film and click Preview to begin."));
         let preview_big = gtk::Button::builder().label("Preview").css_classes(["pill", "suggested-action"]).halign(gtk::Align::Center).build();
-        insert_page.set_child(Some(&preview_big));
+        // The film type toggle sits above the big Preview button (DESIGN.md §8.3).
+        let type_toggles = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).css_classes(["linked"]).halign(gtk::Align::Center).build();
+        let toggle_buttons: Vec<gtk::ToggleButton> = FILM_TYPE_SHORT_LABELS.iter().map(|l| gtk::ToggleButton::with_label(l)).collect();
+        for b in &toggle_buttons {
+            if let Some(first) = toggle_buttons.first().filter(|f| *f != b) {
+                b.set_group(Some(first));
+            }
+            type_toggles.append(b);
+        }
+        let insert_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(18).halign(gtk::Align::Center).build();
+        *self.imp().film_type_toggles.borrow_mut() = toggle_buttons.clone();
+        insert_box.append(&type_toggles);
+        insert_box.append(&preview_big);
+        insert_page.set_child(Some(&insert_box));
 
         let canvas_picture = gtk::Picture::builder().hexpand(true).vexpand(true).content_fit(gtk::ContentFit::Contain).build();
         let frame_overlay = gtk::DrawingArea::builder().hexpand(true).vexpand(true).tooltip_text("Drag to choose the area to scan; right-click to scan the whole window").build();
@@ -554,7 +581,17 @@ impl Window {
         // ── Toolbar view ──────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
-        toolbar_view.set_content(Some(&main_stack));
+        // The Scan a Roll guide docks beside the picture, so it never needs a window of its own
+        // (the compositor, not the app, decides where a Wayland window goes).
+        let guide_split = adw::OverlaySplitView::new();
+        guide_split.set_sidebar_position(gtk::PackType::End);
+        guide_split.set_content(Some(&main_stack));
+        guide_split.set_show_sidebar(false);
+        guide_split.set_sidebar_width_fraction(0.34);
+        guide_split.set_min_sidebar_width(340.0);
+        guide_split.set_max_sidebar_width(460.0);
+        *self.imp().guide_split.borrow_mut() = Some(guide_split.clone());
+        toolbar_view.set_content(Some(&guide_split));
         // The bar has grown wider than a narrow window; letting it scroll keeps its minimum
         // width small, so the side panels are not squeezed to nothing.
         let bottom_scroll = gtk::ScrolledWindow::builder()
@@ -643,6 +680,7 @@ impl Window {
         let narrow = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 860sp").expect("a valid condition"));
         narrow.add_setter(&outer_split, "collapsed", Some(&true.to_value()));
         narrow.add_setter(&inner_split, "collapsed", Some(&true.to_value()));
+        narrow.add_setter(&guide_split, "collapsed", Some(&true.to_value()));
         narrow.add_setter(&outer_split, "show-sidebar", Some(&false.to_value()));
         // The header bar keeps what is needed to preview and scan; the rest is in the main menu.
         for w in [title_widget.upcast_ref::<gtk::Widget>(), export_btn.upcast_ref(), open_btn.upcast_ref(), inspector_btn.upcast_ref()] {
@@ -825,7 +863,7 @@ impl Window {
         let image_group = adw::PreferencesGroup::builder().title("Image").build();
 
         let image_type_row = adw::ComboRow::builder().title("Type").build();
-        let type_model = gtk::StringList::new(&["Colour Negative", "B&W Negative", "Slide (Ektachrome, other E-6)", "Kodachrome Slide"]);
+        let type_model = gtk::StringList::new(&FILM_TYPE_LABELS);
         image_type_row.set_model(Some(&type_model));
         image_group.add(&image_type_row);
         let angle_row = adw::SpinRow::builder()
@@ -1245,6 +1283,30 @@ impl Window {
 
         // ── Store inspector handles ───────────────────────────────────────
         *self.imp().image_type_row.borrow_mut() = Some(image_type_row.clone());
+        // The Type row stays the single source of truth; the header dropdown and the
+        // empty-state toggles follow it and write back to it.
+        if let Some(btn) = self.imp().film_type_btn.borrow().as_ref() {
+            image_type_row.bind_property("selected", btn, "selected").bidirectional().sync_create().build();
+        }
+        let toggle_buttons = self.imp().film_type_toggles.borrow().clone();
+        for (i, b) in toggle_buttons.iter().enumerate() {
+            let row = image_type_row.clone();
+            b.connect_toggled(move |b| {
+                if b.is_active() {
+                    row.set_selected(i as u32);
+                }
+            });
+        }
+        let sync_toggles = {
+            let toggle_buttons = toggle_buttons.clone();
+            move |row: &adw::ComboRow| {
+                if let Some(b) = toggle_buttons.get(row.selected() as usize) {
+                    b.set_active(true);
+                }
+            }
+        };
+        sync_toggles(&image_type_row);
+        image_type_row.connect_selected_notify(sync_toggles);
         *self.imp().profile_row.borrow_mut() = Some(profile_row.clone());
         *self.imp().exposure_row.borrow_mut() = Some(exposure_row.clone());
         *self.imp().film_base_r_row.borrow_mut() = Some(film_base_r_row.clone());
