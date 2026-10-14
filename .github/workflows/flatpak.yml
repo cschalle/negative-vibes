@@ -1,0 +1,118 @@
+name: Flatpak
+
+# Builds the Flatpak whenever the program changes. Documentation, screenshots and the licence
+# are ignored, so editing them does not rebuild or republish anything. (help/ is the manual
+# that ships inside the app, so it does count as a change.)
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'screenshots/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'screenshots/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ID: io.github.cschalle.NegativeVibes
+
+jobs:
+  build:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the Flatpak
+        uses: flathub-infra/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: negative-vibes.flatpak
+          manifest-path: build-aux/io.github.cschalle.NegativeVibes.json
+          cache-key: flatpak-builder-${{ github.sha }}
+          restore-cache: true
+          upload-artifact: false
+
+      # The same build as an OCI image, for GitHub Packages (ghcr.io).
+      - name: Make the OCI image
+        run: flatpak build-bundle repo --oci negative-vibes.oci "$APP_ID" master
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: negative-vibes-flatpak
+          path: negative-vibes.flatpak
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: negative-vibes-oci
+          path: negative-vibes.oci
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: build
+    # Pull requests build only; main publishes.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: negative-vibes-flatpak
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: negative-vibes-oci
+          path: negative-vibes.oci
+
+      # A rolling "latest" release holds the installable bundle.
+      - name: Update the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create latest negative-vibes.flatpak --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Latest build" \
+            --notes "Built from ${GITHUB_SHA::7}. Install with: flatpak install --user negative-vibes.flatpak"
+
+      # GitHub Packages has no Flatpak format, so the package is the OCI image.
+      - name: Push to GitHub Packages
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/negative-vibes"
+          ref="app/${APP_ID}/x86_64/master"
+          for tag in latest "${GITHUB_SHA::7}"; do
+            skopeo copy --dest-creds "${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}" \
+              "oci:negative-vibes.oci:${ref}" "docker://${image}:${tag}"
+          done
+
+      # The source label ties the package to this repository, so GitHub lists it in the sidebar.
+      - uses: imjasonh/setup-crane@v0.4
+
+      - name: Link the package to the repository
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/negative-vibes"
+          echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          crane mutate "${image}:latest" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.description=Negative Vibes, a film scanning application (Flatpak)" \
+            --label "org.opencontainers.image.licenses=GPL-3.0-or-later" \
+            --tag "${image}:latest"

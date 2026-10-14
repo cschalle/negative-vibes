@@ -7,6 +7,20 @@ The scan is kept exactly as the scanner delivered it (16-bit, linear, with the i
 plane when the scanner has one). Everything else is a stack of settings applied on top, so
 you can change your mind about the look at any time and export again.
 
+## Scanner support
+
+Negative Vibes was developed for use with the
+[OpticFilm 8200i SANE backend](https://github.com/cschalle/OpticFilm8200i-sane) (the Plustek
+OpticFilm 8200i, with its infrared channel), and that is the scanner it has been tested on. The
+Flatpak build includes that backend.
+
+Over time the aim is to support any major film scanner that SANE supports. For that to work well,
+infrared (dust) capture needs to be standardised in SANE first: today each backend exposes its
+infrared channel in its own way, so the app has to carry per-device knowledge (`data/devices.toml`).
+A common convention in SANE would let new scanners work without it. Until then, other scanners
+will scan, but infrared dust removal may be unavailable, and the software dust removal is the
+fallback.
+
 ## Screenshots
 
 ![The main window on first start: film type in the header bar and as toggles, with the Scan a Roll guide docked on the right](screenshots/main_screen_on_opening.png)
@@ -48,6 +62,28 @@ naming, folder, colour space and embedded profile and metadata.*
 
 Help pages are in `help/` (open them with F1 in the app, or `yelp help/C`).
 
+## Installing
+
+The easiest way is the Flatpak, built automatically from the latest code on `main`.
+
+```sh
+# Once: add Flathub, where the GNOME runtime comes from
+flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+# Download and install the latest build
+curl -LO https://github.com/cschalle/negative-vibes/releases/download/latest/negative-vibes.flatpak
+flatpak install --user negative-vibes.flatpak
+
+flatpak run io.github.cschalle.NegativeVibes
+```
+
+To update, download the bundle again and run the same `flatpak install` command. The Flatpak
+is rebuilt whenever the program changes (not for edits to the documentation or screenshots), and
+each build is also published as an OCI image on
+[GitHub Packages](https://github.com/cschalle/negative-vibes/pkgs/container/negative-vibes).
+Builds from other branches and pull requests are available as workflow artifacts on the
+[Actions](https://github.com/cschalle/negative-vibes/actions/workflows/flatpak.yml) page.
+
 ## Building
 
 Requirements: Rust (stable), Meson, GTK 4, libadwaita, blueprint-compiler, lcms2, SANE
@@ -60,8 +96,14 @@ ninja -C _build
 cargo test --workspace    # headless tests for every crate
 ```
 
-A Flatpak manifest for development is in `build-aux/`; `build-aux/flathub/` has the one
-for release (see the notes there).
+To build the Flatpak yourself:
+
+```sh
+flatpak-builder --user --install --force-clean build-flatpak build-aux/io.github.cschalle.NegativeVibes.json
+```
+
+`build-aux/` also has a development manifest (`*.Devel.json`); `build-aux/flathub/` has the one
+for a Flathub release (see the notes there).
 
 ## Google Photos
 
