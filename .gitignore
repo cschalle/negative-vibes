@@ -32,3 +32,4 @@ cargo-target/
 
 # Local test scan
 /scan-1200dpi-positive.png
+.flatpak-builder/
