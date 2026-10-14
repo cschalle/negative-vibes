@@ -5,6 +5,8 @@
 //! The raw 16-bit linear TIFF that `nv-store` writes into the roll doubles as
 //! the HDR RAW export (DESIGN.md §6.3): [`copy_raw`] hands it over unchanged.
 
+#![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+
 pub mod colour;
 pub mod dng;
 pub mod encode;

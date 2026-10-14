@@ -41,12 +41,14 @@ pub fn freeze(proxy: &Proxy, params: &ProcessParams) -> ProcessParams {
     p.dust.max_area.get_or_insert(((0.004 * full_pixels as f64) as usize).max(50));
     // The offset of the infrared is a property of the scan: measure it once on
     // the proxy, and every tile uses that.
-    if p.dust.mode != DustMode::Off && p.dust.align && p.dust.ir_shift.is_none() {
-        if let Some(ir) = &proxy.ir {
-            let f = proxy.factor as f32;
-            let s = crate::dust::estimate_shift_within(&proxy.pixels, ir, proxy.width, proxy.height, proxy.factor, p.dust.align_limit as usize).unwrap_or([0.0, 0.0]);
-            p.dust.ir_shift = Some([s[0] * f, s[1] * f]);
-        }
+    if p.dust.mode != DustMode::Off
+        && p.dust.align
+        && p.dust.ir_shift.is_none()
+        && let Some(ir) = &proxy.ir
+    {
+        let f = proxy.factor as f32;
+        let s = crate::dust::estimate_shift_within(&proxy.pixels, ir, proxy.width, proxy.height, proxy.factor, p.dust.align_limit as usize).unwrap_or([0.0, 0.0]);
+        p.dust.ir_shift = Some([s[0] * f, s[1] * f]);
     }
     match p.image_type {
         ImageType::Positive | ImageType::Kodachrome => {
@@ -301,10 +303,10 @@ impl TileCache {
         self.order.push_back((tx, ty));
         // Never evict the tile just made, even if one tile exceeds the budget.
         while self.bytes > self.budget && self.order.len() > 1 {
-            if let Some(old) = self.order.pop_front() {
-                if let Some(t) = self.tiles.remove(&old) {
-                    self.bytes -= t.len();
-                }
+            if let Some(old) = self.order.pop_front()
+                && let Some(t) = self.tiles.remove(&old)
+            {
+                self.bytes -= t.len();
             }
         }
         t

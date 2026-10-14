@@ -361,7 +361,7 @@ pub fn write_dng<W: Write + Seek>(
 
     // The preview for IFD0: small, 8-bit RGB.
     let (tw, th, rgba) = raw.thumbnail_rgba(256, None);
-    let thumb: Vec<u8> = rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+    let thumb: Vec<u8> = rgba.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
     let thumb_at = u32::try_from(out.seek(SeekFrom::End(0))?).map_err(|_| too_big())?;
     out.write_all(&thumb)?;
 
@@ -513,7 +513,7 @@ mod tests {
         let raw = framed(800, 600, (80, 60, 70, 40));
         let [x, y, w, h] = content_bounds(&raw);
         // Inside the lit area (80..740 × 70..560), a little in from its edge.
-        assert!(x >= 80 && x < 100 && y >= 70 && y < 90, "origin {x},{y}");
+        assert!((80..100).contains(&x) && (70..90).contains(&y), "origin {x},{y}");
         assert!(x + w <= 740 && x + w > 720 && y + h <= 560 && y + h > 540, "far corner {},{}", x + w, y + h);
         // No surround, nothing to crop; and a flat black frame is left alone.
         assert_eq!(content_bounds(&framed(800, 600, (0, 0, 0, 0))), [0, 0, 800, 600]);

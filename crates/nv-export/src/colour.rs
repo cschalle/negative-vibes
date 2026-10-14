@@ -79,7 +79,7 @@ impl ColourSpace {
 }
 
 /// Adobe RGB's transfer curve: 563/256, as the specification gives it.
-pub const ADOBE_GAMMA: f32 = 2.199_218_75;
+pub const ADOBE_GAMMA: f32 = 2.199_218_8;
 
 /// The curve a grey output is encoded with: gamma 2.2 (the value in ICC's
 /// 8.8 fixed point is 563/256, the same as Adobe RGB).

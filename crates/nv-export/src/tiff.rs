@@ -203,7 +203,7 @@ fn compress(mut data: Vec<u8>, compression: Compression, depth: u16, row_len: us
         return Ok(data);
     }
     if depth == 16 {
-        let mut v: Vec<u16> = data.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+        let mut v: Vec<u16> = data.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
         predict_u16(&mut v, row_len, step);
         data = v.iter().flat_map(|x| x.to_le_bytes()).collect();
     } else {

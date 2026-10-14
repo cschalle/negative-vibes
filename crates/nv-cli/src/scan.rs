@@ -207,7 +207,7 @@ fn write_pnm(buf: &FrameBuf, output: &PathBuf) -> anyhow::Result<()> {
     // other tool could read.
     let emit = |f: &mut File, row: &[u8]| -> std::io::Result<()> {
         if buf.depth > 8 {
-            let be: Vec<u8> = row.chunks_exact(2).flat_map(|p| u16::from_ne_bytes([p[0], p[1]]).to_be_bytes()).collect();
+            let be: Vec<u8> = row.as_chunks::<2>().0.iter().flat_map(|p| u16::from_ne_bytes([p[0], p[1]]).to_be_bytes()).collect();
             f.write_all(&be)
         } else {
             f.write_all(row)

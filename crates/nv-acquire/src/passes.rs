@@ -207,12 +207,10 @@ impl Accumulator {
         let l = self.layout;
         assert!(l.fits(data), "pass does not match the frame's shape");
         let (mut sx, mut sy) = (0f32, 0f32);
-        if self.n == 0 && !self.reference_is_foreign {
-            if self.max_offset > 0 && l.width >= 64 && l.height >= 64 {
-                let (w, h) = (CROP.min(l.width), CROP.min(l.height));
-                let (x0, y0) = ((l.width - w) / 2, (l.height - h) / 2);
-                self.reference = Some(Reference { x0, y0, w, h, rgb: crop_f32(&l, data, x0, y0, w, h, true) });
-            }
+        if self.n == 0 && !self.reference_is_foreign && self.max_offset > 0 && l.width >= 64 && l.height >= 64 {
+            let (w, h) = (CROP.min(l.width), CROP.min(l.height));
+            let (x0, y0) = ((l.width - w) / 2, (l.height - h) / 2);
+            self.reference = Some(Reference { x0, y0, w, h, rgb: crop_f32(&l, data, x0, y0, w, h, true) });
         }
         if self.reference.is_some() && (self.n > 0 || self.reference_is_foreign) {
             let (dx, dy) = self.offset_of(data);

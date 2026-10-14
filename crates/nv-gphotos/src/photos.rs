@@ -85,10 +85,10 @@ impl Client {
 
     /// A token Google accepts now, fetching a new one when the last has (almost) run out.
     fn access_token(&mut self) -> Result<String> {
-        if let Some((t, until)) = &self.access {
-            if Instant::now() + Duration::from_secs(60) < *until {
-                return Ok(t.clone());
-            }
+        if let Some((t, until)) = &self.access
+            && Instant::now() + Duration::from_secs(60) < *until
+        {
+            return Ok(t.clone());
         }
         let r = token_request(
             &self.endpoints,
@@ -185,10 +185,10 @@ impl Client {
         })?;
         let reply: BatchReply = serde_json::from_str(&text).map_err(|_| Error::Refused("Google's answer was not understood".into()))?;
         let first = reply.results.into_iter().next().ok_or_else(|| Error::Refused("Google's answer held no result".into()))?;
-        if let Some(s) = &first.status {
-            if s.code.unwrap_or(0) != 0 {
-                return Err(Error::Refused(s.message.clone().unwrap_or_else(|| "Google could not add the picture".into())));
-            }
+        if let Some(s) = &first.status
+            && s.code.unwrap_or(0) != 0
+        {
+            return Err(Error::Refused(s.message.clone().unwrap_or_else(|| "Google could not add the picture".into())));
         }
         let item = first.media_item.ok_or_else(|| Error::Refused("Google added no picture".into()))?;
         Ok(UploadedItem { id: item.id, product_url: item.product_url })

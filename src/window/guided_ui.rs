@@ -458,7 +458,7 @@ impl Window {
                 params.conversion.film_base = Some(nv_process::estimate_film_base_proxy(&proxy));
             }
             let rgb = nv_process::render(&small, &params);
-            let rgba: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
+            let rgba: Vec<u8> = rgb.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect();
             let texture = gdk::MemoryTexture::new(small.width as i32, small.height as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), small.width * 4);
             let pic = gtk::Picture::for_paintable(&texture);
             pic.set_content_fit(gtk::ContentFit::Contain);

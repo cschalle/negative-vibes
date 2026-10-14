@@ -106,7 +106,7 @@ impl Encoder {
         } else {
             o8.reserve(n * if self.grey { 1 } else { 3 })
         }
-        for px in toned.chunks_exact(3) {
+        for px in toned.as_chunks::<3>().0 {
             if self.grey {
                 let y = 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2];
                 self.quantise(self.lut.get(y), &mut o8, &mut o16);
@@ -476,10 +476,10 @@ pub fn write_scan_tiff(buf: &FrameBuf, ir: Option<&FrameBuf>, dest: &Path, compr
     if !matches!(channels, 1 | 3 | 4) || !matches!(depth, 8 | 16) {
         return Err(bad(format!("cannot write a {channels}-channel {depth}-bit scan")));
     }
-    if let Some(ir) = ir {
-        if channels != 3 || ir.channels != 1 || ir.depth != buf.depth || ir.width != buf.width || ir.effective_height() as usize != h {
-            return Err(bad("the infrared plane does not match the colour scan".into()));
-        }
+    if let Some(ir) = ir
+        && (channels != 3 || ir.channels != 1 || ir.depth != buf.depth || ir.width != buf.width || ir.effective_height() as usize != h)
+    {
+        return Err(bad("the infrared plane does not match the colour scan".into()));
     }
     let out_channels = channels + usize::from(ir.is_some());
     let row_bytes = w * channels * depth / 8;
@@ -488,10 +488,10 @@ pub fn write_scan_tiff(buf: &FrameBuf, ir: Option<&FrameBuf>, dest: &Path, compr
         return Err(bad("incomplete scan data".into()));
     }
     let ir_row_bytes = w * depth / 8;
-    if let Some(ir) = ir {
-        if ir.as_bytes().len() < ir.bytes_per_row * (h - 1) + ir_row_bytes {
-            return Err(bad("incomplete infrared data".into()));
-        }
+    if let Some(ir) = ir
+        && ir.as_bytes().len() < ir.bytes_per_row * (h - 1) + ir_row_bytes
+    {
+        return Err(bad("incomplete infrared data".into()));
     }
 
     let part = temp_name(dest);

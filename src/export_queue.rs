@@ -141,10 +141,10 @@ impl ExportQueue {
     /// the next band and leaves no file.
     pub fn cancel(&self, id: u64) {
         self.control.cancelled.lock().unwrap_or_else(|e| e.into_inner()).insert(id);
-        if let Some((running, flag)) = self.control.running.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            if *running == id {
-                flag.store(true, Ordering::Relaxed);
-            }
+        if let Some((running, flag)) = self.control.running.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            && *running == id
+        {
+            flag.store(true, Ordering::Relaxed);
         }
     }
 }

@@ -96,10 +96,10 @@ impl Settings {
         if let Some(v) = self.image_type {
             p.image_type = v;
         }
-        if let Some(id) = &self.profile {
-            if let Some(profile) = nv_film::find_profile(id) {
-                p.profile = profile;
-            }
+        if let Some(id) = &self.profile
+            && let Some(profile) = nv_film::find_profile(id)
+        {
+            p.profile = profile;
         }
         if let Some(v) = self.film_base {
             p.conversion.film_base = Some(v);

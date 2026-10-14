@@ -245,8 +245,8 @@ mod tests {
         let mut m = wedge(21, [1.0; 3], [0.6, 0.3, 0.15]);
         let (plain, _) = build(&info(), &m).unwrap();
         for t in m.steps.iter_mut().take(8) {
-            for c in 0..3 {
-                t[c] = m.base[c] * 0.92;
+            for (v, base) in t.iter_mut().zip(m.base) {
+                *v = base * 0.92;
             }
         }
         let (flat, _) = build(&info(), &m).unwrap();

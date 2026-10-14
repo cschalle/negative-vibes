@@ -90,7 +90,7 @@ impl Window {
         // R8G8B8 (3-byte packed) is not natively supported by most GPU
         // drivers, and GTK's conversion corrupts it on Wayland/Vulkan; R8G8B8A8
         // is universally supported.
-        let rgba: Vec<u8> = rgb[..w * h * 3].chunks_exact(3).flat_map(|px| [px[0], px[1], px[2], 255u8]).collect();
+        let rgba: Vec<u8> = rgb[..w * h * 3].as_chunks::<3>().0.iter().flat_map(|px| [px[0], px[1], px[2], 255u8]).collect();
         let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), w * 4);
         if let Some(pic) = self.imp().canvas_picture.borrow().as_ref() {
             pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));

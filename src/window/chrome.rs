@@ -94,7 +94,7 @@ pub fn let_buttons_shrink(row: &gtk::Box) {
 /// Development aid (`NV_DEBUG_MINWIDTH=<pixels>`): print every widget whose least
 /// width is above that, with the widget it is in, to find what keeps a window from narrowing.
 pub fn print_wide_widgets(root: &gtk::Widget, limit: i32) {
-    fn walk(w: &gtk::Widget, depth: usize, limit: i32, trail: &mut Vec<String>) {
+    fn walk(w: &gtk::Widget, limit: i32, trail: &mut Vec<String>) {
         let (min, _, _, _) = w.measure(gtk::Orientation::Horizontal, -1);
         trail.push(w.type_().name().to_owned());
         let mut wide_child = false;
@@ -102,7 +102,7 @@ pub fn print_wide_widgets(root: &gtk::Widget, limit: i32) {
         while let Some(child) = c {
             if child.is_visible() && child.measure(gtk::Orientation::Horizontal, -1).0 > limit {
                 wide_child = true;
-                walk(&child, depth + 1, limit, trail);
+                walk(&child, limit, trail);
             }
             c = child.next_sibling();
         }
@@ -112,7 +112,7 @@ pub fn print_wide_widgets(root: &gtk::Widget, limit: i32) {
         }
         trail.pop();
     }
-    walk(root, 0, limit, &mut Vec::new());
+    walk(root, limit, &mut Vec::new());
 }
 
 /// Development aid: the least widths of the window's main parts, by name.
@@ -180,10 +180,10 @@ impl Window {
         simple(
             "preview-film",
             Box::new(|w| {
-                if let Some(b) = w.imp().preview_btn.borrow().as_ref() {
-                    if b.is_sensitive() {
-                        b.emit_clicked();
-                    }
+                if let Some(b) = w.imp().preview_btn.borrow().as_ref()
+                    && b.is_sensitive()
+                {
+                    b.emit_clicked();
                 }
             }),
         );

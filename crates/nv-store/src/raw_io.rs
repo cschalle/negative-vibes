@@ -78,14 +78,12 @@ impl RawReader {
             let rgb = read_pnm_from(std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(path)?))?;
             // `scan.pnm` with `scan-ir.pgm` beside it is an RGB+IR pair, as the
             // reference client writes them: merge them into one four-channel scan.
-            if rgb.channels == 3 {
-                if let Some(ir_path) = ir_partner(path) {
-                    if let Ok(ir) = read_pnm_from(std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(ir_path)?)) {
-                        if let Some(merged) = merge_ir(&rgb, &ir) {
-                            return Ok(merged);
-                        }
-                    }
-                }
+            if rgb.channels == 3
+                && let Some(ir_path) = ir_partner(path)
+                && let Ok(ir) = read_pnm_from(std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(ir_path)?))
+                && let Some(merged) = merge_ir(&rgb, &ir)
+            {
+                return Ok(merged);
             }
             return Ok(rgb);
         }
@@ -169,7 +167,7 @@ fn read_pnm_from<R: std::io::BufRead>(mut r: R) -> Result<FrameBuf> {
         if depth == 16 {
             // PNM stores 16-bit samples most significant byte first; FrameBuf
             // holds them in the host's order, the same as SANE delivers them.
-            for p in chunk[..got].chunks_exact_mut(2) {
+            for p in chunk[..got].as_chunks_mut::<2>().0 {
                 let v = u16::from_be_bytes([p[0], p[1]]).to_ne_bytes();
                 p.copy_from_slice(&v);
             }
@@ -578,9 +576,9 @@ mod tests {
     #[test]
     fn pnm_pixels_starting_with_hash_or_newline_survive() {
         let mut data = b"P5\n2 1\n255\n".to_vec();
-        data.extend_from_slice(&[b'#', b'\n']);
+        data.extend_from_slice(b"#\n");
         let buf = read_pnm(&data).unwrap();
-        assert_eq!(buf.as_bytes(), &[b'#', b'\n']);
+        assert_eq!(buf.as_bytes(), b"#\n");
     }
     use nv_image::{FrameBuf, read_sample};
 

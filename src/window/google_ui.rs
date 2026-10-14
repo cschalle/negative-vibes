@@ -216,10 +216,10 @@ impl Window {
         let Some(path) = self.albums_file() else { return };
         let mut albums: Albums = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         albums.albums.insert(title.to_owned(), id.to_owned());
-        if let Ok(text) = serde_json::to_string_pretty(&albums) {
-            if let Err(e) = std::fs::write(&path, text) {
-                eprintln!("nv: could not remember the Google Photos album: {e}");
-            }
+        if let Ok(text) = serde_json::to_string_pretty(&albums)
+            && let Err(e) = std::fs::write(&path, text)
+        {
+            eprintln!("nv: could not remember the Google Photos album: {e}");
         }
     }
 }

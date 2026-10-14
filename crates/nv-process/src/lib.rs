@@ -1,3 +1,6 @@
+// Pixel loops index channels and rows directly; the iterator forms clippy suggests read worse here.
+#![allow(unknown_lints, clippy::needless_range_loop, clippy::too_many_arguments, clippy::manual_memcpy, clippy::chunks_exact_to_as_chunks)]
+
 pub mod analysis;
 pub mod colour;
 mod conversion;
@@ -237,7 +240,7 @@ pub fn estimate_film_base_proxy(proxy: &Proxy) -> [f32; 3] {
     [percentile_98(&mut r_vals), percentile_98(&mut g_vals), percentile_98(&mut b_vals)]
 }
 
-fn percentile_98(vals: &mut Vec<f32>) -> f32 {
+fn percentile_98(vals: &mut [f32]) -> f32 {
     if vals.is_empty() {
         return 1.0;
     }

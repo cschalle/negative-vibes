@@ -49,7 +49,7 @@ impl Window {
             if let Some(win) = weak.upgrade() {
                 // The source is gone once it has fired; drop the handle
                 // without removing it.
-                drop(win.imp().autosave_id.take());
+                let _ = win.imp().autosave_id.take();
                 win.save_roll();
             }
         });
@@ -328,10 +328,10 @@ impl Window {
             let action = gio::SimpleAction::new(name, None);
             let weak = self.downgrade();
             action.connect_activate(move |_, _| {
-                if let Some(win) = weak.upgrade() {
-                    if !win.imp().busy.get() {
-                        f(&win);
-                    }
+                if let Some(win) = weak.upgrade()
+                    && !win.imp().busy.get()
+                {
+                    f(&win);
                 }
             });
             self.add_action(&action);
@@ -379,12 +379,13 @@ impl Window {
                 })
                 .await;
                 let Some(win) = weak.upgrade() else { return };
-                if let Ok(Some((w, h, px))) = thumb {
-                    if w > 0 && h > 0 {
-                        let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(px), (w * 4) as usize);
-                        win.imp().thumbs.borrow_mut().insert(idx, texture.upcast());
-                        win.rebuild_frame_list();
-                    }
+                if let Ok(Some((w, h, px))) = thumb
+                    && w > 0
+                    && h > 0
+                {
+                    let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(px), (w * 4) as usize);
+                    win.imp().thumbs.borrow_mut().insert(idx, texture.upcast());
+                    win.rebuild_frame_list();
                 }
             }
         });
@@ -466,7 +467,7 @@ impl Window {
             let buf = imp.scan_buf.borrow();
             let Some(buf) = buf.as_ref() else { return };
             let (w, h, rgba) = buf.thumbnail_rgba(1024, None);
-            let luma: Vec<u8> = rgba.chunks_exact(4).map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8).collect();
+            let luma: Vec<u8> = rgba.as_chunks::<4>().0.iter().map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8).collect();
             nv_film::detect_frames(&luma, w as usize, h as usize, nv_film::DetectOptions::default())
         };
         let crop_of = |r: [f64; 4]| geom::rect_to_crop(r, iw as u32, ih as u32);

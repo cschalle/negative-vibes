@@ -80,9 +80,9 @@ fn inset(a: f64, b: f64, frac: f64) -> (f64, f64) {
 
 fn smooth(v: &mut [f64], radius: usize) {
     let src = v.to_vec();
-    for i in 0..v.len() {
+    for (i, out) in v.iter_mut().enumerate() {
         let (a, b) = (i.saturating_sub(radius), (i + radius + 1).min(src.len()));
-        v[i] = src[a..b].iter().sum::<f64>() / (b - a) as f64;
+        *out = src[a..b].iter().sum::<f64>() / (b - a) as f64;
     }
 }
 

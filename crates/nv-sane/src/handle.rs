@@ -195,10 +195,10 @@ impl Handle {
     pub fn set_option_by_name(&self, name: &str, value: &OptionValue) -> Result<Option<SetInfo>> {
         let count = self.option_count()?;
         for i in 1..count {
-            if let Some(desc) = self.option_descriptor(i) {
-                if desc.name == name {
-                    return self.set_option(&desc, value).map(Some);
-                }
+            if let Some(desc) = self.option_descriptor(i)
+                && desc.name == name
+            {
+                return self.set_option(&desc, value).map(Some);
             }
         }
         Ok(None)

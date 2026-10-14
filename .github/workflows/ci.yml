@@ -50,12 +50,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            meson ninja-build \
+            ninja-build python3-pip \
             libgtk-4-dev \
             libadwaita-1-dev \
             gettext \
             desktop-file-utils \
             appstream
+
+      # The project needs Meson >= 1.4, newer than Ubuntu's package.
+      - name: Install Meson
+        run: pip install --user --break-system-packages 'meson>=1.4' && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

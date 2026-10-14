@@ -71,7 +71,7 @@ impl DeviceCapabilities {
         let opts = handle.all_options()?;
 
         let film_source = detect_film_source(&opts, handle);
-        let has_film_source = film_source.is_some() || quirks.map_or(false, |q| q.film_window_mm.is_some());
+        let has_film_source = film_source.is_some() || quirks.is_some_and(|q| q.film_window_mm.is_some());
 
         let depths = detect_depths(&opts);
         let resolutions = detect_resolutions(&opts);
@@ -81,9 +81,9 @@ impl DeviceCapabilities {
 
         // Quirks override / augment what we detect from options.
         let ir = quirks.and_then(|q| q.ir.clone()).unwrap_or_else(|| detect_ir_from_options(&opts));
-        let ir_registered = quirks.map_or(false, |q| q.ir_registered);
+        let ir_registered = quirks.is_some_and(|q| q.ir_registered);
         let holder = quirks.and_then(|q| q.holder.clone()).unwrap_or_else(|| guess_holder(&scan_area_mm));
-        let streaming_progress = quirks.map_or(false, |q| q.streaming_progress);
+        let streaming_progress = quirks.is_some_and(|q| q.streaming_progress);
         let recommended_dpi = quirks.and_then(|q| q.recommended_dpi);
         let neutralise = quirks.map(|q| q.neutralise.keys().cloned().collect()).unwrap_or_default();
         let film_window_mm = quirks.and_then(|q| q.film_window_mm);
@@ -128,14 +128,14 @@ fn detect_film_source(opts: &[OptionDescriptor], handle: &Handle) -> Option<Stri
 
 fn detect_ir_from_options(opts: &[OptionDescriptor]) -> IrStyle {
     // Mode option with Color+Infrared / Infrared values
-    if let Some(mode_opt) = opts.iter().find(|o| o.name == "mode") {
-        if let nv_sane::OptionConstraint::StringList(ref values) = mode_opt.constraint {
-            if values.iter().any(|v| v.contains("Infrared") && v.contains("Color")) {
-                return IrStyle::MultiFrame;
-            }
-            if values.iter().any(|v| v == "Infrared") {
-                return IrStyle::SeparateScan;
-            }
+    if let Some(mode_opt) = opts.iter().find(|o| o.name == "mode")
+        && let nv_sane::OptionConstraint::StringList(ref values) = mode_opt.constraint
+    {
+        if values.iter().any(|v| v.contains("Infrared") && v.contains("Color")) {
+            return IrStyle::MultiFrame;
+        }
+        if values.iter().any(|v| v == "Infrared") {
+            return IrStyle::SeparateScan;
         }
     }
     // Bool infrared option

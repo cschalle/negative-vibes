@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(OutputSize::Fit { width: 1920, height: 1080 }.dims(1000, 500), (1000, 500));
         assert_eq!(OutputSize::Percent { percent: 50.0 }.dims(3001, 2001), (1501, 1001));
         assert_eq!(OutputSize::Percent { percent: 0.0 }.dims(300, 200), (3, 2), "percent has a floor");
-        assert_eq!(OutputSize::LongEdge { pixels: 0 }.dims(300, 200), (1, 1).max((1, 1)).min((300, 200)), "pixels have a floor");
+        assert_eq!(OutputSize::LongEdge { pixels: 0 }.dims(300, 200), (1, 1), "pixels have a floor");
         assert_eq!(OutputSize::presets().len(), 6);
     }
 

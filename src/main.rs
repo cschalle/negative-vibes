@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 mod application;
 mod canvas_geom;
 mod config;

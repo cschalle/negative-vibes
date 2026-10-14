@@ -431,7 +431,9 @@ impl Window {
         if std::env::var_os("NV_AUTOSCAN").is_some() {
             eprintln!("nv: NV_AUTOSCAN: exported {}", report.path.display());
             self.flush_autosave();
-            self.application().map(|a| a.quit());
+            if let Some(a) = self.application() {
+                a.quit()
+            }
         }
 
         if self.imp().prefs.borrow().open_after_export && std::env::var_os("NV_AUTOSCAN").is_none() {

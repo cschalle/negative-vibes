@@ -88,11 +88,8 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
     // Cancelled flag shared between the scan loop and the Quit/Cancel command.
     let cancelled = Arc::new(AtomicBool::new(false));
 
-    loop {
-        let Ok(cmd) = cmd_rx.recv_blocking() else {
-            break; // channel closed
-        };
-
+    // The loop ends when the channel closes.
+    while let Ok(cmd) = cmd_rx.recv_blocking() {
         match cmd {
             WorkerCmd::Quit => break,
 
@@ -178,10 +175,7 @@ fn do_scan(
     };
 
     // Detect capabilities again so we can apply the plan.
-    let dev_info = match session.get_devices(true) {
-        Ok(d) => d,
-        Err(_) => vec![],
-    };
+    let dev_info = session.get_devices(true).unwrap_or_default();
     let dev = dev_info.iter().find(|d| d.name == device_name);
     let (vendor, model) = dev.map(|d| (d.vendor.as_str(), d.model.as_str())).unwrap_or(("", ""));
 
@@ -203,11 +197,11 @@ fn do_scan(
         return;
     }
 
-    if let Some(area) = area {
-        if let Err(e) = apply_area(&handle, area) {
-            let _ = evt_tx.send_blocking(ScanEvent::Error(format!("set scan area: {e}")));
-            return;
-        }
+    if let Some(area) = area
+        && let Err(e) = apply_area(&handle, area)
+    {
+        let _ = evt_tx.send_blocking(ScanEvent::Error(format!("set scan area: {e}")));
+        return;
     }
 
     // Emit device ready.
@@ -354,10 +348,10 @@ fn read_frame(
         sink(offset, &buf[..n]);
         offset += n;
 
-        if let Some(total) = total {
-            if total > 0 {
-                progress(offset as f32 / total as f32);
-            }
+        if let Some(total) = total
+            && total > 0
+        {
+            progress(offset as f32 / total as f32);
         }
     }
 
@@ -416,8 +410,8 @@ fn collect_pass(handle: &nv_sane::Handle, ctx: &MultiCtx, fraction: &dyn Fn(f32)
             depth: params.depth,
             is_last: params.last_frame,
         };
-        let layout = Layout { width: meta.width_px as usize, height: h as usize, channels: channels as usize, depth: meta.depth, bytes_per_line: meta.bytes_per_line };
-        let mut data = vec![0u8; meta.bytes_per_line * h as usize];
+        let layout = Layout { width: meta.width_px as usize, height: h, channels: channels as usize, depth: meta.depth, bytes_per_line: meta.bytes_per_line };
+        let mut data = vec![0u8; meta.bytes_per_line * h];
         let mut sink = |offset: usize, chunk: &[u8]| {
             let end = (offset + chunk.len()).min(data.len());
             if offset < end {
@@ -469,11 +463,11 @@ fn do_multi_pass(handle: &nv_sane::Handle, ctx: &MultiCtx) {
     for index in 0..total {
         let is_long = index >= samples;
         let exposure = if is_long { plan.long_exposure.unwrap_or(1.0) } else { 1.0 };
-        if index == 0 || index == samples {
-            if let Err(e) = set_exposure(exposure) {
-                let _ = ctx.evt_tx.send_blocking(ScanEvent::Error(format!("exposure: {e}")));
-                return;
-            }
+        if (index == 0 || index == samples)
+            && let Err(e) = set_exposure(exposure)
+        {
+            let _ = ctx.evt_tx.send_blocking(ScanEvent::Error(format!("exposure: {e}")));
+            return;
         }
         let _ = ctx.evt_tx.send_blocking(ScanEvent::PassStarted { index, total, exposure });
         let fraction = move |f: f32| (index as f32 + f) / total as f32 * 0.95;
@@ -579,13 +573,13 @@ fn apply_area(handle: &nv_sane::Handle, area: [f64; 4]) -> Result<(), String> {
     let range_of = |name: &str| -> Result<(f64, f64), String> {
         let count = handle.option_count().map_err(|e| e.to_string())?;
         for i in 1..count {
-            if let Some(d) = handle.option_descriptor(i) {
-                if d.name == name {
-                    return match d.constraint {
-                        OptionConstraint::Range { min, max, .. } => Ok((min, max)),
-                        _ => Err(format!("option {name} has no range")),
-                    };
-                }
+            if let Some(d) = handle.option_descriptor(i)
+                && d.name == name
+            {
+                return match d.constraint {
+                    OptionConstraint::Range { min, max, .. } => Ok((min, max)),
+                    _ => Err(format!("option {name} has no range")),
+                };
             }
         }
         Err(format!("device has no {name} option"))
@@ -601,27 +595,6 @@ fn apply_area(handle: &nv_sane::Handle, area: [f64; 4]) -> Result<(), String> {
     }
     eprintln!("nv-acquire: scan area {tlx:.2},{tly:.2} – {brx:.2},{bry:.2} mm");
     Ok(())
-}
-
-#[cfg(test)]
-mod area_tests {
-    use super::area_to_device;
-
-    #[test]
-    fn maps_fractions_onto_the_window() {
-        let a = area_to_device([0.25, 0.5, 0.75, 1.0], [0.0, 36.5, 0.0, 27.2]).unwrap();
-        assert!((a[0] - 9.125).abs() < 1e-9 && (a[1] - 13.6).abs() < 1e-9);
-        assert!((a[2] - 27.375).abs() < 1e-9 && (a[3] - 27.2).abs() < 1e-9);
-    }
-
-    #[test]
-    fn rejects_empty_or_outside_areas() {
-        let r = [0.0, 36.5, 0.0, 27.2];
-        assert!(area_to_device([0.5, 0.0, 0.5, 1.0], r).is_none());
-        assert!(area_to_device([0.6, 0.0, 0.4, 1.0], r).is_none());
-        assert!(area_to_device([-0.1, 0.0, 1.0, 1.0], r).is_none());
-        assert!(area_to_device([0.0, 0.0, 1.1, 1.0], r).is_none());
-    }
 }
 
 fn apply_plan_options(handle: &nv_sane::Handle, plan: &AcquisitionPlan) -> nv_sane::Result<()> {
@@ -645,19 +618,40 @@ fn apply_plan_options(handle: &nv_sane::Handle, plan: &AcquisitionPlan) -> nv_sa
     for name in &plan.neutralise {
         let count = handle.option_count()?;
         for i in 1..count {
-            if let Some(desc) = handle.option_descriptor(i) {
-                if desc.name == *name {
-                    let val = match desc.kind {
-                        nv_sane::OptionKind::Bool => OptionValue::Bool(false),
-                        nv_sane::OptionKind::Int => OptionValue::Int(0),
-                        _ => continue,
-                    };
-                    let _ = handle.set_option(&desc, &val)?;
-                    break;
-                }
+            if let Some(desc) = handle.option_descriptor(i)
+                && desc.name == *name
+            {
+                let val = match desc.kind {
+                    nv_sane::OptionKind::Bool => OptionValue::Bool(false),
+                    nv_sane::OptionKind::Int => OptionValue::Int(0),
+                    _ => continue,
+                };
+                let _ = handle.set_option(&desc, &val)?;
+                break;
             }
         }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod area_tests {
+    use super::area_to_device;
+
+    #[test]
+    fn maps_fractions_onto_the_window() {
+        let a = area_to_device([0.25, 0.5, 0.75, 1.0], [0.0, 36.5, 0.0, 27.2]).unwrap();
+        assert!((a[0] - 9.125).abs() < 1e-9 && (a[1] - 13.6).abs() < 1e-9);
+        assert!((a[2] - 27.375).abs() < 1e-9 && (a[3] - 27.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rejects_empty_or_outside_areas() {
+        let r = [0.0, 36.5, 0.0, 27.2];
+        assert!(area_to_device([0.5, 0.0, 0.5, 1.0], r).is_none());
+        assert!(area_to_device([0.6, 0.0, 0.4, 1.0], r).is_none());
+        assert!(area_to_device([-0.1, 0.0, 1.0, 1.0], r).is_none());
+        assert!(area_to_device([0.0, 0.0, 1.1, 1.0], r).is_none());
+    }
 }

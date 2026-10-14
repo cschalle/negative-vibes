@@ -165,10 +165,10 @@ mod imp {
             let probe = gio::SimpleAction::new("probe", None);
             let app_weak = app.downgrade();
             probe.connect_activate(move |_, _| {
-                if let Some(app) = app_weak.upgrade() {
-                    if let Some(worker) = app.imp().worker.get() {
-                        worker.probe();
-                    }
+                if let Some(app) = app_weak.upgrade()
+                    && let Some(worker) = app.imp().worker.get()
+                {
+                    worker.probe();
                 }
             });
             app.add_action(&probe);
@@ -212,8 +212,10 @@ mod imp {
             let cancel = gio::SimpleAction::new("cancel-scan", None);
             let app_weak = app.downgrade();
             cancel.connect_activate(move |_, _| {
-                if let Some(worker) = app_weak.upgrade().and_then(|a| a.imp().worker.get().map(|w| w.cancel())) {
-                    let _ = worker;
+                if let Some(app) = app_weak.upgrade()
+                    && let Some(worker) = app.imp().worker.get()
+                {
+                    worker.cancel();
                 }
             });
             app.add_action(&cancel);

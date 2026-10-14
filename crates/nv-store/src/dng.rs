@@ -231,7 +231,7 @@ pub fn read_dng(data: &[u8]) -> Result<FrameBuf> {
             chunk.extend_from_slice(strip);
         } else {
             // Samples in the host's order, as SANE hands them over.
-            for p in strip.chunks_exact(2) {
+            for p in strip.as_chunks::<2>().0 {
                 let mut v = if little { u16::from_le_bytes([p[0], p[1]]) } else { u16::from_be_bytes([p[0], p[1]]) } as u32;
                 if rescale {
                     v = (v.saturating_sub(black) as u64 * full as u64 / (white - black) as u64).min(full as u64) as u32;

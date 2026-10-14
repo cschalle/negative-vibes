@@ -874,10 +874,10 @@ impl Window {
             .build();
         let weak = self.downgrade();
         angle_row.connect_value_notify(move |r| {
-            if let Some(win) = weak.upgrade() {
-                if !win.imp().updating_ui.get() {
-                    win.set_angle(r.value() as f32);
-                }
+            if let Some(win) = weak.upgrade()
+                && !win.imp().updating_ui.get()
+            {
+                win.set_angle(r.value() as f32);
             }
         });
         image_group.add(&angle_row);
@@ -1553,10 +1553,10 @@ impl Window {
         }
 
         let profiles = self.film_profile_list();
-        if let Some(idx) = profiles.iter().position(|p| p.id == params.profile.id) {
-            if let Some(r) = self.imp().profile_row.borrow().as_ref() {
-                r.set_selected(idx as u32);
-            }
+        if let Some(idx) = profiles.iter().position(|p| p.id == params.profile.id)
+            && let Some(r) = self.imp().profile_row.borrow().as_ref()
+        {
+            r.set_selected(idx as u32);
         }
 
         if let Some(r) = self.imp().exposure_row.borrow().as_ref() {
@@ -1835,12 +1835,12 @@ impl Window {
             }
             let (Some((iw, ih)), Some(widget)) = (win.canvas_image_size(), g.widget()) else { return };
             let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
-            if let Some(view) = win.frame_rect().map(|r| win.orientation().rect_from_source(r)) {
-                if let Some(grab) = geom::hit_test(view, x, y, c, HANDLE_REACH) {
-                    start_c.set(None);
-                    grabbed_c.set(Some((grab, view)));
-                    return;
-                }
+            if let Some(view) = win.frame_rect().map(|r| win.orientation().rect_from_source(r))
+                && let Some(grab) = geom::hit_test(view, x, y, c, HANDLE_REACH)
+            {
+                start_c.set(None);
+                grabbed_c.set(Some((grab, view)));
+                return;
             }
             start_c.set(geom::point_to_frac(x, y, c));
         });
@@ -1862,10 +1862,10 @@ impl Window {
                 return;
             }
             if mask::is_mask_tool(win.imp().canvas_tool.get()) {
-                if let (Some(w), Some((sx, sy))) = (g.widget(), g.start_point()) {
-                    if let Some((fx, fy)) = win.canvas_fraction(&w, sx + dx, sy + dy) {
-                        win.extend_stroke(fx, fy);
-                    }
+                if let (Some(w), Some((sx, sy))) = (g.widget(), g.start_point())
+                    && let Some((fx, fy)) = win.canvas_fraction(&w, sx + dx, sy + dy)
+                {
+                    win.extend_stroke(fx, fy);
                 }
                 return;
             }
@@ -1889,10 +1889,10 @@ impl Window {
                 return;
             }
             // A click, not a drag: leave no sliver behind.
-            if let Some([x0, y0, x1, y1]) = win.frame_rect() {
-                if x1 - x0 < geom::MIN_SIDE || y1 - y0 < geom::MIN_SIDE {
-                    win.set_frame_rect(None);
-                }
+            if let Some([x0, y0, x1, y1]) = win.frame_rect()
+                && (x1 - x0 < geom::MIN_SIDE || y1 - y0 < geom::MIN_SIDE)
+            {
+                win.set_frame_rect(None);
             }
             win.persist_frame_rect();
         });
@@ -1904,20 +1904,20 @@ impl Window {
         motion.connect_motion(move |m, x, y| {
             let (Some(win), Some(widget)) = (win_weak.upgrade(), m.widget()) else { return };
             let mut name = None;
-            if win.imp().canvas_tool.get() == imp::CanvasTool::Frame {
-                if let (Some(rect), Some((iw, ih))) = (win.frame_rect(), win.canvas_image_size()) {
-                    let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
-                    let view = win.orientation().rect_from_source(rect);
-                    name = geom::hit_test(view, x, y, c, HANDLE_REACH).map(|g| match g {
-                        geom::Grab::Move => "move",
-                        geom::Grab::Edge(-1, -1) => "nw-resize",
-                        geom::Grab::Edge(1, -1) => "ne-resize",
-                        geom::Grab::Edge(-1, 1) => "sw-resize",
-                        geom::Grab::Edge(1, 1) => "se-resize",
-                        geom::Grab::Edge(_, 0) => "ew-resize",
-                        geom::Grab::Edge(_, _) => "ns-resize",
-                    });
-                }
+            if win.imp().canvas_tool.get() == imp::CanvasTool::Frame
+                && let (Some(rect), Some((iw, ih))) = (win.frame_rect(), win.canvas_image_size())
+            {
+                let c = geom::content_rect(widget.width() as f64, widget.height() as f64, iw, ih);
+                let view = win.orientation().rect_from_source(rect);
+                name = geom::hit_test(view, x, y, c, HANDLE_REACH).map(|g| match g {
+                    geom::Grab::Move => "move",
+                    geom::Grab::Edge(-1, -1) => "nw-resize",
+                    geom::Grab::Edge(1, -1) => "ne-resize",
+                    geom::Grab::Edge(-1, 1) => "sw-resize",
+                    geom::Grab::Edge(1, 1) => "se-resize",
+                    geom::Grab::Edge(_, 0) => "ew-resize",
+                    geom::Grab::Edge(_, _) => "ns-resize",
+                });
             }
             widget.set_cursor_from_name(name);
         });
@@ -2327,10 +2327,11 @@ impl Window {
     /// thread (a 1200 dpi 16-bit frame is hundreds of megabytes).
     fn finish_final_scan(&self) {
         // A sound for the end of a scan, or of a whole batch.
-        if self.imp().prefs.borrow().completion_sound && self.imp().batch.borrow().is_empty() {
-            if let Some(display) = gdk::Display::default() {
-                display.beep();
-            }
+        if self.imp().prefs.borrow().completion_sound
+            && self.imp().batch.borrow().is_empty()
+            && let Some(display) = gdk::Display::default()
+        {
+            display.beep();
         }
         let Some(buf) = self.imp().final_buf.borrow_mut().take() else {
             self.abort_acquisition();
@@ -2379,7 +2380,9 @@ impl Window {
                     if std::env::var("NV_AUTOSCAN").is_ok_and(|m| m == "raw") {
                         eprintln!("nv: NV_AUTOSCAN: raw saved for frame {frame_idx}");
                         win.flush_autosave();
-                        win.application().map(|a| a.quit());
+                        if let Some(a) = win.application() {
+                            a.quit()
+                        }
                     }
                 }
                 Ok(Err(e)) => win.show_error("The scan could not be saved", &e.to_string()),
@@ -2493,14 +2496,14 @@ impl Window {
             self.start_final_scan();
         }
         // Headless hook: the preview is in; do what NV_AUTOSCAN says, once.
-        if let Ok(mode) = std::env::var("NV_AUTOSCAN") {
-            if !self.imp().autoscan_done.replace(true) {
-                eprintln!("nv: NV_AUTOSCAN: preview done, running {mode}");
-                match mode.as_str() {
-                    "raw" => self.scan_selected(true),
-                    "all" => self.scan_all(),
-                    _ => self.scan_selected(false),
-                }
+        if let Ok(mode) = std::env::var("NV_AUTOSCAN")
+            && !self.imp().autoscan_done.replace(true)
+        {
+            eprintln!("nv: NV_AUTOSCAN: preview done, running {mode}");
+            match mode.as_str() {
+                "raw" => self.scan_selected(true),
+                "all" => self.scan_all(),
+                _ => self.scan_selected(false),
             }
         }
     }

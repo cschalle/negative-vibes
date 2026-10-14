@@ -77,7 +77,7 @@ impl Window {
         let weak = self.downgrade();
         let id = glib::timeout_add_local_once(SETTLE, move || {
             if let Some(win) = weak.upgrade() {
-                drop(win.imp().loupe_timer.take());
+                let _ = win.imp().loupe_timer.take();
                 win.update_loupe();
             }
         });
@@ -141,7 +141,7 @@ impl Window {
 
     fn show_loupe(&self, w: usize, h: usize, rgb: &[u8]) {
         let Some(pic) = self.imp().loupe_picture.borrow().clone() else { return };
-        let rgba: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
+        let rgba: Vec<u8> = rgb.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect();
         let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), w * 4);
         pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));
     }
@@ -211,7 +211,7 @@ impl Window {
         let weak = self.downgrade();
         let id = glib::timeout_add_local_once(Duration::from_millis(180), move || {
             if let Some(win) = weak.upgrade() {
-                drop(win.imp().hq_timer.take());
+                let _ = win.imp().hq_timer.take();
                 win.update_hq();
             }
         });
@@ -273,7 +273,7 @@ impl Window {
 
     fn show_hq(&self, w: usize, h: usize, rgb: &[u8]) {
         let Some(pic) = self.imp().hq_picture.borrow().clone() else { return };
-        let rgba: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
+        let rgba: Vec<u8> = rgb.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect();
         let texture = gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(rgba), w * 4);
         pic.set_paintable(Some(texture.upcast_ref::<gdk::Paintable>()));
         pic.set_visible(true);

@@ -75,8 +75,8 @@ impl Quirks {
         self.entries
             .iter()
             .find(|e| {
-                let bk_ok = e.matcher.backend.as_deref().map_or(true, |pat| backend.to_lowercase().contains(&pat.to_lowercase()));
-                let mo_ok = e.matcher.model.as_deref().map_or(true, |pat| model.to_lowercase().contains(&pat.to_lowercase()));
+                let bk_ok = e.matcher.backend.as_deref().is_none_or(|pat| backend.to_lowercase().contains(&pat.to_lowercase()));
+                let mo_ok = e.matcher.model.as_deref().is_none_or(|pat| model.to_lowercase().contains(&pat.to_lowercase()));
                 bk_ok && mo_ok
             })
             .map(|e| &e.quirks)

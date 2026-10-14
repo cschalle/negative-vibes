@@ -127,7 +127,7 @@ fn a_16_bit_png_matches_the_render_and_carries_its_profile() {
     assert_eq!(r.info().icc_profile.as_deref(), Some(&icc::rgb_profile(ColourSpace::Srgb)[..]));
     let mut buf = vec![0; r.output_buffer_size()];
     r.next_frame(&mut buf).unwrap();
-    let px = buf.chunks_exact(2).map(|b| u16::from_be_bytes([b[0], b[1]]) as f64 / 257.0);
+    let px = buf.as_chunks::<2>().0.iter().map(|b| u16::from_be_bytes([b[0], b[1]]) as f64 / 257.0);
     assert!(mean_abs_diff(px, reference.iter().map(|v| *v as f64)) < 0.6);
 }
 
@@ -154,7 +154,7 @@ fn adobe_rgb_is_the_same_picture_in_another_space() {
 
     let mut worst = 0.0f64;
     let mut checked = 0;
-    for (a, s) in adobe.chunks_exact(3).zip(srgb.chunks_exact(3)) {
+    for (a, s) in adobe.as_chunks::<3>().0.iter().zip(srgb.as_chunks::<3>().0) {
         // Away from clipping: out-of-gamut values are clamped on purpose.
         if a.iter().any(|v| *v < 1500 || *v > 64000) {
             continue;
@@ -519,12 +519,12 @@ fn independent_readers_accept_the_dng_and_see_its_orientation() {
     let o = Orientation { rotation: 1, flip_h: false, flip_v: false };
     let dest = dng_export(&raw, &frozen, o, &dir, "turned.dng");
     let path = dest.to_str().unwrap();
-    if let Some(tags) = run("exiv2", &["-pa", path]) {
-        if tags.contains("Exif.") {
-            assert!(tags.contains("Exif.Image.DNGVersion"), "{tags}");
-            assert!(tags.contains("Exif.Image.Orientation") && tags.contains("right, top"), "orientation 6 expected: {tags}");
-            assert!(tags.contains("Negative Vibes"), "{tags}");
-        }
+    if let Some(tags) = run("exiv2", &["-pa", path])
+        && tags.contains("Exif.")
+    {
+        assert!(tags.contains("Exif.Image.DNGVersion"), "{tags}");
+        assert!(tags.contains("Exif.Image.Orientation") && tags.contains("right, top"), "orientation 6 expected: {tags}");
+        assert!(tags.contains("Negative Vibes"), "{tags}");
     }
     if let Some(out) = run("magick", &["identify", "-format", "%w %h %z", &format!("{path}[0]")]) {
         // libraw applies the orientation: a quarter turn swaps the sides.

@@ -19,7 +19,7 @@ impl Window {
             let scale = (w / tw as f64).min(h / th as f64);
             let (ox, oy) = ((w - tw as f64 * scale) / 2.0, (h - th as f64 * scale) / 2.0);
             let mut argb = Vec::with_capacity(tw * th * 4);
-            for p in rgb.chunks_exact(3) {
+            for p in rgb.as_chunks::<3>().0 {
                 argb.extend_from_slice(&[p[2], p[1], p[0], 255]);
             }
             if let Ok(surface) = gtk::cairo::ImageSurface::create_for_data(argb, gtk::cairo::Format::ARgb32, tw as i32, th as i32, (tw * 4) as i32) {
@@ -88,7 +88,7 @@ impl Window {
         if w == 0 || h == 0 {
             return None;
         }
-        let step = (w.max(h) + SIDE - 1) / SIDE;
+        let step = w.max(h).div_ceil(SIDE);
         let (tw, th) = (w / step, h / step);
         if tw == 0 || th == 0 {
             return None;

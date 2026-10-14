@@ -60,10 +60,10 @@ impl Window {
 
         // No film base from the roll or the frame: read it off the rebate.
         // (Not stored: it follows the picture until someone sets one.)
-        if known.is_none() || params.conversion.film_base.is_none() {
-            if let Some(proxy) = imp.proxy.borrow().as_ref() {
-                params.conversion.film_base = Some(nv_process::estimate_film_base_proxy(proxy));
-            }
+        if (known.is_none() || params.conversion.film_base.is_none())
+            && let Some(proxy) = imp.proxy.borrow().as_ref()
+        {
+            params.conversion.film_base = Some(nv_process::estimate_film_base_proxy(proxy));
         }
 
         // Undo history is per frame: put the old one away, take this one's.
@@ -156,10 +156,10 @@ impl Window {
             return;
         }
         if let Some(roll) = self.imp().roll.borrow_mut().as_mut() {
-            if !strokes.is_empty() {
-                if let Some(f) = roll.frame_mut(idx) {
-                    f.overrides.merge(&strokes);
-                }
+            if !strokes.is_empty()
+                && let Some(f) = roll.frame_mut(idx)
+            {
+                f.overrides.merge(&strokes);
             }
             if !diff.is_empty() {
                 match scope {

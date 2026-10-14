@@ -84,7 +84,7 @@ impl Window {
     pub(super) fn scan_image_size(&self) -> Option<(f64, f64)> {
         if let Some(buf) = self.imp().scan_buf.borrow().as_ref() {
             let h = buf.effective_height();
-            return (buf.width > 0 && h > 0).then(|| (buf.width as f64, h as f64));
+            return (buf.width > 0 && h > 0).then_some((buf.width as f64, h as f64));
         }
         self.imp().scan_dims.get().map(|(w, h)| (w as f64, h as f64))
     }

@@ -129,10 +129,10 @@ impl Window {
         {
             let (presets, fill) = (presets.clone(), fill.clone());
             preset_row.connect_selected_notify(move |r| {
-                if let Some(i) = (r.selected() as usize).checked_sub(1) {
-                    if let Some((_, m)) = presets.borrow().get(i) {
-                        fill(m);
-                    }
+                if let Some(i) = (r.selected() as usize).checked_sub(1)
+                    && let Some((_, m)) = presets.borrow().get(i)
+                {
+                    fill(m);
                 }
             });
         }

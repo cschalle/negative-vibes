@@ -292,10 +292,10 @@ impl Window {
                                 Some(&win),
                                 None::<&gio::Cancellable>,
                                 move |r| {
-                                    if let Some(path) = r.ok().and_then(|f| f.path()) {
-                                        if let Err(e) = nv_film::library::export(&id, &path) {
-                                            eprintln!("nv: could not export the profile: {e}");
-                                        }
+                                    if let Some(path) = r.ok().and_then(|f| f.path())
+                                        && let Err(e) = nv_film::library::export(&id, &path)
+                                    {
+                                        eprintln!("nv: could not export the profile: {e}");
                                     }
                                 },
                             );
@@ -408,10 +408,10 @@ impl Window {
                     let (weak, refresh2) = (app.downgrade(), refresh.clone());
                     app.google_sign_in(Rc::new(move |r| {
                         refresh2();
-                        if let (Err(e), Some(app)) = (r, weak.upgrade()) {
-                            if !e.is_empty() {
-                                app.show_toast(&format!("Could not sign in: {e}"));
-                            }
+                        if let (Err(e), Some(app)) = (r, weak.upgrade())
+                            && !e.is_empty()
+                        {
+                            app.show_toast(&format!("Could not sign in: {e}"));
                         }
                     }));
                     refresh();
