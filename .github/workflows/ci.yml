@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install libsane
-        run: apt-get update && apt-get install -y libsane-dev
+        run: dnf install -y sane-backends-devel
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
