@@ -7,6 +7,27 @@ The scan is kept exactly as the scanner delivered it (16-bit, linear, with the i
 plane when the scanner has one). Everything else is a stack of settings applied on top, so
 you can change your mind about the look at any time and export again.
 
+## Screenshots
+
+![The main window on first start: film type in the header bar and as toggles, with the Scan a Roll guide docked on the right](screenshots/main_screen_on_opening.png)
+
+*First start. Film type is one click away in the header bar (and as toggles on the empty
+page), and the Scan a Roll guide sits beside the picture instead of in a window of its own.*
+
+![A scanned colour negative developed into a positive in the main window](screenshots/previewofphoto.png)
+
+*A colour negative previewed and converted to a positive, with the tools for frame, film base,
+black, grey and white points, dust protection and healing along the bottom.*
+
+<p>
+  <img src="screenshots/preferences.png" alt="Preferences, General page" width="32%">
+  <img src="screenshots/preferences-outputformat1.png" alt="Preferences, Output page with TIFF selected" width="32%">
+  <img src="screenshots/preferences-outputformat2.png" alt="Preferences, Output page with DNG selected" width="32%">
+</p>
+
+*Preferences: general behaviour, and output format (TIFF here, or DNG for the raw scan), file
+naming, folder, colour space and embedded profile and metadata.*
+
 ## Features
 
 - **Scanning:** preview, per-frame scan areas, Scan All with manual-advance prompts, Scan Raw
