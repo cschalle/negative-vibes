@@ -6,7 +6,7 @@
    (from <https://github.com/flatpak/flatpak-builder-tools>), and make the Meson build run Cargo with `--offline`.
 2. Fill in the `sane-backends` checksum, or use the SDK's libsane if the runtime ships one; the
    `plustek8200i` backend has to be built into it, or the app cannot see that scanner inside the sandbox.
-3. Check that the GNOME runtime version listed provides GTK 4.22 and libadwaita 1.9 (DESIGN.md §4.1).
+3. Check that the GNOME runtime version listed provides GTK 4.14 and libadwaita 1.4 or newer, which Meson requires (DESIGN.md §4.1).
 4. ArgyllCMS (IT8 calibration) is optional; add a module for it, or leave the feature greyed out.
 5. Add screenshots to `data/*.metainfo.xml.in` (`<screenshots>`), and run
    `flatpak run org.freedesktop.appstream.cli validate` on the result.

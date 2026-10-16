@@ -86,8 +86,18 @@ Builds from other branches and pull requests are available as workflow artifacts
 
 ## Building
 
-Requirements: Rust (stable), Meson, GTK 4, libadwaita, blueprint-compiler, lcms2, SANE
-(`sane-backends-devel`). Optional at run time: ArgyllCMS for IT8 calibration.
+Requirements:
+
+- Rust 1.88 or newer (the code uses edition 2024 and let chains), and Meson 1.4 or newer;
+- GTK 4.14 and libadwaita 1.4 or newer, with their development files;
+- the SANE development files (`sane-backends-devel` on Fedora, `libsane-dev` on Debian and
+  Ubuntu), because the app links libsane;
+- the gettext tools (Meson's translation support needs them).
+
+Optional at run time: Yelp for the help (F1) and ArgyllCMS for IT8 calibration. There is no
+Blueprint or lcms2 dependency, and no libclang: the libsane bindings are checked in.
+`cargo test --workspace` needs only Rust, GTK, libadwaita and the SANE headers; Meson is for the
+installed build.
 
 ```sh
 meson setup _build
