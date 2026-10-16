@@ -123,10 +123,12 @@ fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanE
     let mut caps_list = Vec::new();
 
     for dev in &devices {
-        // Skip v4l (webcam) devices: they report type "virtual device" and
-        // their names start with "v4l:". They can't scan film.
-        let kind_lc = dev.kind.to_lowercase();
-        if dev.is_webcam() || kind_lc.contains("virtual device") {
+        // Skip webcams, which cannot scan film. libsane also types them "virtual device", as it
+        // does its own test backend, so that type is dropped too unless NV_SANE_ALLOW_VIRTUAL
+        // is set (for testing against SANE's `test` backend). The portal reports no SANE type,
+        // and it leaves webcams out itself.
+        let virtual_device = dev.kind.to_lowercase().contains("virtual device") && std::env::var_os("NV_SANE_ALLOW_VIRTUAL").is_none();
+        if dev.is_webcam() || virtual_device {
             eprintln!("nv-acquire: skipping non-scanner device '{}' (type: {})", dev.name, dev.kind);
             continue;
         }
