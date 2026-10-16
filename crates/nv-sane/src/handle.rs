@@ -199,6 +199,14 @@ impl Handle {
         Ok(SetInfo::from_raw(info))
     }
 
+    /// Set option `desc` to its automatic value.
+    pub fn set_option_auto(&self, desc: &OptionDescriptor) -> Result<SetInfo> {
+        let mut info: sys::SANE_Int = 0;
+        let status = unsafe { sys::sane_control_option(self.raw, desc.index as sys::SANE_Int, sys::SANE_ACTION_SET_AUTO, ptr::null_mut(), &mut info) };
+        check(status)?;
+        Ok(SetInfo::from_raw(info))
+    }
+
     /// Set an option by name. Returns `Ok(None)` if the option does not exist.
     pub fn set_option_by_name(&self, name: &str, value: &OptionValue) -> Result<Option<SetInfo>> {
         let count = self.option_count()?;
@@ -268,6 +276,9 @@ impl crate::backend::ScannerHandle for Handle {
     }
     fn set_option(&self, desc: &OptionDescriptor, value: &OptionValue) -> Result<SetInfo> {
         Handle::set_option(self, desc, value)
+    }
+    fn set_option_auto(&self, desc: &OptionDescriptor) -> Result<SetInfo> {
+        Handle::set_option_auto(self, desc)
     }
     fn set_option_by_name(&self, name: &str, value: &OptionValue) -> Result<Option<SetInfo>> {
         Handle::set_option_by_name(self, name, value)

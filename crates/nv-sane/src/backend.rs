@@ -12,7 +12,8 @@
 //! Neither trait requires `Send`: libsane objects must stay on the worker thread, and a
 //! portal implementation is held to the same rule so the two behave alike.
 
-use crate::{DeviceInfo, OptionDescriptor, OptionValue, Parameters, Result, SetInfo};
+use crate::{DeviceInfo, OptionDescriptor, OptionValue, Parameters, Result, SaneError, SetInfo};
+use nv_sane_sys as sys;
 
 /// A source of scanners: lists them and opens one.
 pub trait ScannerBackend {
@@ -41,6 +42,12 @@ pub trait ScannerHandle {
     fn get_option(&self, desc: &OptionDescriptor) -> Result<OptionValue>;
 
     fn set_option(&self, desc: &OptionDescriptor, value: &OptionValue) -> Result<SetInfo>;
+
+    /// Set an option to the value the scanner picks (`SANE_ACTION_SET_AUTO`). Only for options
+    /// with the automatic capability.
+    fn set_option_auto(&self, _desc: &OptionDescriptor) -> Result<SetInfo> {
+        Err(SaneError::Status { code: sys::SANE_STATUS_UNSUPPORTED, message: "automatic values are not supported".into() })
+    }
 
     /// Set an option by name. `Ok(None)` if the scanner has no such option.
     fn set_option_by_name(&self, name: &str, value: &OptionValue) -> Result<Option<SetInfo>> {
@@ -72,6 +79,9 @@ impl<T: ScannerHandle + ?Sized> ScannerHandle for Box<T> {
     }
     fn set_option(&self, desc: &OptionDescriptor, value: &OptionValue) -> Result<SetInfo> {
         (**self).set_option(desc, value)
+    }
+    fn set_option_auto(&self, desc: &OptionDescriptor) -> Result<SetInfo> {
+        (**self).set_option_auto(desc)
     }
     fn set_option_by_name(&self, name: &str, value: &OptionValue) -> Result<Option<SetInfo>> {
         (**self).set_option_by_name(name, value)
