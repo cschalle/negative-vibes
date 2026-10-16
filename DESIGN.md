@@ -981,8 +981,10 @@ scanimage -d plustek8200i --format=pnm --mode Color --resolution 600 > $S/ref.pn
 **The portal path.** `tools/portal-hw-check.sh` scans the same frame with libsane in the app and
 through the portal prototype, on a private session bus, against the thresholds above (H1 to H5),
 and compares `nv-cli probe` both ways so a quirks entry that fails to match through the portal
-shows up. It uses the installed driver by default (`--dev-backend` for a build), puts a time
-limit on every step that scans, and never detaches the scanner from the VM or power-cycles it.
+shows up. It uses the installed driver by default (`--dev-backend` for a build) through a private
+SANE configuration that lists only `plustek8200i` (see R10 in §13), stops if the scanner's USB
+address changes, puts a time limit on every step that scans, and never detaches the scanner from
+the VM or power-cycles it.
 `--dry-run` runs the same steps against the SANE test backend. See
 `docs/scanner-portal/HARDWARE-TEST.md`.
 
@@ -1088,6 +1090,7 @@ Conventions:
 | R7 | The `plustek8200i` backend is outside sane-backends. | It ships as a separate RPM and is built into the Flatpak. Upstreaming is separate work; an upstream SANE ticket exists. |
 | R8 | Google Photos upload needs an OAuth client that does not exist, and, for other users, Google's app verification. | Run only against a stand-in server. Users can enter their own client under Preferences. |
 | R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype and checks in `docs/scanner-portal/`; the next steps are the GTK window identifier, a run of the infrared and cancel checks on the scanner, and the upstream issue. |
+| R10 | With the system SANE configuration the stock `genesys` backend also lists the 8200i ("OpticFilm 8200i SE"), and opening that entry appears to reset it. On 2026-10-16 `nv-cli probe` opened it; the kernel logged `device firmware changed` and a new USB address, and the product strings were gone. The application's probe opens every device that is not a webcam, so it may do the same. | Not yet checked in the application. Hardware checks use a private configuration with only `plustek8200i`. Options: skip a device that another backend already lists at the same USB address, or have the quirks file name the backend to use. The Oct 8 results in §10 predate the sane-backends update that added the genesys entry. |
 
 Open questions:
 

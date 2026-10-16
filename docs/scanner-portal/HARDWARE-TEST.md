@@ -15,11 +15,18 @@ the first check with the command to run if the scanner is not usable.
 
 1. **Driver installed.** By default the script uses the installed package
    (`sudo dnf install ./build/rpm/RPMS/…/sane-backends-plustek8200i-*.rpm`, see
-   `~/projects/scanner/README.rpm.md`). It registers itself in `/etc/sane.d/dll.d`, so no
-   `SANE_CONFIG_DIR` or `LD_LIBRARY_PATH` is needed; check with plain `scanimage -L`. The summary
-   records which driver was tested. `--dev-backend` uses the build in
+   `~/projects/scanner/README.rpm.md`). `--dev-backend` uses the build in
    `~/projects/scanner/backends/backend` instead (DESIGN.md §11.4, step 1; override with
-   `NV_BACKEND_DIR`), through `~/.sane` or a temporary overlay if that has no `dll.conf`.
+   `NV_BACKEND_DIR`). The summary records which driver was tested.
+
+   **The script uses a private SANE configuration that lists only `plustek8200i`.** With the
+   system configuration, libsane lists this scanner a second time through the stock `genesys`
+   backend ("OpticFilm 8200i SE"), and opening that entry reset the scanner on 2026-10-16: the
+   kernel logged `device firmware changed` and a new USB address, the product strings were gone,
+   and every device name resolved earlier was stale. So the script lists devices only through
+   the private configuration, stops if anything else is listed, and stops if the scanner's USB
+   address changes during the run. **Do not run `nv-cli probe`, the application or `scanimage`
+   without `-d` against this scanner with the system configuration** until that is understood.
 2. **Scanner belongs to Linux:**
    `virsh -c qemu:///system detach-device win11 ~/VirtualMachines/harness/etc/hostdev-plustek.xml --live`
    Check with `scanimage -L`. Hand it back afterwards with `attach-device`.
