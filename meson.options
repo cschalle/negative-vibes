@@ -5,3 +5,9 @@ option(
   value: 'default',
   description: 'Build profile. Use "development" for local dev builds (different app ID, debug headers).',
 )
+option(
+  'portal',
+  type: 'boolean',
+  value: false,
+  description: 'Build with the scanner portal backend (prototype); it is used when NV_SCANNER_BACKEND=portal.',
+)

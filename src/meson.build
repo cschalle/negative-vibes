@@ -10,6 +10,10 @@ else
   rust_target = 'debug'
 endif
 
+if get_option('portal')
+  cargo_options += ['--features', 'negative-vibes/portal']
+endif
+
 cargo_env = environment()
 cargo_env.set('APP_ID', application_id)
 cargo_env.set('PKGDATADIR', pkgdatadir)
