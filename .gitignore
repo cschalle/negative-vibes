@@ -23,6 +23,9 @@ cargo-target/
 .idea/
 *.iml
 
+# Python bytecode caches (the portal test scripts import a helper module)
+__pycache__/
+
 # Test output
 /tests/reports/*.md
 !/tests/reports/.gitkeep
