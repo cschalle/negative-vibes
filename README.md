@@ -140,7 +140,8 @@ and `calibrate`. Run `cargo run -p nv-cli -- --help`.
 | `crates/nv-sane`, `nv-device`, `nv-acquire` | SANE binding, capabilities, acquisition |
 | `crates/nv-process`, `nv-film`, `nv-export` | Pipeline, film profiles, output |
 | `crates/nv-store`, `nv-calibrate`, `nv-cli` | Roll storage, IT8 calibration, CLI |
-| `DESIGN.md` | Design, milestone status and hardware results |
+| `DESIGN.md` | How the application works: architecture, scanner layer, pipeline, testing, status |
+| `docs/` | The original design history; the scanner portal proposal and prototype |
 
 ## Contributing a film profile or a scanner
 
