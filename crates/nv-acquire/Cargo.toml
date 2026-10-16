@@ -10,4 +10,10 @@ nv-sane   = { path = "../nv-sane" }
 nv-device = { path = "../nv-device" }
 nv-process = { path = "../nv-process" }
 async-channel = "2"
+nv-sane-portal = { path = "../nv-sane-portal", optional = true }
 thiserror = "1"
+
+[features]
+# Scan through the proposed scanner portal instead of libsane in this process, when
+# NV_SCANNER_BACKEND=portal. Prototype; see docs/scanner-portal/.
+portal = ["dep:nv-sane-portal"]

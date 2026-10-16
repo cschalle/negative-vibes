@@ -5,4 +5,4 @@ pub mod passes;
 pub mod worker;
 
 pub use event::{ScanEvent, WorkerCmd};
-pub use worker::AcquireWorker;
+pub use worker::{AcquireWorker, make_backend};

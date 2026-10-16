@@ -77,13 +77,14 @@ impl Drop for AcquireWorker {
 fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_path: PathBuf) {
     let quirks = Quirks::load(&quirks_path);
 
-    let session = match Session::new() {
+    let session = match make_backend() {
         Ok(s) => s,
         Err(e) => {
-            let _ = evt_tx.send_blocking(ScanEvent::Error(format!("sane_init failed: {e}")));
+            let _ = evt_tx.send_blocking(ScanEvent::Error(e));
             return;
         }
     };
+    let session: &dyn ScannerBackend = session.as_ref();
 
     // Cancelled flag shared between the scan loop and the Quit/Cancel command.
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -94,12 +95,12 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
             WorkerCmd::Quit => break,
 
             WorkerCmd::Probe => {
-                do_probe(&session, &quirks, &evt_tx);
+                do_probe(session, &quirks, &evt_tx);
             }
 
             WorkerCmd::StartScan { device_name, resolution_dpi, with_ir, area, passes } => {
                 cancelled.store(false, Ordering::SeqCst);
-                do_scan(&session, &quirks, &evt_tx, &cmd_rx, cancelled.clone(), &device_name, resolution_dpi, with_ir, area, passes);
+                do_scan(session, &quirks, &evt_tx, &cmd_rx, cancelled.clone(), &device_name, resolution_dpi, with_ir, area, passes);
             }
 
             WorkerCmd::Cancel => {
@@ -109,6 +110,22 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
             }
         }
     }
+}
+
+/// libsane in this process, or the scanner portal when `NV_SCANNER_BACKEND=portal`
+/// (and the crate is built with the `portal` feature). `NV_PORTAL_BUS_NAME` names the
+/// portal; it defaults to the prototype's, because the real one does not exist yet.
+pub fn make_backend() -> Result<Box<dyn ScannerBackend>, String> {
+    if std::env::var("NV_SCANNER_BACKEND").as_deref() == Ok("portal") {
+        #[cfg(feature = "portal")]
+        {
+            let bus = std::env::var("NV_PORTAL_BUS_NAME").unwrap_or_else(|_| nv_sane_portal::DEFAULT_BUS_NAME.to_owned());
+            return nv_sane_portal::PortalBackend::connect(&bus).map(|b| Box::new(b) as Box<dyn ScannerBackend>).map_err(|e| format!("scanner portal: {e}"));
+        }
+        #[cfg(not(feature = "portal"))]
+        return Err("NV_SCANNER_BACKEND=portal, but this build has no portal support (build with --features portal)".to_owned());
+    }
+    Session::new().map(|s| Box::new(s) as Box<dyn ScannerBackend>).map_err(|e| format!("sane_init failed: {e}"))
 }
 
 fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanEvent>) {

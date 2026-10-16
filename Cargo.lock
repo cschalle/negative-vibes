@@ -1591,6 +1591,7 @@ dependencies = [
  "nv-device",
  "nv-process",
  "nv-sane",
+ "nv-sane-portal",
  "thiserror",
 ]
 
