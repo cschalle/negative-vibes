@@ -1,9 +1,11 @@
+pub mod backend;
 pub mod error;
 pub mod handle;
 pub mod option;
 pub mod parameters;
 pub mod session;
 
+pub use backend::{ScannerBackend, ScannerHandle};
 pub use error::{Result, SaneError};
 pub use handle::Handle;
 pub use option::{OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue, SetInfo};

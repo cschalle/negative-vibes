@@ -76,3 +76,12 @@ fn cstr(ptr: sys::SANE_String_Const) -> Result<String> {
     }
     Ok(unsafe { CStr::from_ptr(ptr) }.to_str()?.to_owned())
 }
+
+impl crate::backend::ScannerBackend for Session {
+    fn get_devices(&self, local_only: bool) -> Result<Vec<DeviceInfo>> {
+        Session::get_devices(self, local_only)
+    }
+    fn open(&self, name: &str) -> Result<Box<dyn crate::backend::ScannerHandle>> {
+        Ok(Box::new(Session::open(self, name)?))
+    }
+}

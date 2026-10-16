@@ -258,3 +258,30 @@ fn cstr_opt(ptr: sys::SANE_String_Const) -> String {
     }
     unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
 }
+
+impl crate::backend::ScannerHandle for Handle {
+    fn all_options(&self) -> Result<Vec<OptionDescriptor>> {
+        Handle::all_options(self)
+    }
+    fn get_option(&self, desc: &OptionDescriptor) -> Result<OptionValue> {
+        Handle::get_option(self, desc)
+    }
+    fn set_option(&self, desc: &OptionDescriptor, value: &OptionValue) -> Result<SetInfo> {
+        Handle::set_option(self, desc, value)
+    }
+    fn set_option_by_name(&self, name: &str, value: &OptionValue) -> Result<Option<SetInfo>> {
+        Handle::set_option_by_name(self, name, value)
+    }
+    fn get_parameters(&self) -> Result<Parameters> {
+        Handle::get_parameters(self)
+    }
+    fn start(&self) -> Result<()> {
+        Handle::start(self)
+    }
+    fn read(&self, buf: &mut [u8]) -> Result<usize> {
+        Handle::read(self, buf)
+    }
+    fn cancel(&self) {
+        Handle::cancel(self)
+    }
+}
