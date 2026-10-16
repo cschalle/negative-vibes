@@ -3,11 +3,11 @@
 //! live in memory, shared by all apps) and the selection dialog (auto-selects).
 
 use crate::convert::{self, Vardict};
-use crate::sane_thread::{Cmd, FrameEvent, FrameJob, Reply, SetError};
+use crate::sane_thread::{Cmd, FrameEvent, FrameJob, Reply, SetError, Setting};
 use crate::{PORTAL_PATH, REQUEST_INTERFACE, SCANNER_INTERFACE, SESSION_INTERFACE, request_path, session_path};
-use nv_sane::{DeviceInfo, OptionValue};
+use nv_sane::DeviceInfo;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use zbus::message::Header;
 use zbus::zvariant::{ObjectPath, OwnedFd, OwnedObjectPath, OwnedValue, Value};
@@ -46,6 +46,8 @@ struct ScannerRec {
     id: String,
     busy: Arc<AtomicBool>,
     cancel: Arc<AtomicBool>,
+    /// Frames started in this session; the number of the latest is the `frame` of its events.
+    frames: Arc<AtomicU32>,
 }
 
 pub struct Shared {
@@ -279,7 +281,10 @@ impl Scanner {
                 return Err(e);
             }
         };
-        let rec = SessionRec { owner: sender, scanner: Some(ScannerRec { sid, id: scanner_id.to_owned(), busy: Default::default(), cancel: Default::default() }) };
+        let rec = SessionRec {
+            owner: sender,
+            scanner: Some(ScannerRec { sid, id: scanner_id.to_owned(), busy: Default::default(), cancel: Default::default(), frames: Default::default() }),
+        };
         let path = session_path(&rec.owner, &token);
         if let Err(e) = self.register_session(server, &path, rec).await {
             let _ = self.0.cmd.send(Cmd::Close { sid });
@@ -315,10 +320,10 @@ impl Scanner {
         // The kind of each option decides how a variant is read, so convert on the SANE thread's
         // view of the options: look them up first.
         let opts = self.0.ask(|reply| Cmd::Options { sid: s.sid, reply }).await?.map_err(PortalError::Failed)?;
-        let mut conv: Vec<(String, OptionValue)> = Vec::new();
+        let mut conv: Vec<(String, Setting)> = Vec::new();
         for (name, v) in &values {
             let desc = opts.iter().find(|d| d.name == *name && convert::is_exposed(d)).ok_or_else(|| PortalError::InvalidArgument(format!("no option named '{name}'")))?;
-            conv.push((name.clone(), convert::dbus_to_value(&desc.kind, v).map_err(PortalError::InvalidArgument)?));
+            conv.push((name.clone(), convert::dbus_to_setting(desc, v).map_err(PortalError::InvalidArgument)?));
         }
         let out = self.0.ask(|reply| Cmd::Set { sid: s.sid, values: conv, reply }).await?;
         match out {
@@ -352,7 +357,8 @@ impl Scanner {
                 return Err(PortalError::Failed(e.to_string()));
             }
         };
-        let job = FrameJob { sid: s.sid, path: session_handle.to_string(), owner: sender, out: Some(writer), cancel: s.cancel.clone(), busy: s.busy.clone() };
+        let serial = s.frames.fetch_add(1, Ordering::SeqCst) + 1;
+        let job = FrameJob { sid: s.sid, serial, path: session_handle.to_string(), owner: sender, out: Some(writer), cancel: s.cancel.clone(), busy: s.busy.clone() };
         if self.0.cmd.send(Cmd::Frame(job)).is_err() {
             s.busy.store(false, Ordering::SeqCst);
             return Err(PortalError::Failed("SANE thread is gone".into()));

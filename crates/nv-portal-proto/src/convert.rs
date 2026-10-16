@@ -1,5 +1,6 @@
 //! SANE types to and from the draft interface's D-Bus types.
 
+use crate::sane_thread::Setting;
 use nv_sane::{DeviceInfo, FrameFormat, OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue};
 use nv_sane_sys as sys;
 use std::collections::HashMap;
@@ -63,6 +64,7 @@ pub fn device_to_dict(dev: &DeviceInfo) -> Vardict {
     d.insert("model".into(), ov(dev.model.clone()));
     d.insert("backend".into(), ov(dev.backend.clone()));
     d.insert("kind".into(), ov(device_kind(&dev.name)));
+    d.insert("type".into(), ov(dev.kind.clone()));
     d.insert("capabilities".into(), ov(device_capabilities(&dev.kind)));
     d.insert("available".into(), ov(true));
     d
@@ -182,6 +184,21 @@ pub fn dbus_to_value(kind: &OptionKind, v: &Value<'_>) -> Result<OptionValue, St
         OptionKind::Button => Ok(OptionValue::Button),
         OptionKind::Group => Err("groups have no value".into()),
     }
+}
+
+/// What a `SetOptions` entry asks for: a value of the option's type, or, as a vardict with
+/// `auto` set to true, the option's automatic value. The latter is only valid for options that
+/// have the `automatic` capability.
+pub fn dbus_to_setting(desc: &OptionDescriptor, v: &Value<'_>) -> Result<Setting, String> {
+    if let Value::Dict(d) = v {
+        let auto = d.get::<_, bool>(&"auto").ok().flatten();
+        return match auto {
+            Some(true) if desc.cap & sys::SANE_CAP_AUTOMATIC != 0 => Ok(Setting::Auto),
+            Some(true) => Err(format!("option '{}' has no automatic value", desc.name)),
+            _ => Err("a vardict value needs 'auto' set to true".into()),
+        };
+    }
+    dbus_to_value(&desc.kind, v).map(Setting::Value)
 }
 
 /// Frame layout as the portal reports it, for the `started` event and GetFrameParameters.

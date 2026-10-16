@@ -19,6 +19,10 @@
       Typical use: SelectScanners() once, OpenScanner(), GetOptions(),
       SetOptions(), then StartFrame() until last_frame is true.
 
+      An application finds out whether the portal can be used by checking
+      that the ``version`` property of this interface exists on
+      org.freedesktop.portal.Desktop, and otherwise falls back to libsane.
+
       This documentation describes version 1 of this interface.
     -->
   <interface name="org.freedesktop.portal.Scanner">
@@ -32,6 +36,12 @@
         Presents a dialog listing the scanners the host knows about and lets
         the user choose which ones the application may use. The choice is
         remembered for the application and can be revoked by the user.
+
+        Call it in response to the user asking to choose a scanner, or when
+        ListScanners() returns nothing, not on every start. The dialog waits
+        for the user, so applications that have a worker thread should not
+        block it on the response, and should close the request with
+        org.freedesktop.portal.Request.Close() if they stop waiting.
 
         Supported keys in the @options vardict:
 
@@ -102,6 +112,14 @@
         * ``kind`` (``s``)
 
           One of ``usb``, ``network``, ``other``.
+
+        * ``type`` (``s``)
+
+          The backend's own device type, as SANE reports it, such as
+          ``flatbed scanner``, ``film scanner``, ``video camera`` or
+          ``virtual device``. It is untranslated and free text: use it to
+          hide devices that are not scanners or to rank them, like
+          ``capabilities`` as a hint, and never to identify a model.
 
         * ``capabilities`` (``as``)
 
@@ -187,6 +205,12 @@
         Returns the scanner's options, modelled on SANE option descriptors.
         Call again when SetOptions() reports ``reload-options``.
 
+        The order is the backend's and is kept until ``reload-options``.
+        SANE's option 0, the number of options, is not listed, so an
+        application that numbers options as SANE does starts at 1. Groups
+        stay in the list, with an empty ``name``, so that the numbering and
+        the grouping of the backend are preserved.
+
         Each descriptor is a vardict:
 
         * ``name`` (``s``)
@@ -210,6 +234,10 @@
         * ``size`` (``u``)
 
           Number of values; above 1 means the value is an array.
+
+        Values are carried as ``b`` for ``bool`` and ``button``, ``i`` for
+        ``int``, ``d`` for ``fixed`` and ``s`` for ``string``. Constraint
+        ranges are ``(ddd)`` for ``int`` as well, in the option's own unit.
 
         * ``constraint`` (``(sv)``)
 
@@ -253,7 +281,7 @@
     <!--
         SetOptions:
         @session_handle: An open scanner session
-        @values: Array of (option name, value) pairs, each value a variant of the option's type
+        @values: Array of (option name, value) pairs, each value a variant of the option's type, or the vardict ``{'auto': <true>}``
         @options: Vardict with optional further information. There is
         currently no option supported.
         @applied: The value each option ended up with
@@ -262,7 +290,13 @@
         ``reload-params`` (frame geometry changed)
 
         Sets options in array order (not a dictionary: order matters to SANE,
-        for example ``mode`` before ``resolution``). Button options take ``true``. An
+        for example ``mode`` before ``resolution``). Button options take ``true``.
+
+        A value of ``{'auto': <true>}`` (an ``a{sv}``) asks the scanner to pick
+        the option's value itself, as SANE's ``SANE_ACTION_SET_AUTO``. It is
+        only valid for options with the ``automatic`` capability. (D-Bus has
+        no empty structure, so a vardict stands in for a "no value" marker, and
+        leaves room for further per-option modifiers.) An
         invalid option or value fails the whole call with
         ``org.freedesktop.portal.Error.InvalidArgument`` and applies
         nothing after the failing entry. Fails with
@@ -318,6 +352,11 @@
         example separate red, green, blue and infrared frames). Fails with
         ``org.freedesktop.portal.Error.Busy`` if a frame is in progress.
         Closing the pipe early cancels the frame, as does Cancel().
+
+        Every StartFrame() starts a new frame with the next number, counting
+        from 1 in the session. All FrameEvent signals of the frame carry that
+        number as ``frame``, and the frame ends with exactly one event that is
+        not ``started``.
     -->
     <method name="StartFrame">
       <annotation name="org.gtk.GDBus.C.UnixFD" value="true"/>
@@ -331,7 +370,8 @@
         Cancel:
         @session_handle: An open scanner session
 
-        Cancels the frame in progress, if any. A ``cancelled`` FrameEvent follows.
+        Cancels the frame in progress, if any. A ``cancelled`` FrameEvent follows,
+        unless the frame ended by itself first, which also ends it with one event.
     -->
     <method name="Cancel">
       <arg type="o" name="session_handle" direction="in"/>
@@ -344,6 +384,11 @@
         @details: Vardict with details of the state
 
         Reports progress of the frame started by StartFrame().
+
+        Every event has ``frame`` (``u``) in its @details, the number of the
+        frame it belongs to. A client discards events whose number is not
+        higher than that of the last frame it saw end, which are leftovers of
+        a frame it has cancelled.
 
         ``started``: the scanner is ready and data will flow. Details:
         ``format`` (``s``: ``gray``, ``rgb``, ``red``, ``green``, ``blue``),

@@ -163,6 +163,23 @@ fn portal_backend_matches_libsane() {
         }
     }
 
+    // An option's automatic value, and the refusal for an option that has none, are the same
+    // through the portal and through libsane.
+    {
+        let name = "bool-soft-select-soft-detect-auto";
+        let h = portal.open(&pid).unwrap();
+        let d = ScannerBackend::open(&direct, &direct_name).unwrap();
+        for handle in [h.as_ref(), d.as_ref()] {
+            configure(handle, &[("enable-test-options", OptionValue::Bool(true))]);
+            let opts = handle.all_options().unwrap();
+            let auto = opts.iter().find(|o| o.name == name).expect("test option with an automatic value");
+            handle.set_option_auto(auto).unwrap_or_else(|e| panic!("set {name} to automatic: {e}"));
+            let mode = opts.iter().find(|o| o.name == "mode").unwrap();
+            let e = handle.set_option_auto(mode).expect_err("mode has no automatic value");
+            assert_eq!(code(&e), Some(sys::SANE_STATUS_INVAL), "{e}");
+        }
+    }
+
     // A busy scanner is refused, and the SANE condition is what the worker expects.
     {
         let _held = portal.open(&pid).unwrap();

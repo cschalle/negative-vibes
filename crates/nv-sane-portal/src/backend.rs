@@ -61,10 +61,13 @@ fn strings_of(m: &Vardict, key: &str) -> Vec<String> {
 }
 
 fn device_info(id: &str, info: &Vardict) -> DeviceInfo {
-    // The portal's id stands in for SANE's device name: it is what `open` takes. SANE's
-    // type string has no portal equivalent; the connection kind is the nearest thing. The
-    // backend name comes from the portal because quirks are matched on it and the id is opaque.
-    DeviceInfo { name: id.to_owned(), backend: str_of(info, "backend"), vendor: str_of(info, "vendor"), model: str_of(info, "model"), kind: str_of(info, "kind") }
+    // The portal's id stands in for SANE's device name: it is what `open` takes. `type` is SANE's
+    // device type string, as with libsane (the connection `kind` is only a fallback for a portal
+    // that does not send it). The backend name comes from the portal because quirks are matched
+    // on it and the id is opaque.
+    let type_ = str_of(info, "type");
+    let kind = if type_.is_empty() { str_of(info, "kind") } else { type_ };
+    DeviceInfo { name: id.to_owned(), backend: str_of(info, "backend"), vendor: str_of(info, "vendor"), model: str_of(info, "model"), kind }
 }
 
 pub struct PortalBackend {
@@ -165,6 +168,7 @@ impl ScannerBackend for PortalBackend {
                 events: RefCell::new(events),
                 frame: RefCell::new(None),
                 active: Cell::new(false),
+                done_frame: Cell::new(0),
                 mid_scan: Cell::new(false),
                 params: RefCell::new(None),
             });
@@ -189,6 +193,9 @@ pub struct PortalHandle {
     frame: RefCell<Option<File>>,
     /// A frame was started and its end has not been seen yet.
     active: Cell<bool>,
+    /// Number of the latest frame whose end was seen. Events numbered at or below it belong to
+    /// a frame that is over and are dropped.
+    done_frame: Cell<u32>,
     /// The last frame finished but its scan has more (colour then infrared; R, G, B). The next
     /// `start` continues that scan; `cancel` between the frames abandons it.
     mid_scan: Cell<bool>,
@@ -210,9 +217,17 @@ impl PortalHandle {
                     Either::Right(_) => None,
                 }
             })?;
-            if ev.session == self.session.as_str() {
-                return Some(ev);
+            if ev.session != self.session.as_str() {
+                continue;
             }
+            let serial = ev.details.get("frame").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+            if serial != 0 && serial <= self.done_frame.get() {
+                continue;
+            }
+            if serial != 0 && matches!(ev.state.as_str(), "finished" | "cancelled" | "error" | "no-documents") {
+                self.done_frame.set(serial);
+            }
+            return Some(ev);
         }
     }
 
@@ -403,6 +418,17 @@ impl ScannerHandle for PortalHandle {
     fn set_option(&self, desc: &OptionDescriptor, value: &OptionValue) -> Result<SetInfo> {
         *self.params.borrow_mut() = None;
         let (_applied, flags) = zbus::block_on(self.proxy.set_options(&self.path(), vec![(desc.name.as_str(), value_to_variant(value))], HashMap::new())).map_err(map_error)?;
+        Ok(SetInfo {
+            inexact: flags.iter().any(|f| f == "inexact"),
+            reload_options: flags.iter().any(|f| f == "reload-options"),
+            reload_params: flags.iter().any(|f| f == "reload-params"),
+        })
+    }
+
+    fn set_option_auto(&self, desc: &OptionDescriptor) -> Result<SetInfo> {
+        *self.params.borrow_mut() = None;
+        let auto = Value::from(HashMap::from([("auto", Value::from(true))]));
+        let (_applied, flags) = zbus::block_on(self.proxy.set_options(&self.path(), vec![(desc.name.as_str(), auto)], HashMap::new())).map_err(map_error)?;
         Ok(SetInfo {
             inexact: flags.iter().any(|f| f == "inexact"),
             reload_options: flags.iter().any(|f| f == "reload-options"),

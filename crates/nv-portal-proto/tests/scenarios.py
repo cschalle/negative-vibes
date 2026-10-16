@@ -22,6 +22,7 @@ def main():
     sid = scanners[0][0]
     info = scanners[0][1]
     check("scanner info names the SANE backend", info.get("backend") == "test", info)
+    check("scanner info carries SANE's device type", info.get("type") == "virtual device", info)
 
     # ---- permissions
     check("OpenScanner on a scanner that was never granted is NotAllowed", (c.error("OpenScanner", ("deadbeef", {}), "(sa{sv})") or "").endswith("Error.NotAllowed"))
@@ -54,6 +55,23 @@ def main():
     applied, flags = c.set(sess, [("mode", v("s", "Color")), ("resolution", v("d", 20.0)), ("test-picture", v("s", "Color pattern"))])
     check("order is kept: mode then resolution applied", applied.get("resolution") == 20.0 and applied.get("mode") == "Color", applied)
 
+    # ---- automatic values: a vardict {auto: true}, only for options with the automatic capability
+    auto = v("a{sv}", {"auto": v("b", True)})
+    auto_opts = [o["name"] for o in opts if "automatic" in o["capabilities"]]
+    check("the test backend has an option with an automatic value", bool(auto_opts), [o["capabilities"] for o in opts][:5])
+    if auto_opts:
+        # The test backend leaves its extra options inactive until this is on.
+        c.set(sess, [("enable-test-options", v("b", True))])
+        applied, flags = c.set(sess, [(auto_opts[0], auto)])
+        check("an option with the automatic capability can be set to automatic", auto_opts[0] in applied, applied)
+    e = c.error("SetOptions", (sess, [("mode", auto)], {}), "(oa(sv)a{sv})")
+    check("automatic on an option without the capability is InvalidArgument", (e or "").endswith("Error.InvalidArgument"), e)
+    e = c.error("SetOptions", (sess, [("mode", v("a{sv}", {}))], {}), "(oa(sv)a{sv})")
+    check("a vardict value without auto=true is InvalidArgument", (e or "").endswith("Error.InvalidArgument"), e)
+    e = c.error("SetOptions", (sess, [("mode", v("a{sv}", {"auto": v("b", False)}))], {}), "(oa(sv)a{sv})")
+    check("auto=false is InvalidArgument", (e or "").endswith("Error.InvalidArgument"), e)
+    c.set(sess, [("mode", v("s", "Color"))])
+
     # ---- the estimate before a frame matches what the frame then reports
     (est,) = c.call("GetFrameParameters", (sess, {}), "(oa{sv})")
     n0 = len(c.events)
@@ -65,13 +83,18 @@ def main():
     check("normal frame: started then finished", states[:2] == ["started", "finished"], states)
     d = c.events[n0][2]
     check("started carries layout; data length matches", len(data) == d["bytes_per_line"] * d["lines"], (len(data), d))
-    check("GetFrameParameters estimate equals the started values", est == d, (est, d))
+    check("GetFrameParameters estimate equals the started values", est == {k: x for k, x in d.items() if k != "frame"}, (est, d))
+    mine = [e for e in c.events[n0:] if e[0] == sess]
+    serial0 = d.get("frame")
+    check("every event of a frame carries the frame's number", isinstance(serial0, int) and all(e[2].get("frame") == serial0 for e in mine[:2]), mine)
+    check("a frame has exactly one terminal event", len([e for e in mine if e[1] != "started"]) == 1, mine)
 
     # ---- second StartFrame while one is running
     c.set(sess, [("resolution", v("d", 300.0)), ("read-delay", v("b", True)), ("read-delay-duration", v("i", 200000))]) if "read-delay" in names else None
     n1 = len(c.events)
     fd1 = c.start_frame(sess)
     c.wait_state(sess, ("started",), n1)
+    check("the next frame has a higher number", c.events[n1][2].get("frame", 0) > serial0, (c.events[n1][2], serial0))
     e = c.error("StartFrame", (sess, {}), "(oa{sv})")
     check("StartFrame during a frame is Busy", (e or "").endswith("Error.Busy"), e)
     e = c.error("SetOptions", (sess, [("resolution", v("d", 50.0))], {}), "(oa(sv)a{sv})")

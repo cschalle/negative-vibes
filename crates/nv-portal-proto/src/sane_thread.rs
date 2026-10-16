@@ -21,6 +21,13 @@ pub enum SetError {
     Failed(String),
 }
 
+/// One entry of a `SetOptions` call.
+pub enum Setting {
+    Value(OptionValue),
+    /// The option's automatic value.
+    Auto,
+}
+
 pub struct SetOutcome {
     pub applied: Vec<(String, OptionValue)>,
     pub flags: Vec<&'static str>,
@@ -28,6 +35,8 @@ pub struct SetOutcome {
 
 pub struct FrameJob {
     pub sid: u64,
+    /// Number of this frame within the session, sent as `frame` in each of its events.
+    pub serial: u32,
     /// Session object path and owner, for the FrameEvent signals.
     pub path: String,
     pub owner: String,
@@ -63,7 +72,7 @@ pub enum Cmd {
     },
     Set {
         sid: u64,
-        values: Vec<(String, OptionValue)>,
+        values: Vec<(String, Setting)>,
         reply: Reply<Result<SetOutcome, SetError>>,
     },
     Frame(FrameJob),
@@ -189,7 +198,7 @@ fn status_code(e: &SaneError) -> Option<u32> {
     }
 }
 
-fn set_options(h: &dyn ScannerHandle, values: Vec<(String, OptionValue)>) -> Result<SetOutcome, SetError> {
+fn set_options(h: &dyn ScannerHandle, values: Vec<(String, Setting)>) -> Result<SetOutcome, SetError> {
     let mut flags = SetInfo::default();
     let mut names = Vec::new();
     for (name, value) in values {
@@ -200,18 +209,24 @@ fn set_options(h: &dyn ScannerHandle, values: Vec<(String, OptionValue)>) -> Res
             return Err(SetError::Invalid(format!("option '{name}' cannot be set now")));
         }
         // Check the variant type against the option before it reaches the backend.
-        let wanted = matches!(
-            (&desc.kind, &value),
-            (nv_sane::OptionKind::Bool, OptionValue::Bool(_))
-                | (nv_sane::OptionKind::Int, OptionValue::Int(_))
-                | (nv_sane::OptionKind::Fixed, OptionValue::Fixed(_))
-                | (nv_sane::OptionKind::String, OptionValue::String(_))
-                | (nv_sane::OptionKind::Button, OptionValue::Button)
-        );
-        if !wanted {
-            return Err(SetError::Invalid(format!("wrong value type for option '{name}'")));
-        }
-        match h.set_option(desc, &value) {
+        let result = match &value {
+            Setting::Auto => h.set_option_auto(desc),
+            Setting::Value(value) => {
+                let wanted = matches!(
+                    (&desc.kind, value),
+                    (nv_sane::OptionKind::Bool, OptionValue::Bool(_))
+                        | (nv_sane::OptionKind::Int, OptionValue::Int(_))
+                        | (nv_sane::OptionKind::Fixed, OptionValue::Fixed(_))
+                        | (nv_sane::OptionKind::String, OptionValue::String(_))
+                        | (nv_sane::OptionKind::Button, OptionValue::Button)
+                );
+                if !wanted {
+                    return Err(SetError::Invalid(format!("wrong value type for option '{name}'")));
+                }
+                h.set_option(desc, value)
+            }
+        };
+        match result {
             Ok(info) => {
                 flags.inexact |= info.inexact;
                 flags.reload_options |= info.reload_options;
@@ -263,6 +278,13 @@ fn dbus_error_for(e: &SaneError) -> &'static str {
 /// start the next frame from its `finished` handler, then report.
 fn finish(events: &Sender<FrameEvent>, job: &FrameJob, state: &'static str, details: Vardict) {
     job.busy.store(false, Ordering::SeqCst);
+    emit(events, job, state, details);
+}
+
+/// Send a FrameEvent for `job`, numbered with the frame it belongs to so that a client can tell
+/// it from the events of an earlier frame.
+fn emit(events: &Sender<FrameEvent>, job: &FrameJob, state: &'static str, mut details: Vardict) {
+    details.insert("frame".into(), ov(job.serial));
     let _ = events.send_blocking(FrameEvent { owner: job.owner.clone(), session_path: job.path.clone(), state, details });
 }
 
@@ -296,7 +318,7 @@ fn run_frame(h: &dyn ScannerHandle, mut job: FrameJob, events: &Sender<FrameEven
     };
 
     let d = convert::parameters_to_dict(&params);
-    let _ = events.send_blocking(FrameEvent { owner: job.owner.clone(), session_path: job.path.clone(), state: "started", details: d });
+    emit(events, &job, "started", d);
 
     // Non-blocking, so a full pipe (an app that is not reading) cannot hold this thread
     // past a Cancel(). Only our end: the app's read end is a separate open file.
@@ -421,7 +443,7 @@ mod tests {
 
     fn job() -> (FrameJob, std::io::PipeReader) {
         let (r, w) = std::io::pipe().unwrap();
-        (FrameJob { sid: 1, path: "/s".into(), owner: ":1.1".into(), out: Some(w), cancel: Arc::new(AtomicBool::new(false)), busy: Arc::new(AtomicBool::new(true)) }, r)
+        (FrameJob { sid: 1, serial: 1, path: "/s".into(), owner: ":1.1".into(), out: Some(w), cancel: Arc::new(AtomicBool::new(false)), busy: Arc::new(AtomicBool::new(true)) }, r)
     }
 
     #[test]
