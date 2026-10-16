@@ -14,7 +14,8 @@
     "--socket=wayland",
     "--device=all",
     "--filesystem=home",
-    "--talk-name=org.freedesktop.portal.Desktop"
+    "--talk-name=org.freedesktop.portal.Desktop",
+    "--talk-name=org.freedesktop.NvPortalProto"
   ],
   "build-options": {
     "append-path": "/usr/lib/sdk/rust-stable/bin",
