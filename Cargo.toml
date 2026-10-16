@@ -15,6 +15,7 @@ members = [
     "crates/nv-gphotos",
     "crates/nv-cli",
     "crates/nv-sane-portal",
+    "crates/nv-portal-proto",
 ]
 
 [workspace.package]

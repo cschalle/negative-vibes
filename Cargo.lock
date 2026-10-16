@@ -1683,6 +1683,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nv-portal-proto"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "futures-util",
+ "libc",
+ "nv-sane",
+ "nv-sane-portal",
+ "nv-sane-sys",
+ "zbus",
+]
+
+[[package]]
 name = "nv-process"
 version = "0.1.0"
 dependencies = [

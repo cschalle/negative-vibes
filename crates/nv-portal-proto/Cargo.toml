@@ -1,0 +1,15 @@
+[package]
+name = "nv-portal-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Prototype of the proposed org.freedesktop.portal.Scanner interface (test double and client proxies)"
+
+[dependencies]
+nv-sane = { path = "../nv-sane" }
+nv-sane-sys = { path = "../nv-sane-sys" }
+nv-sane-portal = { path = "../nv-sane-portal" }
+zbus = "5"
+async-channel = { workspace = true }
+futures-util = "0.3"
+libc = "0.2"
