@@ -38,6 +38,12 @@ impl AcquireWorker {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::Probe);
     }
 
+    /// Let the user choose scanners (the portal's dialog), then probe. `parent_window` is a
+    /// window identifier for the dialog, or empty.
+    pub fn select_scanners(&self, parent_window: String) {
+        let _ = self.cmd_tx.send_blocking(WorkerCmd::SelectScanners { parent_window });
+    }
+
     pub fn start_scan(&self, device_name: String, resolution_dpi: u32, with_ir: bool, area: Option<[f64; 4]>) {
         self.start_scan_with(device_name, resolution_dpi, with_ir, area, PassPlan::SINGLE);
     }
@@ -95,6 +101,15 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
             WorkerCmd::Quit => break,
 
             WorkerCmd::Probe => {
+                do_probe(session, &quirks, &evt_tx);
+            }
+
+            WorkerCmd::SelectScanners { parent_window } => {
+                // With libsane this changes nothing. With the portal it is the user's choice of
+                // scanners, which a probe then lists.
+                if let Err(e) = session.select_devices(&parent_window) {
+                    let _ = evt_tx.send_blocking(ScanEvent::Error(format!("select scanners: {e}")));
+                }
                 do_probe(session, &quirks, &evt_tx);
             }
 

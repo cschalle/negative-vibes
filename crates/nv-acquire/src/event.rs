@@ -5,6 +5,8 @@ use nv_device::DeviceCapabilities;
 pub enum WorkerCmd {
     /// Probe for devices.  The worker will reply with `ScanEvent::DeviceList`.
     Probe,
+    /// Show the scanner selection dialog, if the backend has one, then probe.
+    SelectScanners { parent_window: String },
     /// Begin acquisition with the given plan.
     StartScan {
         device_name: String,
