@@ -14,6 +14,7 @@ members = [
     "crates/nv-calibrate",
     "crates/nv-gphotos",
     "crates/nv-cli",
+    "crates/nv-sane-portal",
 ]
 
 [workspace.package]

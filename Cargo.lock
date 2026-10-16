@@ -1703,6 +1703,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nv-sane-portal"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "futures-util",
+ "nv-sane",
+ "nv-sane-sys",
+ "zbus",
+]
+
+[[package]]
 name = "nv-sane-sys"
 version = "0.1.0"
 dependencies = [

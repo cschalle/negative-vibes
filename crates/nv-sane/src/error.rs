@@ -4,6 +4,10 @@ use nv_sane_sys as sys;
 pub enum SaneError {
     #[error("SANE status {code}: {message}")]
     Status { code: u32, message: String },
+    /// The scanner portal could not be reached or broke its contract. Errors the portal
+    /// maps to a SANE condition arrive as `Status` instead.
+    #[error("scanner portal: {0}")]
+    Portal(String),
     #[error("SANE returned a null pointer")]
     NullPointer,
     #[error("invalid UTF-8 in SANE string")]

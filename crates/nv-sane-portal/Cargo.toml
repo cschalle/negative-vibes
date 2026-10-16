@@ -1,0 +1,13 @@
+[package]
+name = "nv-sane-portal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Scanner backend that talks to the proposed org.freedesktop.portal.Scanner portal"
+
+[dependencies]
+nv-sane = { path = "../nv-sane" }
+nv-sane-sys = { path = "../nv-sane-sys" }
+zbus = "5"
+futures-util = "0.3"
+async-io = "2"
