@@ -11,7 +11,16 @@ pub struct DeviceInfo {
     pub backend: String,
     pub vendor: String,
     pub model: String,
+    /// SANE's device type string ("film scanner") with libsane. Through the portal it is the
+    /// connection (`usb`, `network`); do not filter on it, use `is_webcam` or capabilities.
     pub kind: String,
+}
+
+impl DeviceInfo {
+    /// Webcams appear through SANE's v4l backend and cannot scan film.
+    pub fn is_webcam(&self) -> bool {
+        self.backend == "v4l" || self.name.starts_with("v4l:") || self.kind.to_lowercase().contains("camera")
+    }
 }
 
 /// Owns the SANE library session (sane_init / sane_exit).

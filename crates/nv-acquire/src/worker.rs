@@ -126,7 +126,7 @@ fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanE
         // Skip v4l (webcam) devices: they report type "virtual device" and
         // their names start with "v4l:". They can't scan film.
         let kind_lc = dev.kind.to_lowercase();
-        if dev.name.starts_with("v4l:") || kind_lc.contains("camera") || kind_lc.contains("virtual device") {
+        if dev.is_webcam() || kind_lc.contains("virtual device") {
             eprintln!("nv-acquire: skipping non-scanner device '{}' (type: {})", dev.name, dev.kind);
             continue;
         }
