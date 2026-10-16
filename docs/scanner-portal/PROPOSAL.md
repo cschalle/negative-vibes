@@ -53,8 +53,9 @@ host, never in the sandbox.
    refuses to set them. The exact filter list needs a pass over the SANE backends.
 4. **Hardware buttons** (scan-to-app): out of scope for v1.
 5. **Multiple apps, one scanner:** exclusive lock for v1; how a busy scanner is reported.
-6. **Flatpak permission model:** whether `--device=all` can be dropped for scanner apps, and
-   how existing `--talk-name` rules apply (`org.freedesktop.portal.Desktop` already covers it).
+6. **Flatpak permission model:** `--device=all` can be dropped; the prototype needed only
+   `--talk-name` for its own bus name. The real portal would be covered by
+   `--talk-name=org.freedesktop.portal.Desktop`, which apps already have (not tested).
 7. **Bundled backend fallback:** exotic scanners (our `plustek8200i`) still need the USB
    portal and bundled backends until the host ships their driver.
 
@@ -141,7 +142,10 @@ cancel with an unread pipe all arrive as the SANE conditions the worker already 
 **Not verified at that point:** the GTK app itself (nothing was clicked), a real scanner (the
 8200i), the Flatpak sandbox, or a real portal dialog. **Since then** the 8200i has been checked:
 the portal path matches libsane on colour, infrared, repeat and cancel, within sensor noise
-(DESIGN.md §10). The GTK app, the Flatpak sandbox and a real portal dialog are still not verified.
+(DESIGN.md §10). The Flatpak sandbox has been checked too: the scenarios pass from a build with no
+`--device=all` and no network, and the GTK app made a preview and a raw scan on the 8200i from
+it, so fd passing and signals work through the Flatpak D-Bus proxy (DESIGN.md §10). A real
+portal dialog and clicking through the GUI are still not verified.
 
 ### What step 3 found
 

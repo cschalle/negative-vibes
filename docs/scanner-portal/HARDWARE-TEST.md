@@ -78,8 +78,8 @@ per-check logs.
 ## What this does not cover
 
 - **The GTK app itself.** Only `nv-cli` goes through the worker; nobody clicks through the UI.
-- **The Flatpak sandbox.** Both paths run on the host. Whether the sandboxed app can reach the
-  prototype's bus name is a separate step (the Devel manifest has the `--talk-name`).
+- **The Flatpak sandbox.** Both paths run on the host. The sandbox is a separate step, described
+  at the end of this file.
 - **Real portal dialog.** The prototype auto-selects.
 - **Exotic frame layouts** beyond what the 8200i produces (RGB, or RGB+IR as a second frame).
 
@@ -98,3 +98,19 @@ On 2026-10-16 the whole check passed on the OpticFilm 8200i with the installed `
 runs are why the script now has a private configuration, a time limit on each scan and a
 USB-address guard: the first showed a service bug (a colour+infrared scan that never ended), and
 the second was cut short when opening the `genesys` entry for the scanner reset it.
+
+## From the Flatpak sandbox
+
+`build-aux/io.github.cschalle.NegativeVibes.PortalTest.json` builds the app with `-Dportal=true`
+and no `--device=all` or `--share=network`. Build and enter it from the repository root:
+
+    flatpak-builder --force-clean --disable-rofiles-fuse build-fp-portaltest \
+        build-aux/io.github.cschalle.NegativeVibes.PortalTest.json
+    flatpak-builder --run build-fp-portaltest <manifest> python3 /app/share/portal-test/scenarios.py
+
+Start the service on the host first. For the scenarios use `SANE_CONFIG_DIR` with only `test` in
+`dll.conf`, `NV_SANE_ALLOW_VIRTUAL=1` and `--select test:`. For the 8200i use a directory whose
+`dll.conf` lists only `plustek8200i` and `--select plustek`; never the system configuration.
+`--run` accepts extra finish arguments such as `--filesystem=DIR` and `--env=NAME=VALUE`, which is
+how `hw_cancel.py` and the app (`NV_AUTOSCAN=raw`, `NV_EXPORT_DIR`) were run. On 2026-10-16 the
+scenarios, the cancel check and an app raw scan passed; DESIGN.md §10 has the details.

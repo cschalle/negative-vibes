@@ -10,7 +10,7 @@ any code existed, is kept as [`docs/design-history.md`](docs/design-history.md).
 
 | | |
 |---|---|
-| Describes | The working tree as of 2026-10-16, including the scanner portal prototype, which is not committed yet |
+| Describes | The working tree as of 2026-10-16, including the scanner portal prototype |
 | Requirements | [`negative-scanner-features.md`](negative-scanner-features.md) (the feature list, cited here as **F§n**) |
 | Reference scanner | Plustek OpticFilm 8200i, USB `07b3:1825` (Genesys GL128), with the [`plustek8200i`](https://github.com/cschalle/OpticFilm8200i-sane) SANE backend |
 | Application ID | `io.github.cschalle.NegativeVibes` |
@@ -394,6 +394,13 @@ The app is the test bed. It is a prototype, off by default:
 
 What is checked is in §11.4 and in `docs/scanner-portal/PROPOSAL.md`. The prototype is not
 used unless asked for, and nothing in the release Flatpak depends on it.
+
+**Sandbox test.** `build-aux/io.github.cschalle.NegativeVibes.PortalTest.json` builds the app
+with `-Dportal=true` as the Devel app ID, with `NV_SCANNER_BACKEND=portal` and without
+`--device=all` and `--share=network`; its only bus access is `--talk-name` for
+`org.freedesktop.portal.Desktop` and the prototype's name. The scenario script and the
+hardware cancel check are installed in `/app/share/portal-test`. Run with `flatpak-builder --run`.
+The results are in §10.
 
 ---
 
@@ -851,6 +858,18 @@ All 23 checks of the last run passed, with the thresholds of §11.4:
 The scanner kept its USB address and its descriptors through the run. The portal path matches the
 direct path to within sensor noise on every measure checked here.
 
+**The portal from the Flatpak sandbox** (2026-10-16): the PortalTest build has no
+`/dev/bus/usb` and no network. The portal scenarios (`scenarios.py`, SANE test backend, 30 checks)
+passed from inside it, which covers reaching the bus name through the Flatpak D-Bus proxy, the
+scan pipe's file descriptor passing through the proxy, signal delivery to the sandbox, per-connection
+isolation and the lock. On the 8200i, with the service on a configuration that lists only
+`plustek8200i`: the sandboxed `hw_cancel.py` cancelled a 1200 dpi scan at 30% in 0.08 s and the
+300 dpi rescan completed; the GTK app itself, run with `NV_AUTOSCAN=raw`, found the scanner, made
+a 432×322 preview and a 1728×1291 16-bit raw scan, and saved frame 1. The USB address and product
+string were unchanged. Because the app only sees what the service offers, its probe never opened
+the `genesys` entry (R10). Not covered: the GUI cancel (`NV_AUTOSCAN_STOP`), the Choose Scanner…
+button, an infrared scan from the app, and a real portal dialog.
+
 Getting there took three runs. The first, with a private configuration, passed everything up to
 the infrared scan and then exposed a bug in the prototype service: it cancelled between the
 frames of a colour+infrared scan, so the 8200i delivered the colour frame again and again until
@@ -1087,7 +1106,7 @@ negative-vibes/
 ├─ docs/
 │  ├─ design-history.md          the original plan and per-slice build notes
 │  └─ scanner-portal/            the portal proposal, draft D-Bus interfaces, hardware test
-├─ build-aux/                    Flatpak manifests (release, Devel, flathub/), Meson helper
+├─ build-aux/                    Flatpak manifests (release, Devel, PortalTest, flathub/), Meson helper
 └─ screenshots/                  used by the README
 ```
 
@@ -1114,7 +1133,7 @@ Conventions:
 | R6 | IR dust removal on other scanners may need registration and crosstalk handling that the 8200i does not exercise. | Both are implemented and tested on synthetic data only. |
 | R7 | The `plustek8200i` backend is outside sane-backends. | It ships as a separate RPM and is built into the Flatpak. Upstreaming is separate work; an upstream SANE ticket exists. |
 | R8 | Google Photos upload needs an OAuth client that does not exist, and, for other users, Google's app verification. | Run only against a stand-in server. Users can enter their own client under Preferences. |
-| R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype and checks in `docs/scanner-portal/`; the 8200i checks pass (§10). The next steps are running the application against it from a Flatpak without `--device=all`, the GTK window identifier, and the upstream issue. |
+| R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype and checks in `docs/scanner-portal/`; the 8200i checks pass (§10). The application has been run against it from a Flatpak without `--device=all` (§10). The next steps are the GTK window identifier and the upstream issue. |
 | R10 | With the system SANE configuration the stock `genesys` backend also lists the 8200i ("OpticFilm 8200i SE"), and opening that entry appears to reset it. On 2026-10-16 `nv-cli probe` opened it; the kernel logged `device firmware changed` and a new USB address, and the product strings were gone. The application's probe opens every device that is not a webcam, so it may do the same. | Not yet checked in the application. Hardware checks use a private configuration with only `plustek8200i`. Options: skip a device that another backend already lists at the same USB address, or have the quirks file name the backend to use. The Oct 8 results in §10 predate the sane-backends update that added the genesys entry. |
 
 Open questions:
