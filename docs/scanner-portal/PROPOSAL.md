@@ -38,6 +38,8 @@ host, never in the sandbox.
 | App sees only granted scanners | No LAN scanner enumeration by sandboxed apps (fingerprinting, privacy). |
 | Typed D-Bus values | Print's all-string settings are a mistake not to copy. |
 | Ordered `a(sv)` for `SetOptions`, not `a{sv}` | Found while prototyping: D-Bus dictionaries do not guarantee order, and SANE needs it (`mode` before `three-pass`, which is inactive in gray). |
+| `FrameEvent` carries a per-session frame number | Found by the second application: a client that cancels has to wait for the cancelled frame's last event, or its next frame meets it. With a number on each event it can drop leftovers. |
+| Automatic values as the vardict `{'auto': true}` | SANE has `SET_AUTO`; Simple Scan uses it for the scan source. D-Bus has no empty structure, so the "no value" marker is a vardict, which also leaves room for other per-option modifiers. |
 | `Session` for an open scanner | Free lifecycle: app exit releases the lock, the portal can revoke with `Session.Closed`. |
 | No per-scan prompt after grant | Scanning needs a physical action. Revisit if reviewers disagree. |
 | Backend = UI only | Same split as `impl.portal.Usb`. |
@@ -167,9 +169,9 @@ portal dialog and clicking through the GUI are still not verified.
    portal. Anything that persists `device_name` (roll metadata, settings) must treat it as
    backend-specific, or store vendor and model next to it.
 5. **`DeviceInfo.kind` differs.** libsane's field is the SANE type string ("film scanner"),
-   the portal's is the connection (`usb`, `network`). The app's webcam filter keys on the
-   type string, so it only works for libsane. Capabilities (`film`, `adf`) are the portal's
-   replacement and should drive filtering instead.
+   the portal's was the connection (`usb`, `network`). The app's webcam filter keys on the
+   type string, so it only worked for libsane. Fixed by the second application's findings
+   below: the portal now sends the type string as `type`.
 6. **Option state is the backend's.** The SANE test backend keeps option values per device,
    not per handle, so a session can inherit another's settings. That is libsane behaviour
    the portal passes through; apps should set every option they depend on.
@@ -200,7 +202,8 @@ portal dialog and clicking through the GUI are still not verified.
 5. **Webcam filter keyed on the SANE type: fixed.** `DeviceInfo::is_webcam()` (backend or name
    `v4l`, or a camera type) is used by the worker and the service. The worker's "virtual
    device" exclusion stays for libsane (it hides the SANE test backend), with
-   `NV_SANE_ALLOW_VIRTUAL=1` to allow it for testing; the portal reports no SANE type.
+   `NV_SANE_ALLOW_VIRTUAL=1` to allow it for testing. The portal now reports the SANE type too
+   (`type`), and the client puts it in `DeviceInfo.kind`, so that exclusion works through it.
 6. **Option state shared across sessions: not changed.** It is how SANE's test backend
    behaves with libsane too. The tests set every option they depend on.
 
@@ -209,3 +212,39 @@ option, so the app's integer resolution became about 0.001 dpi on the SANE test 
 (3x3 pixels). The portal service converted by option type and was right. `Handle::set_option`
 now converts between int and fixed by the descriptor, so both backends agree. Real film
 scanners have integer resolution; the 8200i is not affected.
+
+## What a second application found
+
+GNOME Simple Scan was ported to the draft (`SIMPLE_SCAN_BACKEND=portal`; a `ScanBackend`
+interface with a libsane and a portal implementation). It ran in a Flatpak without
+`--device=all` and `--share=network` against the prototype service and scanned on the
+OpticFilm 8200i. What it needed beyond the first application:
+
+1. **Automatic values.** `SetOptions` could not express SANE's `SET_AUTO`, which Simple Scan
+   uses to pick the scan source, so the port hid the `automatic` capability and fell back to
+   choosing by name. `SetOptions` now accepts the vardict `{'auto': true}` as a value, for
+   options that have the `automatic` capability (others are `InvalidArgument`). It is a vardict
+   because D-Bus has no empty structure; `()` would not have been valid on the wire.
+2. **A frame number on `FrameEvent`.** A client that cancels, or starts the next frame at once,
+   had to drain events and wait for the old frame's last event by hand. Each `StartFrame` now
+   starts a numbered frame (from 1, per session), every event carries `frame`, and a frame
+   ends with exactly one event that is not `started`. A client drops events that are not newer
+   than the last frame it saw end. The Rust client does this; the Simple Scan port still uses
+   the older drain-and-wait and works, and can use the number.
+3. **The SANE device `type` in the scanner info.** Simple Scan hides `virtual device` and ranks
+   by type; `kind` (the connection) cannot say that. `type` is SANE's string, untranslated, as a
+   hint.
+4. **Documentation only:** option numbering (the portal leaves out SANE's option 0, so a
+   port that numbers as SANE does starts at 1, and groups stay in the list), the value types
+   (`b`, `i`, `d`, `s`; int ranges are `(ddd)`), cancelling `SelectScanners` with
+   `Request.Close`, selecting on a user action, and how an app finds out the portal exists.
+
+Not changed: string option sizes and the `info` flags, which Simple Scan never needed.
+
+After these changes the service, the Rust client and the Simple Scan port were run again on the
+8200i: the hardware check passed 23 of 23 (including colour+infrared, two numbered frames in one
+session, and cancel then rescan), Simple Scan scanned from the sandbox, was cancelled
+mid-frame and scanned again in the same session, and the device arrived as `film scanner`. The
+scenario script has 40 checks (10 new: type, automatic values, frame numbers). Simple Scan did
+not exercise `{'auto': true}`: the test backend that has an automatic option is hidden by its
+own filter, and the 8200i has none; the Python scenarios and the parity test cover it.

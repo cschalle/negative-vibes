@@ -392,6 +392,11 @@ The app is the test bed. It is a prototype, off by default:
   worker to show the portal's dialog (`select_devices`) and probe again. The app passes no
   window identifier yet, so the real portal's dialog would not be attached to its window.
 
+A second application, GNOME Simple Scan, has been ported to the draft and has scanned on the
+8200i from a sandbox (patch outside this repository); what it needed that Negative Vibes did
+not is in `docs/scanner-portal/PROPOSAL.md` ("What a second application found"): automatic
+option values, a frame number on `FrameEvent`, and the SANE device type.
+
 What is checked is in §11.4 and in `docs/scanner-portal/PROPOSAL.md`. The prototype is not
 used unless asked for, and nothing in the release Flatpak depends on it.
 
@@ -867,7 +872,8 @@ isolation and the lock. On the 8200i, with the service on a configuration that l
 300 dpi rescan completed; the GTK app itself, run with `NV_AUTOSCAN=raw`, found the scanner, made
 a 432×322 preview and a 1728×1291 16-bit raw scan, and saved frame 1. The USB address and product
 string were unchanged. Because the app only sees what the service offers, its probe never opened
-the `genesys` entry (R10). Not covered: the GUI cancel (`NV_AUTOSCAN_STOP`), the Choose Scanner…
+the `genesys` entry (R10). After the second round of interface changes (automatic values, frame numbers, device type) the
+hardware check passed again, 23 of 23. Not covered: the GUI cancel (`NV_AUTOSCAN_STOP`), the Choose Scanner…
 button, an infrared scan from the app, and a real portal dialog.
 
 Getting there took three runs. The first, with a private configuration, passed everything up to
