@@ -1,0 +1,369 @@
+<?xml version="1.0"?>
+<!--
+ DRAFT. Prototype for upstream xdg-desktop-portal. Not yet reviewed.
+ SPDX-License-Identifier: LGPL-2.1-or-later
+-->
+<node name="/" xmlns:doc="http://www.freedesktop.org/dbus/1.0/doc.dtd">
+  <!--
+      org.freedesktop.portal.Scanner:
+      @short_description: Portal for scanner access
+
+      This interface lets sandboxed applications ask the user for access to
+      scanners and scan with them, without access to /dev, the network, or
+      the host's SANE configuration.
+
+      Scanners are driven by the host (libsane and its backends run outside
+      the sandbox). The application sees an abstract model that follows SANE:
+      a list of typed options, and image data delivered one frame at a time.
+
+      Typical use: SelectScanners() once, OpenScanner(), GetOptions(),
+      SetOptions(), then StartFrame() until last_frame is true.
+
+      This documentation describes version 1 of this interface.
+    -->
+  <interface name="org.freedesktop.portal.Scanner">
+
+    <!--
+        SelectScanners:
+        @parent_window: Identifier for the application window, see :doc:`window-identifiers`
+        @options: Vardict with optional further information
+        @handle: Object path for the :ref:`org.freedesktop.portal.Request` object representing this call
+
+        Presents a dialog listing the scanners the host knows about and lets
+        the user choose which ones the application may use. The choice is
+        remembered for the application and can be revoked by the user.
+
+        Supported keys in the @options vardict:
+
+        * ``handle_token`` (``s``)
+
+          A string that will be used as the last element of the @handle. Must be a valid
+          object path element. See :ref:`org.freedesktop.portal.Request`.
+
+        * ``modal`` (``b``)
+
+          Whether to make the dialog modal. Defaults to yes.
+
+        * ``multiple`` (``b``)
+
+          Whether more than one scanner may be selected. Defaults to no.
+
+        * ``accept_label`` (``s``)
+
+          Label for the accept button. Mnemonic underlines are allowed.
+
+        * ``required_capabilities`` (``as``)
+
+          Only offer scanners that have all of these capabilities. Known
+          values: ``film`` (transparency unit), ``adf``, ``infrared``,
+          ``flatbed``, ``color``. Unknown values are ignored.
+
+        The following results get returned via the :ref:`org.freedesktop.portal.Request::Response` signal:
+
+        * ``scanners`` (``a(sa{sv})``)
+
+          The selected scanners as an array of scanner id and a vardict with
+          the keys described in ListScanners().
+    -->
+    <method name="SelectScanners">
+      <arg type="s" name="parent_window" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <arg type="o" name="handle" direction="out"/>
+    </method>
+
+    <!--
+        ListScanners:
+        @options: Vardict with optional further information. There is
+        currently no option supported.
+        @scanners: Array of scanner id and information vardict
+
+        Lists the scanners this application has been granted access to and
+        that are currently available. The scanner id is opaque and stable
+        across sessions for the same physical scanner where the backend
+        allows it. Applications must not construct ids.
+
+        Keys in the information vardict:
+
+        * ``name`` (``s``)
+
+          User-visible name.
+
+        * ``vendor`` (``s``), ``model`` (``s``)
+
+          As reported by the backend.
+
+        * ``backend`` (``s``)
+
+          The SANE backend that drives the scanner, such as ``plustek8200i``.
+          Applications match device quirks on it: the scanner id is opaque and
+          cannot be used for that.
+
+        * ``kind`` (``s``)
+
+          One of ``usb``, ``network``, ``other``.
+
+        * ``capabilities`` (``as``)
+
+          Same vocabulary as ``required_capabilities`` in SelectScanners().
+          Capabilities are hints; GetOptions() is authoritative.
+
+        * ``available`` (``b``)
+
+          Whether the scanner can be opened right now.
+    -->
+    <method name="ListScanners">
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In0" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out0" value="QList&lt;QPair&lt;QString,QVariantMap&gt;&gt;"/>
+      <arg type="a(sa{sv})" name="scanners" direction="out"/>
+    </method>
+
+    <!--
+        CreateSession:
+        @options: Vardict with optional further information
+        @session_handle: Object path for the session.
+
+        Creates a monitoring session, needed only to receive ScannerEvents.
+
+        Supported keys in the @options vardict:
+
+        * ``session_handle_token`` (``s``)
+
+          Last element of the session handle. See :ref:`org.freedesktop.portal.Session`.
+    -->
+    <method name="CreateSession">
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In0" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <arg type="o" name="session_handle" direction="out"/>
+    </method>
+
+    <!--
+        ScannerEvents:
+        @session_handle: Object path for the monitoring session
+        @events: A list of events which occurred.
+
+        Emitted when granted scanners appear, change or disappear. Each
+        element is an action (``add``, ``change`` or ``remove``), a scanner
+        id, and an information vardict as in ListScanners(). Only emitted for
+        scanners the application has been granted.
+    -->
+    <signal name="ScannerEvents">
+      <arg type="o" name="session_handle" direction="out"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out1" value="QList&lt;std::tuple&lt;QString,QString,QVariantMap&gt;&gt;"/>
+      <arg type="a(ssa{sv})" name="events" direction="out"/>
+    </signal>
+
+    <!--
+        OpenScanner:
+        @scanner_id: A scanner id granted to the application
+        @options: Vardict with optional further information. There is
+        currently no option supported.
+        @session_handle: Object path for the :ref:`org.freedesktop.portal.Session` of the open scanner
+
+        Opens a granted scanner and takes the host's exclusive lock on it.
+        Fails with ``org.freedesktop.portal.Error.NotAllowed`` if the id was
+        not granted, ``org.freedesktop.portal.Error.Busy`` if it is
+        busy, and ``org.freedesktop.portal.Error.Failed`` if it is gone. May
+        take several seconds (lamp warm-up, calibration).
+        Closing the session (Session.Close, or the application leaving the
+        bus) cancels any scan and releases the scanner. The portal emits
+        Session.Closed if access is revoked.
+    -->
+    <method name="OpenScanner">
+      <arg type="s" name="scanner_id" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <arg type="o" name="session_handle" direction="out"/>
+    </method>
+
+    <!--
+        GetOptions:
+        @session_handle: An open scanner session
+        @options: Vardict with optional further information. There is
+        currently no option supported.
+        @descriptors: Option descriptors, in backend order
+
+        Returns the scanner's options, modelled on SANE option descriptors.
+        Call again when SetOptions() reports ``reload-options``.
+
+        Each descriptor is a vardict:
+
+        * ``name`` (``s``)
+
+          Machine name, such as ``resolution`` or ``mode``. Empty for groups.
+
+        * ``title`` (``s``), ``description`` (``s``)
+
+          Translated by the backend where possible.
+
+        * ``type`` (``s``)
+
+          One of ``bool``, ``int``, ``fixed``, ``string``, ``button``,
+          ``group``. ``fixed`` values are carried as ``d``.
+
+        * ``unit`` (``s``)
+
+          One of ``none``, ``pixel``, ``bit``, ``mm``, ``dpi``,
+          ``percent``, ``microsecond``.
+
+        * ``size`` (``u``)
+
+          Number of values; above 1 means the value is an array.
+
+        * ``constraint`` (``(sv)``)
+
+          Kind and data: ``none`` with ``b`` false; ``range`` with
+          ``(ddd)`` min, max, step; ``list`` with an array of the value type.
+
+        * ``capabilities`` (``as``)
+
+          Any of ``settable``, ``readable``, ``automatic``, ``inactive``,
+          ``advanced``, ``emulated``, ``hardware``.
+
+        Options that can be used to make the host open files or sockets
+        chosen by the application (file name options, for example) are not
+        listed and cannot be set.
+    -->
+    <method name="GetOptions">
+      <arg type="o" name="session_handle" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out0" value="QVariantMapList"/>
+      <arg type="aa{sv}" name="descriptors" direction="out"/>
+    </method>
+
+    <!--
+        GetOptionValues:
+        @session_handle: An open scanner session
+        @options: Vardict with optional further information. There is
+        currently no option supported.
+        @values: Current values by option name
+
+        Returns the current value of every readable, active option.
+    -->
+    <method name="GetOptionValues">
+      <arg type="o" name="session_handle" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out0" value="QVariantMap"/>
+      <arg type="a{sv}" name="values" direction="out"/>
+    </method>
+
+    <!--
+        SetOptions:
+        @session_handle: An open scanner session
+        @values: Array of (option name, value) pairs, each value a variant of the option's type
+        @options: Vardict with optional further information. There is
+        currently no option supported.
+        @applied: The value each option ended up with
+        @flags: Zero or more of ``inexact`` (a value was rounded),
+        ``reload-options`` (call GetOptions() again),
+        ``reload-params`` (frame geometry changed)
+
+        Sets options in array order (not a dictionary: order matters to SANE,
+        for example ``mode`` before ``resolution``). Button options take ``true``. An
+        invalid option or value fails the whole call with
+        ``org.freedesktop.portal.Error.InvalidArgument`` and applies
+        nothing after the failing entry. Fails with
+        ``org.freedesktop.portal.Error.Busy`` while a frame is in progress.
+    -->
+    <method name="SetOptions">
+      <arg type="o" name="session_handle" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QList&lt;QPair&lt;QString,QVariant&gt;&gt;"/>
+      <arg type="a(sv)" name="values" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In2" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out0" value="QVariantMap"/>
+      <arg type="a{sv}" name="applied" direction="out"/>
+      <arg type="as" name="flags" direction="out"/>
+    </method>
+
+    <!--
+        GetFrameParameters:
+        @session_handle: An open scanner session
+        @options: Vardict with optional further information. There is
+        currently no option supported.
+        @parameters: Frame layout the scanner would produce now
+
+        Returns the layout of the next frame for the current options, as an
+        estimate (SANE allows this before ``sane_start``; applications use it
+        to size buffers and previews). The keys are those of the ``started``
+        FrameEvent. The final values are only known once the frame has
+        started: use those. Fails with ``org.freedesktop.portal.Error.Busy``
+        while a frame is in progress.
+    -->
+    <method name="GetFrameParameters">
+      <arg type="o" name="session_handle" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out0" value="QVariantMap"/>
+      <arg type="a{sv}" name="parameters" direction="out"/>
+    </method>
+
+    <!--
+        StartFrame:
+        @session_handle: An open scanner session
+        @options: Vardict with optional further information. There is
+        currently no option supported.
+        @fd: Read end of a pipe carrying the frame's pixel data
+
+        Starts acquiring one frame and returns at once. Subscribe to
+        FrameEvent before calling. The pipe carries raw image data exactly as
+        SANE delivers it (see the ``started`` event for the layout), and is
+        closed by the portal at the end of the frame. End of data on the pipe
+        is not a success signal: wait for the ``finished`` event.
+
+        Call again after ``finished`` while ``last_frame`` was false (for
+        example separate red, green, blue and infrared frames). Fails with
+        ``org.freedesktop.portal.Error.Busy`` if a frame is in progress.
+        Closing the pipe early cancels the frame, as does Cancel().
+    -->
+    <method name="StartFrame">
+      <annotation name="org.gtk.GDBus.C.UnixFD" value="true"/>
+      <arg type="o" name="session_handle" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <arg type="h" name="fd" direction="out"/>
+    </method>
+
+    <!--
+        Cancel:
+        @session_handle: An open scanner session
+
+        Cancels the frame in progress, if any. A ``cancelled`` FrameEvent follows.
+    -->
+    <method name="Cancel">
+      <arg type="o" name="session_handle" direction="in"/>
+    </method>
+
+    <!--
+        FrameEvent:
+        @session_handle: The open scanner session
+        @state: One of ``started``, ``finished``, ``cancelled``, ``no-documents``, ``error``
+        @details: Vardict with details of the state
+
+        Reports progress of the frame started by StartFrame().
+
+        ``started``: the scanner is ready and data will flow. Details:
+        ``format`` (``s``: ``gray``, ``rgb``, ``red``, ``green``, ``blue``),
+        ``depth`` (``u``), ``pixels_per_line`` (``u``), ``bytes_per_line``
+        (``u``), ``lines`` (``i``, -1 when unknown, as for hand scanners)
+        and ``last_frame`` (``b``).
+
+        ``finished``: all data was written. ``cancelled``: the frame was
+        cancelled. ``no-documents``: the feeder or film holder is empty or
+        the carriage needs the user (the application may prompt and call
+        StartFrame() again). ``error``: details ``message`` (``s``) and
+        ``code`` (``s``, a D-Bus error name).
+    -->
+    <signal name="FrameEvent">
+      <arg type="o" name="session_handle" direction="out"/>
+      <arg type="s" name="state" direction="out"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out2" value="QVariantMap"/>
+      <arg type="a{sv}" name="details" direction="out"/>
+    </signal>
+
+    <property name="version" type="u" access="read"/>
+  </interface>
+</node>

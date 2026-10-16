@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!--
+ DRAFT. Prototype for upstream xdg-desktop-portal. Not yet reviewed.
+ SPDX-License-Identifier: LGPL-2.1-or-later
+-->
+<node name="/" xmlns:doc="http://www.freedesktop.org/dbus/1.0/doc.dtd">
+  <!--
+      org.freedesktop.impl.portal.Scanner:
+      @short_description: Scanner portal backend interface
+
+      The backend only provides UI, like org.freedesktop.impl.portal.Usb.
+      Talking to scanners is done by the frontend through a host helper
+      (see PROPOSAL.md), not by the backend.
+
+      This documentation describes version 1 of this interface.
+  -->
+  <interface name="org.freedesktop.impl.portal.Scanner">
+
+    <!--
+        SelectScanners:
+        @handle: Object path for the :ref:`org.freedesktop.impl.portal.Request` object representing this call
+        @parent_window: Identifier for the application window
+        @app_id: App id of the application
+        @scanners: Array of scanner id and information vardict for every
+        scanner the frontend found that matches the request, with the same
+        keys as org.freedesktop.portal.Scanner.ListScanners
+        @options: Vardict with the options of the frontend call
+        @response: Numeric Request response
+        @results: Vardict with the results of the call
+
+        Shows the selection dialog. Results:
+
+        * ``scanners`` (``as``)
+
+          The ids chosen from @scanners. The frontend stores the grant.
+    -->
+    <method name="SelectScanners">
+      <arg type="o" name="handle" direction="in"/>
+      <arg type="s" name="parent_window" direction="in"/>
+      <arg type="s" name="app_id" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In3" value="QList&lt;QPair&lt;QString,QVariantMap&gt;&gt;"/>
+      <arg type="a(sa{sv})" name="scanners" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In4" value="QVariantMap"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <arg type="u" name="response" direction="out"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.Out1" value="QVariantMap"/>
+      <arg type="a{sv}" name="results" direction="out"/>
+    </method>
+    <property name="version" type="u" access="read"/>
+  </interface>
+</node>
