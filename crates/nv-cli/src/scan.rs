@@ -68,7 +68,15 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
     let worker = AcquireWorker::spawn(args.quirks.clone());
     worker.probe();
 
-    let device_name = wait_for_device(&worker.evt_rx, args.device.as_deref())?;
+    let device_name = match wait_for_device(&worker.evt_rx, args.device.as_deref()) {
+        // Nothing yet: with the portal that means nothing was granted, so ask. A headless
+        // run has no window to attach the dialog to. With libsane this probes again.
+        Err(e) if e.to_string().contains("No SANE devices") => {
+            worker.select_scanners(String::new());
+            wait_for_device(&worker.evt_rx, args.device.as_deref())?
+        }
+        other => other?,
+    };
     println!("Scanning on {device_name} @ {} dpi (ir={})…", args.dpi, args.ir);
 
     let passes = nv_acquire::passes::PassPlan { samples: args.samples, long_exposure: args.long_exposure, max_offset: 20 }.normalised();
