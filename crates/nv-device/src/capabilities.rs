@@ -1,5 +1,5 @@
 use crate::quirks::DeviceQuirks;
-use nv_sane::{Handle, OptionDescriptor, OptionKind};
+use nv_sane::{OptionDescriptor, OptionKind, ScannerHandle};
 
 /// How the device delivers infrared.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -67,7 +67,7 @@ pub struct DeviceCapabilities {
 
 impl DeviceCapabilities {
     /// Build from SANE option descriptors and optional quirks.
-    pub fn detect(device_name: &str, vendor: &str, model: &str, handle: &Handle, quirks: Option<&DeviceQuirks>) -> nv_sane::Result<Self> {
+    pub fn detect(device_name: &str, vendor: &str, model: &str, handle: &dyn ScannerHandle, quirks: Option<&DeviceQuirks>) -> nv_sane::Result<Self> {
         let opts = handle.all_options()?;
 
         let film_source = detect_film_source(&opts, handle);
@@ -112,7 +112,7 @@ impl DeviceCapabilities {
 
 // ── Detection helpers ─────────────────────────────────────────────────────────
 
-fn detect_film_source(opts: &[OptionDescriptor], handle: &Handle) -> Option<String> {
+fn detect_film_source(opts: &[OptionDescriptor], handle: &dyn ScannerHandle) -> Option<String> {
     let opt = opts.iter().find(|o| o.name == "source")?;
     let nv_sane::OptionConstraint::StringList(ref values) = opt.constraint else {
         return None;

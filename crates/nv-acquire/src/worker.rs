@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_channel::{Receiver, Sender};
 use nv_device::{AcquisitionPlan, DeviceCapabilities, IrStyle, Quirks};
-use nv_sane::{Session, parameters::FrameFormat};
+use nv_sane::{ScannerBackend, ScannerHandle, Session, parameters::FrameFormat};
 
 use crate::event::{ScanEvent, WorkerCmd};
 use crate::frame::FrameMeta;
@@ -111,7 +111,7 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
     }
 }
 
-fn do_probe(session: &Session, quirks: &Quirks, evt_tx: &Sender<ScanEvent>) {
+fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanEvent>) {
     let devices = match session.get_devices(true) {
         Ok(d) => d,
         Err(e) => {
@@ -152,7 +152,7 @@ fn do_probe(session: &Session, quirks: &Quirks, evt_tx: &Sender<ScanEvent>) {
 }
 
 fn do_scan(
-    session: &Session,
+    session: &dyn ScannerBackend,
     quirks: &Quirks,
     evt_tx: &Sender<ScanEvent>,
     cmd_rx: &Receiver<WorkerCmd>,
@@ -305,7 +305,7 @@ fn do_scan(
 /// `sink` and the fraction done to `progress`.
 /// Returns Err(true) if cancelled, Err(false) on SANE error.
 fn read_frame(
-    handle: &nv_sane::Handle,
+    handle: &dyn ScannerHandle,
     meta: &FrameMeta,
     evt_tx: &Sender<ScanEvent>,
     cmd_rx: &Receiver<WorkerCmd>,
@@ -378,7 +378,7 @@ struct PassData {
 
 /// Scan the frame once, keeping the bytes instead of streaming them.
 /// `fraction` maps the pass's own progress into the whole job's.
-fn collect_pass(handle: &nv_sane::Handle, ctx: &MultiCtx, fraction: &dyn Fn(f32) -> f32) -> Result<PassData, bool> {
+fn collect_pass(handle: &dyn ScannerHandle, ctx: &MultiCtx, fraction: &dyn Fn(f32) -> f32) -> Result<PassData, bool> {
     let mut colour: Option<(Vec<u8>, Layout)> = None;
     let mut ir: Option<(Vec<u8>, Layout)> = None;
     let mut frame_index = 0;
@@ -443,7 +443,7 @@ fn collect_pass(handle: &nv_sane::Handle, ctx: &MultiCtx, fraction: &dyn Fn(f32)
 
 /// N samples at the normal exposure, and the same at a long one if asked;
 /// lined up, averaged, merged, and sent on as if it were one scan.
-fn do_multi_pass(handle: &nv_sane::Handle, ctx: &MultiCtx) {
+fn do_multi_pass(handle: &dyn ScannerHandle, ctx: &MultiCtx) {
     use nv_sane::OptionValue;
     let plan = ctx.passes;
     let total = plan.total_scans();
@@ -567,22 +567,18 @@ pub fn area_to_device(area: [f64; 4], ranges: [f64; 4]) -> Option<[f64; 4]> {
     Some([xmin + x0 * w, ymin + y0 * h, xmin + x1 * w, ymin + y1 * h])
 }
 
-fn apply_area(handle: &nv_sane::Handle, area: [f64; 4]) -> Result<(), String> {
+fn apply_area(handle: &dyn ScannerHandle, area: [f64; 4]) -> Result<(), String> {
     use nv_sane::{OptionConstraint, OptionValue};
 
     let range_of = |name: &str| -> Result<(f64, f64), String> {
-        let count = handle.option_count().map_err(|e| e.to_string())?;
-        for i in 1..count {
-            if let Some(d) = handle.option_descriptor(i)
-                && d.name == name
-            {
-                return match d.constraint {
-                    OptionConstraint::Range { min, max, .. } => Ok((min, max)),
-                    _ => Err(format!("option {name} has no range")),
-                };
-            }
+        let opts = handle.all_options().map_err(|e| e.to_string())?;
+        match opts.into_iter().find(|d| d.name == name) {
+            Some(d) => match d.constraint {
+                OptionConstraint::Range { min, max, .. } => Ok((min, max)),
+                _ => Err(format!("option {name} has no range")),
+            },
+            None => Err(format!("device has no {name} option")),
         }
-        Err(format!("device has no {name} option"))
     };
 
     let (xmin, xmax) = range_of("tl-x")?;
@@ -597,7 +593,7 @@ fn apply_area(handle: &nv_sane::Handle, area: [f64; 4]) -> Result<(), String> {
     Ok(())
 }
 
-fn apply_plan_options(handle: &nv_sane::Handle, plan: &AcquisitionPlan) -> nv_sane::Result<()> {
+fn apply_plan_options(handle: &dyn ScannerHandle, plan: &AcquisitionPlan) -> nv_sane::Result<()> {
     use nv_sane::OptionValue;
 
     // mode
@@ -615,20 +611,15 @@ fn apply_plan_options(handle: &nv_sane::Handle, plan: &AcquisitionPlan) -> nv_sa
     }
 
     // neutralise options (e.g. auto-wb, ir-clean on plustek8200i)
+    let opts = handle.all_options()?;
     for name in &plan.neutralise {
-        let count = handle.option_count()?;
-        for i in 1..count {
-            if let Some(desc) = handle.option_descriptor(i)
-                && desc.name == *name
-            {
-                let val = match desc.kind {
-                    nv_sane::OptionKind::Bool => OptionValue::Bool(false),
-                    nv_sane::OptionKind::Int => OptionValue::Int(0),
-                    _ => continue,
-                };
-                let _ = handle.set_option(&desc, &val)?;
-                break;
-            }
+        if let Some(desc) = opts.iter().find(|d| d.name == *name) {
+            let val = match desc.kind {
+                nv_sane::OptionKind::Bool => OptionValue::Bool(false),
+                nv_sane::OptionKind::Int => OptionValue::Int(0),
+                _ => continue,
+            };
+            let _ = handle.set_option(desc, &val)?;
         }
     }
 
