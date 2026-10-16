@@ -173,6 +173,20 @@ mod imp {
             });
             app.add_action(&probe);
 
+            // select-scanner: let the user choose scanners (the scanner portal's dialog), then probe.
+            // No window identifier yet: ashpd's GTK helper needs gtk4 0.11 and the app is on 0.9,
+            // so the portal's dialog is not attached to our window until we export a handle.
+            let select = gio::SimpleAction::new("select-scanner", None);
+            let app_weak = app.downgrade();
+            select.connect_activate(move |_, _| {
+                if let Some(app) = app_weak.upgrade()
+                    && let Some(worker) = app.imp().worker.get()
+                {
+                    worker.select_scanners(String::new());
+                }
+            });
+            app.add_action(&select);
+
             // preview: start a preview scan on the current device
             let preview = gio::SimpleAction::new("preview", None);
             let app_weak = app.downgrade();

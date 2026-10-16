@@ -516,10 +516,14 @@ impl Window {
         no_scanner.set_title("No Scanner Found");
         no_scanner.set_description(Some("Make sure your scanner is connected and powered on."));
         let try_again = gtk::Button::builder().label("Try Again").css_classes(["pill", "suggested-action"]).build();
+        // The portal only offers scanners the user has chosen, so with it "No Scanner Found"
+        // usually means "none chosen yet". libsane has nothing to choose.
+        let choose_scanner = gtk::Button::builder().label("Choose Scanner…").css_classes(["pill"]).visible(std::env::var("NV_SCANNER_BACKEND").as_deref() == Ok("portal")).build();
         let open_raw = gtk::Button::builder().label("Open Raw Scans…").css_classes(["pill"]).build();
         let open_roll = gtk::Button::builder().label("Open Roll…").css_classes(["pill"]).build();
         let btn_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).halign(gtk::Align::Center).build();
         btn_box.append(&try_again);
+        btn_box.append(&choose_scanner);
         btn_box.append(&open_raw);
         btn_box.append(&open_roll);
         no_scanner.set_child(Some(&btn_box));
@@ -738,6 +742,15 @@ impl Window {
         try_again.connect_clicked(move |_| {
             if let Some(win) = win_weak.upgrade() {
                 win.emit_probe();
+            }
+        });
+
+        let win_weak = self.downgrade();
+        choose_scanner.connect_clicked(move |_| {
+            if let Some(win) = win_weak.upgrade()
+                && let Some(app) = win.application()
+            {
+                app.activate_action("select-scanner", None);
             }
         });
 
