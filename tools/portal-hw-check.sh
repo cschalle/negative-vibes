@@ -52,23 +52,21 @@ if [ $DRY -eq 1 ]; then
   export SANE_CONFIG_DIR=$CFG NV_SANE_ALLOW_VIRTUAL=1
   MATCH="test:"; BUILD=debug; DPI=75; DRIVER="SANE test backend"
 else
+  # A private SANE configuration that lists only the 8200i's own backend. The system configuration
+  # also enables the stock genesys backend, which lists this scanner too ("8200i SE"), and
+  # opening that entry reset the scanner (kernel: "device firmware changed", new USB address),
+  # so nothing here may open anything but plustek8200i. The driver finds its own library either
+  # way; the packaged plustek8200i.conf is only comments, but it is copied if it exists.
+  CFG=$(mktemp -d)
+  echo plustek8200i > "$CFG/dll.conf"
+  [ -f /etc/sane.d/plustek8200i.conf ] && cp /etc/sane.d/plustek8200i.conf "$CFG/"
+  export SANE_CONFIG_DIR=$CFG
   if [ $DEVBACKEND -eq 1 ]; then
     # The backend built in ~/projects/scanner (DESIGN.md §11.4), not the installed package.
-    export SANE_CONFIG_DIR=${SANE_CONFIG_DIR:-$HOME/.sane}
     export LD_LIBRARY_PATH=${NV_BACKEND_DIR:-$HOME/projects/scanner/backends/backend}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-    if [ ! -f "$SANE_CONFIG_DIR/dll.conf" ]; then
-      # Nothing lists the backend: use a throwaway directory that links the real one's files and
-      # adds a dll.conf. The real one is not touched.
-      OVERLAY=$(mktemp -d)
-      ln -s "$SANE_CONFIG_DIR"/* "$OVERLAY"/ 2>/dev/null
-      echo plustek8200i > "$OVERLAY/dll.conf"
-      export SANE_CONFIG_DIR=$OVERLAY
-    fi
-    DRIVER="dev build $LD_LIBRARY_PATH/libsane-plustek8200i.so.1 (config $SANE_CONFIG_DIR)"
+    DRIVER="dev build $LD_LIBRARY_PATH/libsane-plustek8200i.so.1"
   else
-    # The installed sane-backends-plustek8200i package: it registers itself in
-    # /etc/sane.d/dll.d, so the system SANE configuration is all that is needed.
-    unset SANE_CONFIG_DIR LD_LIBRARY_PATH
+    unset LD_LIBRARY_PATH
     DRIVER="installed $(rpm -q sane-backends-plustek8200i 2>/dev/null || echo 'sane-backends-plustek8200i (not installed by rpm)')"
   fi
   echo "driver: $DRIVER"
@@ -86,10 +84,29 @@ say() { echo; echo "== $*"; }
 
 cleanup() {
   [ -n "${SVC:-}" ] && kill "$SVC" 2>/dev/null
-  [ $DRY -eq 1 ] && rm -rf "$CFG"
-  [ -n "${OVERLAY:-}" ] && rm -rf "$OVERLAY"
+  [ -n "${CFG:-}" ] && rm -rf "$CFG"
 }
 trap cleanup EXIT
+
+# The scanner's USB address, read from sysfs (this asks the device for nothing). If it changes
+# during the run, the scanner was reset and re-enumerated, and every device name resolved before
+# is stale, so the run stops instead of scanning with a stale name.
+usb_addr() {
+  local d
+  for d in /sys/bus/usb/devices/*; do
+    if [ "$(cat "$d/idVendor" 2>/dev/null)" = 07b3 ] && [ "$(cat "$d/idProduct" 2>/dev/null)" = 1825 ]; then
+      echo "$(cat "$d/busnum"):$(cat "$d/devnum")"; return
+    fi
+  done
+}
+usb_stable() { # where
+  [ $DRY -eq 1 ] && return 0
+  local now; now=$(usb_addr)
+  if [ "$now" != "$USB0" ]; then
+    record FAIL "USB address unchanged ($1)" "was $USB0, now ${now:-gone}: the scanner reset or re-enumerated; stopping"
+    exit 1
+  fi
+}
 
 # ---- build -----------------------------------------------------------------------------
 say "building ($BUILD)"
@@ -101,7 +118,9 @@ cd "$ROOT"   # nv-cli reads data/devices.toml relative to here
 
 # ---- C0: the scanner is usable, directly ------------------------------------------------
 say "C0 preflight"
-DEVLINE=$(scanimage -L 2>/dev/null | grep -i -- "$MATCH" | head -1)
+LIST=$(scanimage -L 2>/dev/null)
+DEVLINE=$(echo "$LIST" | grep -i -- "$MATCH" | head -1)
+OTHERS=$(echo "$LIST" | grep '^device' | grep -vic -- "$MATCH")
 if [ -z "$DEVLINE" ]; then
   record FAIL "C0 scanner visible to libsane" "scanimage -L lists no '$MATCH'"
   cat <<EOF
@@ -115,6 +134,16 @@ EOF
 fi
 DEV=$(echo "$DEVLINE" | sed -E "s/^device \`([^']*)'.*/\1/")
 record PASS "C0 scanner visible to libsane" "$DEV"
+if [ "$OTHERS" -gt 0 ]; then
+  record FAIL "C0 only the 8200i's backend is listed" "$OTHERS other device(s) listed: the private configuration is not in effect; stopping before anything is opened"
+  exit 1
+fi
+record PASS "C0 only the 8200i's backend is listed" ""
+if [ $DRY -eq 0 ]; then
+  USB0=$(usb_addr)
+  [ -n "$USB0" ] || { record FAIL "C0 scanner found on USB" "no 07b3:1825 in sysfs"; exit 1; }
+  record PASS "C0 USB address recorded" "$USB0"
+fi
 record PASS "C0 driver under test" "$DRIVER"
 if [ $DRY -eq 0 ] && [ $YES -eq 0 ]; then
   read -r -p "Reference frame (tulip negative, strip holder) loaded and untouched from now on? [Enter] " _
@@ -150,6 +179,8 @@ HIDDEN=$(comm -23 "$OUT/options-direct.txt" "$OUT/options-portal.txt" | sed 's/^
 NEWOPT=$(comm -13 "$OUT/options-direct.txt" "$OUT/options-portal.txt" | sed 's/^] //' | tr '\n' ' ')
 echo "  options libsane shows and the portal hides: ${HIDDEN:-(none)}"
 echo "  options only the portal shows: ${NEWOPT:-(none)}"
+
+usb_stable "after the probes"
 
 # ---- helpers for the comparisons --------------------------------------------------------
 align() { # name ref file  -> PASS/FAIL by H1: same size, |dy| <= 0.2 rows, dx 0, ncc >= 0.999
@@ -187,6 +218,8 @@ else
   record PASS "C2 reference scan" "skipped in --dry-run (test picture is flat)"
 fi
 
+usb_stable "after the reference scan"
+
 # ---- C3 / C4: the app, direct and through the portal -------------------------------------
 say "C3 app scan, libsane in the app"
 limited "$NVCI" scan "$DEV" --dpi "$DPI" -o "$OUT/direct.pnm" > "$OUT/direct.log" 2>&1 && record PASS "C3 direct scan completes" "$(grep -E '^Saved' "$OUT/direct.log" | sed 's/ to .*//')" || record FAIL "C3 direct scan completes" "see $OUT/direct.log"
@@ -204,6 +237,7 @@ else
   record FAIL "H3 progress climbs (portal)" "$(grep -o 'progress=.*' "$OUT/portal-progress.txt")"
 fi
 
+usb_stable "after the app scans"
 if [ -s "$OUT/direct.pnm" ] && [ -s "$OUT/portal.pnm" ]; then
   say "H1 direct and portal against the reference, and against each other"
   if [ $DRY -eq 0 ]; then
@@ -220,6 +254,8 @@ if ! skipped repeat && [ $DRY -eq 0 ]; then
   limited env NV_SCANNER_BACKEND=portal "$NVCI" scan --dpi "$DPI" -o "$OUT/portal2.pnm" > "$OUT/portal2.log" 2>&1
   [ -s "$OUT/portal2.pnm" ] && tally < <(align "H2 portal repeat vs first" "$OUT/portal.pnm" "$OUT/portal2.pnm") || record FAIL "H2 portal repeat" "see $OUT/portal2.log"
 fi
+
+usb_stable "after the repeat scan"
 
 # ---- C6: infrared -------------------------------------------------------------------------
 c6() {
@@ -255,6 +291,8 @@ if ! skipped ir && [ $DRY -eq 0 ]; then
   tally < <(c6)
 fi
 
+usb_stable "after the infrared scans"
+
 # ---- C8: cancel, then scan again, through the portal ---------------------------------------
 if ! skipped cancel; then
   say "C8 cancel at 30% of a big scan, then scan again (H4)"
@@ -269,6 +307,8 @@ if ! skipped cancel; then
     record FAIL "H4 scan after cancel completes" "see $OUT/cancel.txt"
   fi
 fi
+
+usb_stable "after the cancel check"
 
 # ---- C9: logs ------------------------------------------------------------------------------
 say "C9 logs"
