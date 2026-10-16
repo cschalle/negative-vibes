@@ -87,6 +87,14 @@ per-check logs.
 
 `--dry-run` against the SANE test backend: probe, scan, portal scan (bit-identical to the
 direct one), cancel and rescan. The alignment verdict was checked on synthetic images
-(identical passes; two rows off and different sizes fail). **Not exercised before the first real
-run:** C5 (repeat), C6 (infrared), and the prompts, because the test backend has no infrared
-and the thresholds need a real film frame.
+(identical passes; two rows off and different sizes fail). The dry run cannot exercise the repeat
+scan (C5), the infrared scans (C6) or the prompts, because the test backend has no infrared and
+the thresholds need a real film frame.
+
+## Result on the 8200i
+
+On 2026-10-16 the whole check passed on the OpticFilm 8200i with the installed `plustek8200i`
+0.1.25 driver: 23 passed, 0 failed, 0 warnings. The figures are in DESIGN.md §10. Two earlier
+runs are why the script now has a private configuration, a time limit on each scan and a
+USB-address guard: the first showed a service bug (a colour+infrared scan that never ended), and
+the second was cut short when opening the `genesys` entry for the scanner reset it.

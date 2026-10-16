@@ -828,11 +828,36 @@ app with its headless hooks:
 | H9 Crop | Pass: a 50% × 60% area scan equals the same region of the full scan (dy +0.03, ncc 0.9991), one pixel up and left of the requested origin, which is the device's step size |
 
 **The scanner portal prototype** (2026-10-16): the portal-backed `ScannerBackend` was run on the
-8200i through `tools/portal-hw-check.sh`. Capabilities and quirk matching, a 600 dpi scan, a
-repeat scan and the progress of a portal scan passed against the thresholds above. The first run
-exposed a bug in the prototype service (it cancelled between the frames of a colour+infrared
-scan, so the 8200i delivered the colour frame again and again); it is fixed and has a regression
-test, and the infrared and cancel steps have **not been re-run on the scanner since**.
+8200i with `tools/portal-hw-check.sh`, against the installed `plustek8200i` 0.1.25 driver and the
+reference frame (864 × 645 at 600 dpi, the size of the tulip fixture). The same frame was scanned
+with libsane inside the app (direct), through the portal, and with `scanimage` as the reference.
+All 23 checks of the last run passed, with the thresholds of §11.4:
+
+| Check | Result |
+|---|---|
+| Capabilities and quirks, direct vs portal (`nv-cli probe`) | Identical, including `IR: MultiFrame` |
+| H1 direct vs reference | dy −0.05 rows, dx 0, ncc 0.9998 |
+| H1 portal vs reference | dy −0.05, dx 0, ncc 0.9998 |
+| H1 portal vs direct | dy 0.00, dx 0, ncc 0.9999 |
+| H2 portal repeat vs first | dy +0.02, dx 0, ncc 0.9999 |
+| H3 portal progress | 50 steps from the first data, steady |
+| H5 portal colour vs reference | dy −0.04, dx 0, ncc 0.9998 |
+| H5 infrared aligned with colour, direct and portal | dy 0, dx 0 |
+| H5 infrared level, direct vs portal | median 49660 against 49681 (0.0% apart) |
+| H4 cancel at 30% of a 1200 dpi scan | Returned in 0.08 s |
+| H4 scan after the cancel, same session, vs reference | dy −0.06, dx 0, ncc 0.9998 |
+| Timeouts or DMA errors in the service log | None |
+
+The scanner kept its USB address and its descriptors through the run. The portal path matches the
+direct path to within sensor noise on every measure checked here.
+
+Getting there took three runs. The first, with a private configuration, passed everything up to
+the infrared scan and then exposed a bug in the prototype service: it cancelled between the
+frames of a colour+infrared scan, so the 8200i delivered the colour frame again and again until
+the run was stopped. That is fixed and has a regression test. The second run used the system SANE
+configuration and was cut short when opening the stock `genesys` entry for the scanner reset it
+(R10 in §13). The third, through a private configuration that lists only `plustek8200i` and with
+the script stopping if the USB address changes, is the one above.
 
 **Not verified.** The scanner's scan button is not used. The 2026-10-09 notes record several
 dialogs and widgets as built and started but not clicked through (the Scan a Roll window, the
@@ -1089,7 +1114,7 @@ Conventions:
 | R6 | IR dust removal on other scanners may need registration and crosstalk handling that the 8200i does not exercise. | Both are implemented and tested on synthetic data only. |
 | R7 | The `plustek8200i` backend is outside sane-backends. | It ships as a separate RPM and is built into the Flatpak. Upstreaming is separate work; an upstream SANE ticket exists. |
 | R8 | Google Photos upload needs an OAuth client that does not exist, and, for other users, Google's app verification. | Run only against a stand-in server. Users can enter their own client under Preferences. |
-| R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype and checks in `docs/scanner-portal/`; the next steps are the GTK window identifier, a run of the infrared and cancel checks on the scanner, and the upstream issue. |
+| R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype and checks in `docs/scanner-portal/`; the 8200i checks pass (§10). The next steps are running the application against it from a Flatpak without `--device=all`, the GTK window identifier, and the upstream issue. |
 | R10 | With the system SANE configuration the stock `genesys` backend also lists the 8200i ("OpticFilm 8200i SE"), and opening that entry appears to reset it. On 2026-10-16 `nv-cli probe` opened it; the kernel logged `device firmware changed` and a new USB address, and the product strings were gone. The application's probe opens every device that is not a webcam, so it may do the same. | Not yet checked in the application. Hardware checks use a private configuration with only `plustek8200i`. Options: skip a device that another backend already lists at the same USB address, or have the quirks file name the backend to use. The Oct 8 results in §10 predate the sane-backends update that added the genesys entry. |
 
 Open questions:

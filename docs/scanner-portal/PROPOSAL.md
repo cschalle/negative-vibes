@@ -138,8 +138,10 @@ the same options through the portal and through libsane via the same traits: fra
 parameters and pixel data are identical for gray, 8-bit, 16-bit and three-pass; option
 descriptors and constraints match; a busy scanner, an empty feeder, a rejected value and a
 cancel with an unread pipe all arrive as the SANE conditions the worker already handles.
-**Not verified:** the GTK app itself (nothing was clicked), a real scanner (the 8200i), the
-Flatpak sandbox, or a real portal dialog.
+**Not verified at that point:** the GTK app itself (nothing was clicked), a real scanner (the
+8200i), the Flatpak sandbox, or a real portal dialog. **Since then** the 8200i has been checked:
+the portal path matches libsane on colour, infrared, repeat and cancel, within sensor noise
+(DESIGN.md §10). The GTK app, the Flatpak sandbox and a real portal dialog are still not verified.
 
 ### What step 3 found
 
