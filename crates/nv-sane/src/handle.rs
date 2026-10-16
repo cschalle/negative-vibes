@@ -161,6 +161,14 @@ impl Handle {
 
     /// Set option `index` to `value`.  Returns flags indicating side effects.
     pub fn set_option(&self, desc: &OptionDescriptor, value: &OptionValue) -> Result<SetInfo> {
+        // A number of the other kind is converted: writing an int's bits into a fixed-point
+        // option would set it to a value 65536 times too small.
+        let converted = match (&desc.kind, value) {
+            (OptionKind::Fixed, OptionValue::Int(n)) => Some(OptionValue::Fixed(f64::from(*n))),
+            (OptionKind::Int, OptionValue::Fixed(f)) => Some(OptionValue::Int(f.round() as i32)),
+            _ => None,
+        };
+        let value = converted.as_ref().unwrap_or(value);
         let index = desc.index as sys::SANE_Int;
         let mut info: sys::SANE_Int = 0;
         let status = match value {
