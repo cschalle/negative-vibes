@@ -27,3 +27,6 @@ futures-lite = "2"
 async-channel = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[features]
+portal = ["nv-acquire/portal"]
