@@ -16,8 +16,13 @@ pub struct ProbeArgs {
 
 pub fn run(args: ProbeArgs) -> anyhow::Result<()> {
     let quirks = Quirks::load(&args.quirks);
-    let session = nv_sane::Session::new().map_err(|e| anyhow::anyhow!("sane_init: {e}"))?;
-    let devices = session.get_devices(!args.network).map_err(|e| anyhow::anyhow!("sane_get_devices: {e}"))?;
+    // The same backend choice as the app: libsane, or the scanner portal with NV_SCANNER_BACKEND=portal.
+    let session = nv_acquire::make_backend().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut devices = session.get_devices(!args.network).map_err(|e| anyhow::anyhow!("get_devices: {e}"))?;
+    if devices.is_empty() {
+        // Through the portal nothing is listed until the user has chosen. libsane: a no-op.
+        devices = session.select_devices("").map_err(|e| anyhow::anyhow!("select_devices: {e}"))?;
+    }
 
     if devices.is_empty() {
         println!("No SANE devices found.");

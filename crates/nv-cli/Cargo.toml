@@ -22,3 +22,6 @@ nv-export = { path = "../nv-export" }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 async-channel = "2"
+
+[features]
+portal = ["nv-acquire/portal"]
