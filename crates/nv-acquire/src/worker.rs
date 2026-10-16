@@ -139,8 +139,7 @@ fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanE
             }
         };
 
-        let backend = nv_device::quirks::backend_name(&dev.name);
-        let qk = quirks.find(backend, &dev.model);
+        let qk = quirks.find(&dev.backend, &dev.model);
         match DeviceCapabilities::detect(&dev.name, &dev.vendor, &dev.model, &handle, qk) {
             Ok(caps) => caps_list.push(caps),
             Err(e) => eprintln!("nv-acquire: capability detect failed for {}: {e}", dev.name),
@@ -179,7 +178,8 @@ fn do_scan(
     let dev = dev_info.iter().find(|d| d.name == device_name);
     let (vendor, model) = dev.map(|d| (d.vendor.as_str(), d.model.as_str())).unwrap_or(("", ""));
 
-    let backend = nv_device::quirks::backend_name(device_name);
+    // Not parsed from device_name: through the portal that is an opaque id.
+    let backend = dev.map_or_else(|| nv_device::quirks::backend_name(device_name), |d| d.backend.as_str());
     let qk = quirks.find(backend, model);
     let caps = match DeviceCapabilities::detect(device_name, vendor, model, &handle, qk) {
         Ok(c) => c,

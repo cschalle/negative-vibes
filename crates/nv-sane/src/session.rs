@@ -4,7 +4,11 @@ use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
+    /// What `open` takes: SANE's device name, or the scanner portal's opaque id.
     pub name: String,
+    /// The SANE backend that drives the device (`plustek8200i`). Quirks are matched on this,
+    /// so it must not be parsed out of `name`, which is opaque through the portal.
+    pub backend: String,
     pub vendor: String,
     pub model: String,
     pub kind: String,
@@ -45,7 +49,14 @@ impl Session {
                 break;
             }
             let dev = unsafe { &*dev_ptr };
-            devices.push(DeviceInfo { name: cstr(dev.name)?, vendor: cstr(dev.vendor)?, model: cstr(dev.model)?, kind: cstr(dev.type_)? });
+            let name = cstr(dev.name)?;
+            devices.push(DeviceInfo {
+                backend: name.split(':').next().unwrap_or(&name).to_owned(),
+                name,
+                vendor: cstr(dev.vendor)?,
+                model: cstr(dev.model)?,
+                kind: cstr(dev.type_)?,
+            });
             i += 1;
         }
         Ok(devices)

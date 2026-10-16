@@ -33,8 +33,7 @@ pub fn run(args: ProbeArgs) -> anyhow::Result<()> {
             }
         };
 
-        let backend = nv_device::quirks::backend_name(&dev.name);
-        let qk = quirks.find(backend, &dev.model);
+        let qk = quirks.find(&dev.backend, &dev.model);
         let caps = DeviceCapabilities::detect(&dev.name, &dev.vendor, &dev.model, &handle, qk).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         print_caps(&caps);
