@@ -1,250 +1,262 @@
-# Scanner portal: draft proposal
+# Scanner portal
 
-Status: draft, prototyped in Negative Vibes, intended for upstream xdg-desktop-portal.
-Scope of v1: SANE only. eSCL / IPP-scan providers come later.
+A proposal for a scanner portal in xdg-desktop-portal, so that sandboxed applications can
+scan without bundling drivers or holding `--device=all`.
 
-Crates: `nv-sane-portal` (client: proxies and the portal-backed `ScannerBackend`, what the
-app uses) and `nv-portal-proto` (the test-double service, scenarios and parity test).
+Status: draft for review. The interfaces below are implemented by a prototype service and
+have been driven by two applications, on real hardware and from inside a Flatpak sandbox.
+Nothing is final; the open questions in the last section are the parts that most need a
+decision from upstream.
 
-Files here:
+Scope of v1: scanners driven by SANE. eSCL and IPP-Scan providers are not part of v1, but
+the option model is deliberately abstract enough to be fed by one later.
 
-- `org.freedesktop.portal.Scanner.xml`: frontend interface (what apps call)
-- `org.freedesktop.impl.portal.Scanner.xml`: backend interface (UI only)
+Interface definitions in this directory:
+
+- `org.freedesktop.portal.Scanner.xml` — frontend interface, what applications call
+- `org.freedesktop.impl.portal.Scanner.xml` — backend interface, UI only
 
 ## Problem
 
-Flatpak apps have no portal for scanners. They must bundle sane-backends and take
-`--device=all` (USB) and `--share=network` (network scanners), so they cannot use
-host-installed or proprietary drivers, cannot see the host's SANE configuration, and the
-user cannot see or revoke scanner access. Printing has a portal. Scanning does not.
+There is no portal for scanners. A Flatpak application that wants to scan has to bundle
+sane-backends and hold `--device=all` for USB scanners and `--share=network` for network
+ones. That has a cost on every side:
 
-## Design in one paragraph
+- **Security.** `--device=all` is access to all of `/dev`, and `--share=network` is the whole
+  network, both granted permanently at install time for a device the user may use twice a year.
+- **Drivers.** The bundled backends are the only ones the application can use. Host-installed
+  drivers, out-of-tree drivers and proprietary vendor drivers are all invisible to it, even
+  when the same scanner works fine outside the sandbox.
+- **Configuration.** The host's SANE configuration — `dll.conf`, per-backend configuration,
+  network scanner definitions — does not reach the sandbox, so a scanner the user already
+  set up has to be set up again, if it can be at all.
+- **Control.** The user cannot see which applications may scan and cannot revoke it. There is
+  no prompt, no list, no entry in the permission store.
+- **Duplication.** Every application ships and updates its own copy of sane-backends.
 
-Print portal style consent, USB portal style fd handover. The user picks scanners in a
-portal dialog (`SelectScanners`); the grant is stored per app in the permission store.
-The app opens a granted scanner (`OpenScanner`, a `Session`), reads SANE-style typed
-options (`GetOptions`, `SetOptions`) and pulls image data one frame at a time
-(`StartFrame`) through a pipe fd, with `FrameEvent` signals for state. libsane runs on the
-host, never in the sandbox.
+Printing has had a portal for years. Scanning, which is the same kind of device access with
+the same kind of consent question, has none.
+
+## Goals
+
+- A sandboxed application can scan with no device, network or filesystem access.
+- The user chooses which scanners an application may use, in a dialog, once, and can revoke
+  the choice afterwards.
+- libsane and its backends run on the host, so host and proprietary drivers work and the
+  host's SANE configuration applies.
+- The API is rich enough for demanding applications: multi-bit-depth, infrared, multi-pass,
+  and backend-specific options all survive it.
+- Simple applications stay simple: well-known option names mean a "resolution and mode" UI
+  needs no special cases.
+
+## Non-goals for v1
+
+- Scanner **discovery** by sandboxed applications. An application sees only what it was
+  granted, never a list of what is on the network.
+- **Hardware buttons** (scan-to-application), which need a dispatch model of their own.
+- **eSCL / IPP-Scan** as a provider, though the model is meant to allow it later.
+- A **per-scan prompt**. Scanning requires a physical action by the user, so the grant is the
+  consent; see the decisions table.
+
+## Architecture
+
+The split follows the USB portal: the backend draws the dialog and nothing else, and the
+frontend does the work.
+
+```
+  sandbox                     |  host
+                              |
+  application                 |  xdg-desktop-portal
+    |                         |    org.freedesktop.portal.Scanner  (frontend)
+    |  D-Bus calls -----------+---->  |
+    |                         |       |-- permission store, table "scanner"
+    |  pixel data <-----------+-------|-- helper process per session -- libsane -- scanner
+    |      (pipe fd)          |       |
+                              |       '-- org.freedesktop.impl.portal.Scanner  (dialog)
+                              |             in xdg-desktop-portal-gtk / -kde
+```
+
+Two properties of this layout matter:
+
+**The frontend must not link libsane.** libsane is not thread-safe, it loads backend code
+into the process, and that code can be proprietary and of unknown quality. Running it in
+xdg-desktop-portal itself would put it in a long-lived process that every portal shares. It
+therefore belongs in a helper, one per open scanner, which also means a wedged backend
+cannot take down other applications' scans. How that helper is launched and managed is the
+first open question below.
+
+**Pixel data does not travel over D-Bus.** A single 7200 dpi frame is hundreds of megabytes.
+`StartFrame` returns the read end of a pipe, so the data path is a plain fd with kernel
+backpressure, no temporary files and no message size limits — the same handover the USB
+portal uses.
+
+## The interface
+
+Consent and enumeration:
+
+| Member | Purpose |
+|---|---|
+| `SelectScanners(parent_window, options) → Request` | Shows the dialog and stores the grant. Called on a user action, or when `ListScanners` comes back empty — not on every start. `options` can ask for `multiple` and filter on `required_capabilities` (`film`, `adf`, `infrared`, `flatbed`, `color`). |
+| `ListScanners(options) → a(sa{sv})` | The granted, currently available scanners. Each is an opaque id plus `name`, `vendor`, `model`, `backend`, `kind`, `type`, `capabilities`, `available`. |
+| `CreateSession(options) → Session` | A monitoring session, needed only for `ScannerEvents`. |
+| `ScannerEvents(session, a(ssa{sv}))` | `add`, `change` or `remove` for granted scanners only. |
+
+Scanning, on a `Session` from `OpenScanner`:
+
+| Member | Purpose |
+|---|---|
+| `OpenScanner(scanner_id, options) → Session` | Opens a granted scanner and takes the host's exclusive lock. May take seconds (lamp warm-up, calibration). Closing the session, or leaving the bus, cancels any scan and releases the scanner. |
+| `GetOptions(session, options) → aa{sv}` | SANE-shaped option descriptors in backend order: `name`, `title`, `description`, `type`, `unit`, `size`, `constraint`, `capabilities`. |
+| `GetOptionValues(session, options) → a{sv}` | The current value of every readable, active option. |
+| `SetOptions(session, a(sv), options) → applied, flags` | Sets options **in array order**. Returns what each option ended up with, and flags `inexact`, `reload-options`, `reload-params`. |
+| `GetFrameParameters(session, options) → a{sv}` | The layout the next frame would have, as an estimate, for sizing buffers and previews. |
+| `StartFrame(session, options) → fd` | Starts one frame and returns at once with the read end of a pipe. |
+| `Cancel(session)` | Cancels the frame in progress. |
+| `FrameEvent(session, state, details)` | `started`, `finished`, `cancelled`, `no-documents` or `error`. `started` carries `format`, `depth`, `pixels_per_line`, `bytes_per_line`, `lines` and `last_frame`. Every event carries its frame number. |
+
+A typical exchange:
+
+```
+SelectScanners()                     once, on a user action
+ListScanners()                       → [(id, {name: "Plustek OpticFilm 8200i", …})]
+OpenScanner(id)                      → session
+GetOptions(session)                  → descriptors
+SetOptions(session, [("mode","Color"), ("resolution",3600)])
+loop:
+    StartFrame(session)              → fd
+    FrameEvent started               → format, depth, bytes_per_line, lines, last_frame
+    read(fd) until EOF
+    FrameEvent finished
+    until last_frame
+Session.Close(session)
+```
+
+An application detects the portal by checking for the `version` property of
+`org.freedesktop.portal.Scanner` on `org.freedesktop.portal.Desktop`, and falls back to
+libsane when it is absent.
+
+The backend interface has a single method, `SelectScanners`, which receives the scanner list
+the frontend assembled and returns the ids the user picked. The frontend stores the grant.
 
 ## Decisions and why
 
 | Decision | Reason |
 |---|---|
-| SANE-shaped option model, not a reduced "resolution/mode/source" API | Film scanning needs infrared, 16-bit, multi-pass and backend-specific options. A reduced API would lose them. Well-known option names (`resolution`, `mode`, `tl-x`) keep simple apps simple. |
-| Pipe fd per frame, not a file | A 7200 dpi frame is hundreds of MB. A pipe gives backpressure and no temp files. One frame per call mirrors `sane_start` and covers RGB+IR. |
-| `StartFrame` returns at once; state in `FrameEvent` | `sane_start` can block for many seconds (warm-up, carriage). End of data on a pipe cannot tell success from failure, so `finished` is explicit. |
-| Opaque ids from `SelectScanners`, never raw SANE names | Some backends interpret device names as paths or hosts. Apps must not steer the host to arbitrary files or addresses. |
-| App sees only granted scanners | No LAN scanner enumeration by sandboxed apps (fingerprinting, privacy). |
-| Typed D-Bus values | Print's all-string settings are a mistake not to copy. |
-| Ordered `a(sv)` for `SetOptions`, not `a{sv}` | Found while prototyping: D-Bus dictionaries do not guarantee order, and SANE needs it (`mode` before `three-pass`, which is inactive in gray). |
-| `FrameEvent` carries a per-session frame number | Found by the second application: a client that cancels has to wait for the cancelled frame's last event, or its next frame meets it. With a number on each event it can drop leftovers. |
-| Automatic values as the vardict `{'auto': true}` | SANE has `SET_AUTO`; Simple Scan uses it for the scan source. D-Bus has no empty structure, so the "no value" marker is a vardict, which also leaves room for other per-option modifiers. |
-| `Session` for an open scanner | Free lifecycle: app exit releases the lock, the portal can revoke with `Session.Closed`. |
-| No per-scan prompt after grant | Scanning needs a physical action. Revisit if reviewers disagree. |
-| Backend = UI only | Same split as `impl.portal.Usb`. |
+| A SANE-shaped typed option model, not a reduced `resolution`/`mode`/`source` API | Film scanning needs infrared channels, 16-bit depth, multi-pass and backend-specific options; a reduced API loses them and the application has to go around the portal. Well-known option names keep the simple cases simple. |
+| Typed D-Bus values, with constraints and units | The print portal's all-string settings dictionary is the mistake not to repeat: it moves validation into every application. |
+| A pipe fd per frame, not a file or D-Bus bytes | Frames reach hundreds of megabytes. A pipe gives backpressure for free, needs no temporary file and no disk access in the sandbox. One frame per call mirrors `sane_start` and covers RGB plus infrared. |
+| `StartFrame` returns immediately; state arrives in `FrameEvent` | `sane_start` can block for many seconds on warm-up or carriage movement, which no application should hold a D-Bus call open for. End of data on a pipe also cannot distinguish success from failure, so `finished` has to be explicit. |
+| Ordered `a(sv)` for `SetOptions`, not `a{sv}` | D-Bus dictionaries do not preserve order and SANE option setting is order-dependent: `mode` must be set before options that are inactive in the wrong mode, such as `three-pass` in grayscale. A dictionary cannot express that at all. |
+| A frame number on every `FrameEvent` | A client that cancels a frame and immediately starts another must be able to tell the old frame's trailing events from the new frame's. A per-session counter, and the rule that a frame ends with exactly one non-`started` event, let it discard anything not newer than the last frame it saw end. Without it every client reimplements a drain-and-wait by hand. |
+| Automatic values as the vardict `{'auto': <true>}` | SANE has `SANE_ACTION_SET_AUTO` and real applications use it, for example to let the scanner pick the source. D-Bus has no empty structure, so a vardict stands in for the "no value" marker, and leaves room for further per-option modifiers. |
+| `backend` in the scanner info | The scanner id is opaque, so applications cannot match device quirks on it — and device quirks are unavoidable in practice. The driver name has to be exposed on purpose. |
+| `type` in the scanner info, alongside `kind` | Applications hide devices that are not scanners (webcams through `v4l`) and rank by device type. `kind`, the connection, cannot express that. SANE's own type string can, as an untranslated hint, never as an identifier. |
+| `GetFrameParameters` as an estimate | SANE allows `sane_get_parameters` before `sane_start` and applications use it to size buffers and previews. Without it a client cannot know the frame size until data is already flowing. |
+| A dedicated `Busy` error | A locked scanner, a frame in progress and an option set during a frame are ordinary, expected conditions that an application must handle differently from a real failure. Folding them into `Failed` forces clients to guess from the message. |
+| Opaque scanner ids, never raw SANE device names | Some backends interpret device names as file paths or network addresses. Handing an application control of that string lets it steer the host at arbitrary files and hosts. |
+| The application sees only granted scanners | Enumerating the LAN's scanners is a fingerprinting and privacy problem, and not something an application needs before the user has chosen anything. |
+| A `Session` for an open scanner | Lifecycle comes for free: the application exiting releases the hardware lock, and the portal can revoke access with `Session.Closed`. |
+| No per-scan prompt once granted | Scanning needs the user to put something in the scanner, so it cannot happen unnoticed; the grant plus revocation is proportionate. Open to argument if reviewers disagree. |
+| The backend does UI only | Same split as `org.freedesktop.impl.portal.Usb`, and it keeps libsane out of the desktop shell's process as well as out of the frontend's. |
 
-## Open questions (for upstream review)
+## Security and privacy
 
-1. **Where does libsane run?** The frontend must not link libsane (no thread safety, can load
-   proprietary code). Options: (a) a per-session host helper process spawned by the frontend,
-   (b) a separate systemd user service the frontend talks to, which can also serve eSCL
-   later. Prototype uses (a). Upstream will want a view.
-2. **Hotplug / availability** for network scanners: poll via the helper, or rely on avahi.
-3. **Button options and filename options:** the draft hides filename-type options and
-   refuses to set them. The exact filter list needs a pass over the SANE backends.
-4. **Hardware buttons** (scan-to-app): out of scope for v1.
-5. **Multiple apps, one scanner:** exclusive lock for v1; how a busy scanner is reported.
-6. **Flatpak permission model:** `--device=all` can be dropped; the prototype needed only
-   `--talk-name` for its own bus name. The real portal would be covered by
-   `--talk-name=org.freedesktop.portal.Desktop`, which apps already have (not tested).
-7. **Bundled backend fallback:** exotic scanners (our `plustek8200i`) still need the USB
-   portal and bundled backends until the host ships their driver.
+- No `/dev`, no network and no filesystem access is needed by the application; the data path
+  is a pipe the portal creates.
+- Device ids are opaque and not constructible, so an application cannot name a device that was
+  not granted, and cannot smuggle a path or host into a backend's device string.
+- Option types that would make the host open a file or socket of the application's choosing —
+  file name options above all — are not listed by `GetOptions` and cannot be set.
+- Grants live in the permission store, per application, and are revocable; revocation closes
+  open sessions through `Session.Closed`.
+- The host's exclusive lock means one application at a time has the scanner, so one sandbox
+  cannot read another's scan in progress.
+- Backend code runs in a helper process, not in xdg-desktop-portal, so a backend that crashes
+  or hangs affects one session.
 
-## Prototype plan (in Negative Vibes)
+## Notes for implementers
 
-Goal: exercise the whole API with a real app before proposing it upstream.
+Two things are easy to get wrong and are worth stating in the interface documentation rather
+than leaving to each implementation:
 
-1. **Trait in `nv-sane`.** The wrapper already has the right shape: `Session::get_devices`,
-   `open`, `Handle::all_options`, `get_option`, `set_option`, `get_parameters`, `start`,
-   `read`, `cancel`. Put these behind a `ScannerBackend` trait with a `LibSane`
-   implementation (today's code) and a `Portal` implementation. The single worker thread
-   stays; it owns one backend.
-2. **Prototype portal service** (new crate `crates/nv-portal-proto`, Rust, `zbus`). Implements
-   `org.freedesktop.portal.Scanner` on the session bus under a test name, using the same
-   libsane wrapper in a helper subprocess per session. Permission store and the dialog are
-   stubbed (auto-grant, logged). This is only a test double for the API; the real thing
-   belongs in xdg-desktop-portal (C).
-3. **Portal client in the app.** Behind a cargo feature and a runtime switch, with a
-   `--talk-name` for the test service in the Devel manifest. Pass `Cancel`, an empty feeder
-   (`no-documents`), revoke (`Session.Closed`) and a mid-frame close of the pipe.
-4. **Verify** with the §11.2 test backend matrix and the §11.3 simulator, then real scans on
-   the 8200i, comparing bytes against the direct libsane path (they must match exactly).
-5. **Port to xdg-desktop-portal** in C: `src/scanner.c`, permission store table `scanner`,
-   `data/org.freedesktop.portal.Scanner.xml`, backend stub in `xdg-desktop-portal-gtk`,
-   docs and a test in `tests/`. Then open the upstream issue with the measured results.
+1. **Cancellation must not depend on the application reading.** If the application stops
+   reading, the pipe fills at 64 KB and the writer blocks. An implementation that cancels
+   from the same thread will then never see `Cancel()`, and the scan hangs until the
+   application reads or exits. The writer has to be non-blocking and poll for cancellation.
+   The rule for the API is: *a frame is cancelled by `Cancel()` or by the application closing
+   the pipe, and neither may depend on the application reading the data.*
+2. **Option state can be per device, not per handle.** Some SANE backends keep option values
+   on the device, so a new session can inherit the previous one's settings. This is existing
+   libsane behaviour that the portal passes through rather than hides; applications should set
+   every option they depend on instead of assuming defaults.
+
+## Validation
+
+A prototype service implements the frontend interface over libsane, with the dialog and the
+permission store stubbed (auto-grant). Two applications have been ported to it, and both ran
+against it from inside a Flatpak with neither `--device=all` nor `--share=network`.
+
+| Checked | How | Result |
+|---|---|---|
+| Interface behaviour | 40 scenario checks on a private bus, against SANE's `test` backend | Pass: grants, opaque ids, the exclusive lock, other applications refused on someone else's session, option errors, option order, automatic values, frame numbers, `Cancel()`, closing the pipe early, release when the application leaves the bus, hand scanner (`lines` = -1), `no-documents` from an empty feeder |
+| Pixel data correctness | Prototype client output compared with `scanimage` | Byte for byte identical for grayscale, 8-bit RGB, 16-bit RGB and three-pass red/green/blue |
+| Portal path versus libsane | Parity test scanning the same options through both, via one trait | Frame parameters, pixel data, option descriptors and constraints identical; busy scanner, empty feeder, rejected value and cancel-with-unread-pipe all surface as the same conditions |
+| Real hardware | Plustek OpticFilm 8200i film scanner, 23 checks | Pass, including colour plus infrared, two numbered frames in one session, and cancel then rescan; colour, infrared, repeat and cancel match libsane within sensor noise |
+| Flatpak sandbox | Scenarios and a GTK application, no `--device=all`, no network | Pass: preview and raw scan on the 8200i, so fd passing and signals work through the Flatpak D-Bus proxy |
+| A second, independent application | GNOME Simple Scan ported to the draft | Scanned from the sandbox on the 8200i, was cancelled mid-frame and scanned again in the same session; the device arrived as `film scanner` |
+
+The second application is what produced the frame numbers, the automatic values, the `type`
+field and a good deal of the interface documentation: the first application's needs alone
+were not enough to settle them.
+
+Not yet verified: a real backend dialog in a desktop shell, window-handle attachment for that
+dialog, network scanners, and any provider other than SANE.
+
+## Open questions
+
+1. **How is the host helper launched?** Either the frontend spawns a helper process per
+   session, or it talks to a separate systemd user service that owns libsane and could also
+   serve eSCL later. The prototype spawns per session. This is the main structural question
+   for review.
+2. **Hotplug and availability** for network scanners: poll through the helper, or rely on
+   Avahi?
+3. **Array-valued options.** Gamma tables and some calibration data are arrays. The
+   descriptor has `size` for it but v1 carries one value per option and hides arrays.
+   Either v1 states that options are scalar, or the value encoding needs an array form.
+4. **Is `Busy` an acceptable error name?** `org.freedesktop.portal.Error.Busy` is not in
+   xdg-desktop-portal's existing error set, and the condition is real and common. Add it, or
+   use another name?
+5. **The option filter list.** Hiding file name and button options needs a pass over the
+   actual SANE backends to be sure the list is right.
+6. **One scanner, several applications.** v1 takes an exclusive lock. Is that the right
+   policy, and is `Busy` enough to report it?
+7. **Flatpak permissions.** Applications would need no new permission:
+   `--talk-name=org.freedesktop.portal.Desktop`, which they already have, should cover it,
+   and `--device=all` can then be dropped. This has not been tested against the real
+   frontend.
+8. **Bundled backends as a fallback.** Scanners whose driver the host does not ship — the
+   8200i is one — still need the USB portal and bundled backends. Worth saying so explicitly
+   in the documentation.
+
+## Upstreaming plan
+
+1. Open an issue on xdg-desktop-portal with this proposal and the measured results, and
+   settle the open questions, question 1 first.
+2. Implement the frontend in C: `src/scanner.c`, the `scanner` permission store table,
+   `data/org.freedesktop.portal.Scanner.xml`, documentation and tests in `tests/`.
+3. Implement the dialog in `xdg-desktop-portal-gtk`, with a KDE counterpart to follow.
+4. Land the Simple Scan port once the interface is accepted, as a non-prototype consumer.
 
 ## Prior art
 
-- sane-devel, Sept 2020, "Sandboxing scanner applications" (Bastien Nocera): host-side
-  service preferred over bundled drivers.
-- PWG IPP-scan and WS-Scan: similar to each other; reviewers asked that the model not
-  be locked to SANE. The v1 option vocabulary is abstract enough (typed, constrained,
-  units) to be fed by an eSCL provider later.
-
-## Prototype status (step 2)
-
-`crates/nv-portal-proto` implements the draft interface over libsane: `nv-portal-proto`
-(service, on its own bus name, never the real portal's) and `nv-portal-proto-client`.
-Stubbed: the permission store (grants in memory, global) and the dialog (auto-selects, with
-`--select SUBSTRING`). Not implemented: `ScannerEvents` (declared, never emitted).
-
-Verified against the SANE `test` backend, which needs no hardware (`tests/run-scenarios.sh`
-runs 28 checks on a private bus; the client's output matches `scanimage` byte for byte for
-gray, 8-bit RGB, 16-bit RGB and three-pass red/green/blue frames):
-selection and grants, opaque ids, the exclusive lock, other apps refused on someone else's
-session, option errors, option order, `Cancel()`, closing the pipe early, release when the app
-leaves the bus, hand scanner (`lines` = -1), and `no-documents` from an empty feeder.
-
-### What the prototype found
-
-1. **Ordered option list.** `SetOptions` is now `a(sv)` (see the table above).
-2. **A full pipe stalls Cancel.** If the app does not read, the pipe fills at 64 KB, the
-   writer blocks, and `Cancel()` is never seen: the SANE thread hung until the app read or
-   closed the pipe, holding up every other session. Fixed with a non-blocking writer that
-   polls and checks the cancel flag. Any implementation of this API needs the same care, so
-   it belongs in the interface docs: *a frame is cancelled by `Cancel()` or by closing the
-   pipe, and neither may depend on the app reading*.
-3. **Arrays are missing.** `nv-sane` reads one value per option, so array options (gamma
-   tables, some calibration data) cannot be carried yet. The prototype hides them. Either
-   v1 says options are scalar, or the descriptor needs an array form (the draft's `size` is
-   in place for it, but nothing fills it in).
-4. **The device-type filter.** The app skips SANE type "virtual device" to hide webcams, but
-   the SANE `test` backend has that type too. The portal should drop `v4l:` by backend
-   name, and the app should not rely on the type string.
-5. **One SANE thread blocks all sessions** while a frame runs. That is the prototype's
-   limit and the reason the proposal wants one helper process per session.
-
-## Prototype status (step 3): the app on the portal
-
-`nv-sane-portal::PortalBackend` implements `nv_sane::ScannerBackend`/`ScannerHandle`. The
-acquisition worker picks it at run time: build with `--features portal` (on `nv-acquire`,
-`nv-cli` or `negative-vibes`) and set `NV_SCANNER_BACKEND=portal`; `NV_PORTAL_BUS_NAME`
-names the portal (default: the prototype's `org.freedesktop.NvPortalProto`). Without the
-feature the variable is an error, never a silent fallback to libsane. The Devel manifest
-gets `--talk-name=org.freedesktop.NvPortalProto`; its `--device=all` stays until the
-portal path is the default.
-
-Verified: `nv-cli scan` through the worker completes a 16-bit RGB scan over the portal, and
-`cargo test -p nv-portal-proto --test backend_parity` (private bus, SANE test backend) scans
-the same options through the portal and through libsane via the same traits: frame
-parameters and pixel data are identical for gray, 8-bit, 16-bit and three-pass; option
-descriptors and constraints match; a busy scanner, an empty feeder, a rejected value and a
-cancel with an unread pipe all arrive as the SANE conditions the worker already handles.
-**Not verified at that point:** the GTK app itself (nothing was clicked), a real scanner (the
-8200i), the Flatpak sandbox, or a real portal dialog. **Since then** the 8200i has been checked:
-the portal path matches libsane on colour, infrared, repeat and cancel, within sensor noise
-(DESIGN.md §10). The Flatpak sandbox has been checked too: the scenarios pass from a build with no
-`--device=all` and no network, and the GTK app made a preview and a raw scan on the 8200i from
-it, so fd passing and signals work through the Flatpak D-Bus proxy (DESIGN.md §10). A real
-portal dialog and clicking through the GUI are still not verified.
-
-### What step 3 found
-
-1. **Frame parameters come only with `started`.** libsane allows `sane_get_parameters`
-   before `sane_start` (an estimate for sizing the UI). The portal gives them once the frame
-   starts. The worker only reads them after `start`, so nothing broke, but a client that
-   wants the size up front has no call for it. Consider `GetFrameParameters` (estimate).
-2. **"Busy" has no portal error.** The portal's error set has `Failed`, `InvalidArgument`,
-   `NotAllowed`; a locked scanner is `Failed`, which the client maps to `DEVICE_BUSY`. That
-   is a guess from one cause. Either document that `Failed` from `OpenScanner` means busy, or
-   add a dedicated error name.
-3. **`SelectScanners` needs a window.** The worker has no window handle, so the backend
-   passes an empty `parent_window` and `get_devices` opens the dialog by itself when nothing
-   is granted. In the app, selection should be a UI action that passes its window identifier;
-   `get_devices` should then only list.
-4. **Device identity changes meaning.** The portal's opaque id replaces SANE's device name
-   as what `open` takes. It is stable (a hash of the name here), so a stored name keeps
-   working with the same backend, but a name saved under libsane will not resolve under the
-   portal. Anything that persists `device_name` (roll metadata, settings) must treat it as
-   backend-specific, or store vendor and model next to it.
-5. **`DeviceInfo.kind` differs.** libsane's field is the SANE type string ("film scanner"),
-   the portal's was the connection (`usb`, `network`). The app's webcam filter keys on the
-   type string, so it only worked for libsane. Fixed by the second application's findings
-   below: the portal now sends the type string as `type`.
-6. **Option state is the backend's.** The SANE test backend keeps option values per device,
-   not per handle, so a session can inherit another's settings. That is libsane behaviour
-   the portal passes through; apps should set every option they depend on.
-
-### Step 3 findings: what was done
-
-1. **Frame parameters before a frame: fixed.** New `GetFrameParameters` (an estimate, same
-   keys as `started`; `Busy` during a frame). The client's `get_parameters` returns the final
-   values once a frame has started, the estimate otherwise, and drops the cached values when
-   a frame ends or an option is set.
-2. **Busy: fixed.** New `org.freedesktop.portal.Error.Busy` for a locked scanner, a frame in
-   progress, and `SetOptions` or `GetFrameParameters` during one. `Failed` is no longer
-   mapped to "busy". `Busy` is not in xdg-desktop-portal's error set; upstream may prefer
-   another name.
-3. **Selection needs a window: fixed in the API, not yet in the GTK app.** `get_devices` only
-   lists. `ScannerBackend::select_devices(parent_window)` shows the dialog; the worker has a
-   `SelectScanners` command, the app an `app.select-scanner` action and a "Choose Scanner…"
-   button on the "No Scanner Found" page (shown only with `NV_SCANNER_BACKEND=portal`), and
-   `nv-cli scan` asks once when nothing is granted. **The app still passes an empty window
-   identifier**: ashpd's GTK helper needs gtk4 0.11 and the app uses 0.9, so exporting a
-   handle needs `gdk4-wayland`/`gdk4-x11` at 0.9. Until then the real portal's dialog would
-   not be attached to the app's window.
-4. **Device identity: bigger than recorded, fixed.** Nothing persists `device_name`, but
-   quirks are matched on the backend name, which the code took from the device name. Through
-   the portal that is an opaque id, so the 8200i's quirks (infrared, neutralised options)
-   would silently never have matched. The portal now reports `backend`, `DeviceInfo` carries
-   it, and the worker and CLI match quirks on it. Covered by the parity test.
-5. **Webcam filter keyed on the SANE type: fixed.** `DeviceInfo::is_webcam()` (backend or name
-   `v4l`, or a camera type) is used by the worker and the service. The worker's "virtual
-   device" exclusion stays for libsane (it hides the SANE test backend), with
-   `NV_SANE_ALLOW_VIRTUAL=1` to allow it for testing. The portal now reports the SANE type too
-   (`type`), and the client puts it in `DeviceInfo.kind`, so that exclusion works through it.
-6. **Option state shared across sessions: not changed.** It is how SANE's test backend
-   behaves with libsane too. The tests set every option they depend on.
-
-Also found while verifying: `Handle::set_option` wrote an int's bits into a fixed-point
-option, so the app's integer resolution became about 0.001 dpi on the SANE test backend
-(3x3 pixels). The portal service converted by option type and was right. `Handle::set_option`
-now converts between int and fixed by the descriptor, so both backends agree. Real film
-scanners have integer resolution; the 8200i is not affected.
-
-## What a second application found
-
-GNOME Simple Scan was ported to the draft (`SIMPLE_SCAN_BACKEND=portal`; a `ScanBackend`
-interface with a libsane and a portal implementation). It ran in a Flatpak without
-`--device=all` and `--share=network` against the prototype service and scanned on the
-OpticFilm 8200i. What it needed beyond the first application:
-
-1. **Automatic values.** `SetOptions` could not express SANE's `SET_AUTO`, which Simple Scan
-   uses to pick the scan source, so the port hid the `automatic` capability and fell back to
-   choosing by name. `SetOptions` now accepts the vardict `{'auto': true}` as a value, for
-   options that have the `automatic` capability (others are `InvalidArgument`). It is a vardict
-   because D-Bus has no empty structure; `()` would not have been valid on the wire.
-2. **A frame number on `FrameEvent`.** A client that cancels, or starts the next frame at once,
-   had to drain events and wait for the old frame's last event by hand. Each `StartFrame` now
-   starts a numbered frame (from 1, per session), every event carries `frame`, and a frame
-   ends with exactly one event that is not `started`. A client drops events that are not newer
-   than the last frame it saw end. The Rust client does this; the Simple Scan port still uses
-   the older drain-and-wait and works, and can use the number.
-3. **The SANE device `type` in the scanner info.** Simple Scan hides `virtual device` and ranks
-   by type; `kind` (the connection) cannot say that. `type` is SANE's string, untranslated, as a
-   hint.
-4. **Documentation only:** option numbering (the portal leaves out SANE's option 0, so a
-   port that numbers as SANE does starts at 1, and groups stay in the list), the value types
-   (`b`, `i`, `d`, `s`; int ranges are `(ddd)`), cancelling `SelectScanners` with
-   `Request.Close`, selecting on a user action, and how an app finds out the portal exists.
-
-Not changed: string option sizes and the `info` flags, which Simple Scan never needed.
-
-After these changes the service, the Rust client and the Simple Scan port were run again on the
-8200i: the hardware check passed 23 of 23 (including colour+infrared, two numbered frames in one
-session, and cancel then rescan), Simple Scan scanned from the sandbox, was cancelled
-mid-frame and scanned again in the same session, and the device arrived as `film scanner`. The
-scenario script has 40 checks (10 new: type, automatic values, frame numbers). Simple Scan did
-not exercise `{'auto': true}`: the test backend that has an automatic option is hidden by its
-own filter, and the 8200i has none; the Python scenarios and the parity test cover it.
+- sane-devel, September 2020, "Sandboxing scanner applications" (Bastien Nocera): concluded
+  that a host-side service is preferable to bundled drivers. This proposal is that service,
+  with a consent dialog and a permission store.
+- The print portal (`org.freedesktop.portal.Print`): the consent model this follows, and the
+  all-string settings dictionary it does not.
+- The USB portal (`org.freedesktop.portal.Usb`): the fd handover and the frontend/backend
+  split this follows.
+- PWG IPP-Scan and WS-Scan: close to each other and to this option model in spirit.
+  Reviewers of earlier attempts asked that the API not be locked to SANE; the v1 option
+  vocabulary is typed, constrained and carries units, which an eSCL provider can fill in
+  without changing the wire format.
