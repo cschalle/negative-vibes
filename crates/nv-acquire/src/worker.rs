@@ -57,6 +57,18 @@ impl AcquireWorker {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::Cancel);
     }
 
+    /// Watch `device_name`'s front-panel buttons, reporting each press as
+    /// [`ScanEvent::ButtonPressed`]. Watching holds the scanner open, so other
+    /// programs cannot use it meanwhile; stop with [`stop_watching`](Self::stop_watching).
+    pub fn watch_buttons(&self, device_name: String) {
+        let _ = self.cmd_tx.send_blocking(WorkerCmd::WatchButtons { device_name: Some(device_name) });
+    }
+
+    /// Stop watching and let the scanner go.
+    pub fn stop_watching(&self) {
+        let _ = self.cmd_tx.send_blocking(WorkerCmd::WatchButtons { device_name: None });
+    }
+
     pub fn quit(&self) {
         let _ = self.cmd_tx.send_blocking(WorkerCmd::Quit);
     }
@@ -95,27 +107,73 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
     // Cancelled flag shared between the scan loop and the Quit/Cancel command.
     let cancelled = Arc::new(AtomicBool::new(false));
 
+    // Set while the front-panel buttons are being watched, which means this
+    // thread is holding the scanner open. Every other operation needs the
+    // scanner to itself, so each one suspends the watch and resumes it after.
+    let mut watch: Option<Watch> = None;
+
     // The loop ends when the channel closes.
-    while let Ok(cmd) = cmd_rx.recv_blocking() {
+    loop {
+        // Waiting for a command is a blocking receive, except while watching:
+        // then the loop has to come back around to poll the buttons, so it
+        // takes what is there and sleeps if nothing is.
+        let cmd = if watch.is_some() {
+            match cmd_rx.try_recv() {
+                Ok(c) => Some(c),
+                Err(async_channel::TryRecvError::Empty) => None,
+                Err(async_channel::TryRecvError::Closed) => break,
+            }
+        } else {
+            match cmd_rx.recv_blocking() {
+                Ok(c) => Some(c),
+                Err(_) => break,
+            }
+        };
+
+        let Some(cmd) = cmd else {
+            // Nothing to do but watch. The slice is shorter than the poll
+            // interval so a command that arrives meanwhile is not left
+            // waiting half a second for the UI's Scan button to respond.
+            if let Some(w) = watch.as_mut()
+                && w.due()
+                && let Err(e) = w.poll(&evt_tx)
+            {
+                eprintln!("nv-acquire: button watch stopped: {e}");
+                watch = None;
+            }
+            std::thread::sleep(WATCH_SLICE);
+            continue;
+        };
+
         match cmd {
             WorkerCmd::Quit => break,
 
             WorkerCmd::Probe => {
+                let resume = watch.take().map(Watch::suspend);
                 do_probe(session, &quirks, &evt_tx);
+                watch = Watch::resume(session, resume);
             }
 
             WorkerCmd::SelectScanners { parent_window } => {
+                let resume = watch.take().map(Watch::suspend);
                 // With libsane this changes nothing. With the portal it is the user's choice of
                 // scanners, which a probe then lists.
                 if let Err(e) = session.select_devices(&parent_window) {
                     let _ = evt_tx.send_blocking(ScanEvent::Error(format!("select scanners: {e}")));
                 }
                 do_probe(session, &quirks, &evt_tx);
+                watch = Watch::resume(session, resume);
             }
 
             WorkerCmd::StartScan { device_name, resolution_dpi, with_ir, area, passes } => {
+                // The scan opens its own handle, and the backend allows one at
+                // a time, so the watch has to let go first -- and `suspend`
+                // rather than `take` alone, because a taken Watch bound to a
+                // local would keep the handle open for the whole scan.
+                let resume = watch.take().map(Watch::suspend);
                 cancelled.store(false, Ordering::SeqCst);
                 do_scan(session, &quirks, &evt_tx, &cmd_rx, cancelled.clone(), &device_name, resolution_dpi, with_ir, area, passes);
+                watch = Watch::resume(session, resume);
             }
 
             WorkerCmd::Cancel => {
@@ -123,7 +181,105 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
                 // checked inside do_scan's read loop.
                 cancelled.store(true, Ordering::SeqCst);
             }
+
+            WorkerCmd::WatchButtons { device_name } => {
+                watch = match device_name {
+                    // Already watching that device: leave the open handle be,
+                    // so a repeated request is not a close and reopen.
+                    Some(name) if watch.as_ref().is_some_and(|w| w.device_name == name) => watch,
+                    Some(name) => {
+                        drop(watch.take());
+                        Watch::start(session, name)
+                    }
+                    None => None,
+                };
+            }
         }
+    }
+}
+
+/// How long the loop sleeps between turns while watching buttons. Shorter than
+/// [`WATCH_INTERVAL`] so a command does not wait for a whole poll period.
+const WATCH_SLICE: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How often the buttons are polled. The scanner queues a press until it is
+/// read, so this rate decides how soon a press is noticed, never whether it is
+/// noticed at all.
+const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// An open scanner whose sensor options are being polled.
+struct Watch {
+    device_name: String,
+    handle: Box<dyn ScannerHandle>,
+    /// The sensor options to read, and the button each one reports.
+    sensors: Vec<(crate::event::ScanButton, nv_sane::OptionDescriptor)>,
+    last_poll: std::time::Instant,
+}
+
+impl Watch {
+    /// Open `device_name` and find its button sensors. `None` if it cannot be
+    /// opened or reports no button we act on, so the caller simply does not watch.
+    fn start(session: &dyn ScannerBackend, device_name: String) -> Option<Self> {
+        let handle = match session.open(&device_name) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("nv-acquire: cannot watch buttons on {device_name}: {e}");
+                return None;
+            }
+        };
+
+        let sensors: Vec<_> = handle
+            .all_options()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|d| d.is_hardware_select() && d.is_soft_detect() && d.is_active())
+            .filter_map(|d| crate::event::ScanButton::from_option_name(&d.name).map(|b| (b, d)))
+            .collect();
+
+        if sensors.is_empty() {
+            return None;
+        }
+
+        Some(Self { device_name, handle, sensors, last_poll: std::time::Instant::now() })
+    }
+
+    /// Close the scanner, keeping only what it takes to start watching again.
+    ///
+    /// Dropping the handle is the whole point, and it has to happen before the
+    /// operation that needs the scanner: one SANE handle at a time, so a watch
+    /// still holding one turns the next `sane_open` into SANE_STATUS_DEVICE_BUSY.
+    /// Returning the name by value is what forces the rest of `self` to drop here.
+    fn suspend(self) -> String {
+        self.device_name
+    }
+
+    /// Start watching again after the operation that needed the scanner.
+    ///
+    /// A press made while the watch was down is not carried over: the
+    /// intervening `sane_open` discards what the scanner had queued. That
+    /// matches what the app does with a press during a scan anyway, which is
+    /// to ignore it rather than start a second scan once the first ends.
+    fn resume(session: &dyn ScannerBackend, device_name: Option<String>) -> Option<Self> {
+        Self::start(session, device_name?)
+    }
+
+    fn due(&self) -> bool {
+        self.last_poll.elapsed() >= WATCH_INTERVAL
+    }
+
+    /// Read each sensor once and report the presses.
+    ///
+    /// Reading a sensor consumes the press, so every `true` has to be turned
+    /// into an event here; there is no second chance to ask.
+    fn poll(&mut self, evt_tx: &Sender<ScanEvent>) -> Result<(), nv_sane::SaneError> {
+        self.last_poll = std::time::Instant::now();
+
+        for (button, desc) in &self.sensors {
+            if let nv_sane::OptionValue::Bool(true) = self.handle.get_option(desc)? {
+                let _ = evt_tx.send_blocking(ScanEvent::ButtonPressed(*button));
+            }
+        }
+        Ok(())
     }
 }
 

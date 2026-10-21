@@ -173,6 +173,8 @@ pub(crate) mod imp {
         pub receiving_ir: Cell<bool>,
         /// The scanner can capture infrared, and the switch for it.
         pub device_ir: Cell<bool>,
+        /// The scanner reports front-panel buttons we act on.
+        pub device_buttons: Cell<bool>,
         /// Session default for capturing infrared when a roll has no setting.
         pub with_ir: Cell<bool>,
         pub ir_row: RefCell<Option<adw::SwitchRow>>,
@@ -848,6 +850,15 @@ impl Window {
                 win.flush_autosave();
             }
             glib::Propagation::Proceed
+        });
+
+        // Watch the scanner's buttons only while this window is the active one,
+        // so the scanner is not held open for other programs in the background.
+        let win_weak = self.downgrade();
+        self.connect_is_active_notify(move |_| {
+            if let Some(win) = win_weak.upgrade() {
+                win.refresh_button_watch();
+            }
         });
 
         // Keyboard shortcuts are set in application.rs after the window is added to the app.
@@ -2149,6 +2160,7 @@ impl Window {
                     *self.imp().device_resolutions.borrow_mut() = first.resolutions.clone();
                     self.imp().film_window_mm.set(first.film_window_mm);
                     self.imp().device_ir.set(matches!(first.ir, nv_device::IrStyle::MultiFrame | nv_device::IrStyle::Rgbi));
+                    self.imp().device_buttons.set(!first.buttons.is_empty());
                     if let Some(r) = self.imp().ir_row.borrow().as_ref() {
                         r.set_visible(self.imp().device_ir.get());
                     }
@@ -2171,6 +2183,7 @@ impl Window {
                         t.set_subtitle(&format!("{} {}", first.vendor, first.model));
                     }
                     self.update_scan_controls();
+                    self.refresh_button_watch();
                     // Headless hook: NV_AUTOSCAN=raw|scan|all previews as soon as the scanner is ready,
                     // then scans as named (see on_scan_done).
                     if self.imp().prefs.borrow().auto_preview && std::env::var_os("NV_AUTOSCAN").is_none() && !self.imp().busy.get() && !self.imp().auto_previewed.replace(true) {
@@ -2302,7 +2315,56 @@ impl Window {
                 self.imp().receiving_ir.set(false);
             }
 
+            ScanEvent::ButtonPressed(button) => {
+                self.on_button_pressed(button);
+            }
+
             ScanEvent::DeviceReady { .. } => {}
+        }
+    }
+
+    /// Act on a press of a button on the scanner itself.
+    ///
+    /// QuickScan scans, IntelliScan previews -- the division the scanner's own
+    /// labels imply: one button finishes the job, the other sets it up.
+    ///
+    /// A press while the app is busy is dropped rather than queued: by the time
+    /// a long scan ends, a scan the user asked for minutes ago is not something
+    /// they still expect to start on its own.
+    fn on_button_pressed(&self, button: nv_acquire::event::ScanButton) {
+        use nv_acquire::event::ScanButton;
+
+        if self.imp().busy.get() {
+            return;
+        }
+        let Some(app) = self.application() else { return };
+
+        match button {
+            ScanButton::Scan => app.activate_action("scan", None),
+            ScanButton::IntelliScan => app.activate_action("preview", None),
+        }
+    }
+
+    /// Start or stop watching the scanner's buttons.
+    ///
+    /// Watching holds the scanner open, so it is limited to when the window is
+    /// active: with Negative Vibes in the background, `scanimage` and friends
+    /// keep working. The worker gives the scanner up for its own scans and
+    /// takes it back afterwards, so this does not have to follow a scan.
+    pub(crate) fn refresh_button_watch(&self) {
+        use imp::ScanUiState;
+
+        let Some(app) = self.application().and_downcast::<crate::application::Application>() else { return };
+        let Some(worker) = app.imp().worker.get() else { return };
+
+        let device = match &*self.imp().scan_state.borrow() {
+            ScanUiState::Ready { device_name } if self.imp().device_buttons.get() => Some(device_name.clone()),
+            _ => None,
+        };
+
+        match device {
+            Some(name) if self.is_active() => worker.watch_buttons(name),
+            _ => worker.stop_watching(),
         }
     }
 

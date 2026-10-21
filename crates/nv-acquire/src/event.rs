@@ -20,8 +20,36 @@ pub enum WorkerCmd {
     },
     /// Ask the current scan to stop cleanly.
     Cancel,
+    /// Start or stop watching the scanner's front-panel buttons.
+    ///
+    /// `Some(name)` holds that device open and polls its sensor options;
+    /// `None` stops and lets the scanner go. Watching has to be given up
+    /// around any other operation, because a SANE backend allows one open
+    /// handle at a time -- the worker does that itself.
+    WatchButtons { device_name: Option<String> },
     /// Shut the worker thread down.
     Quit,
+}
+
+/// A front-panel button the scanner reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanButton {
+    /// The standard SANE "scan" sensor: the panel's scan button. On the
+    /// OpticFilm 8200i this is the one marked QuickScan.
+    Scan,
+    /// The OpticFilm 8200i's second button, marked IntelliScan.
+    IntelliScan,
+}
+
+impl ScanButton {
+    /// The button a SANE sensor option name refers to, if we act on it.
+    pub fn from_option_name(name: &str) -> Option<Self> {
+        match name {
+            "scan" => Some(Self::Scan),
+            "intelliscan" => Some(Self::IntelliScan),
+            _ => None,
+        }
+    }
 }
 
 /// Events sent from the worker thread back to the UI thread.
@@ -83,4 +111,28 @@ pub enum ScanEvent {
 
     /// The scan was cancelled by the user.
     Cancelled,
+
+    /// A front-panel button was pressed. One event per press.
+    ButtonPressed(ScanButton),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The names the backend publishes, mapped to what the app does with them.
+    #[test]
+    fn maps_the_option_names_the_backend_publishes() {
+        assert_eq!(ScanButton::from_option_name("scan"), Some(ScanButton::Scan));
+        assert_eq!(ScanButton::from_option_name("intelliscan"), Some(ScanButton::IntelliScan));
+    }
+
+    /// A sensor we have no action for is not a button press. Acting on an
+    /// unknown sensor would start scans from a lid switch.
+    #[test]
+    fn leaves_unknown_sensors_alone() {
+        for name in ["email", "copy", "page-loaded", "bool-hard-select-soft-detect", ""] {
+            assert_eq!(ScanButton::from_option_name(name), None, "{name} should not map to an action");
+        }
+    }
 }

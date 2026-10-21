@@ -63,6 +63,10 @@ pub struct DeviceCapabilities {
 
     /// Options the app must neutralise before scanning (set to false / 0 / off).
     pub neutralise: Vec<String>,
+
+    /// SANE sensor options that report a front-panel button press, by option
+    /// name. Empty when the device has none, or the backend does not say.
+    pub buttons: Vec<String>,
 }
 
 impl DeviceCapabilities {
@@ -77,6 +81,7 @@ impl DeviceCapabilities {
         let resolutions = detect_resolutions(&opts);
         let scan_area_mm = detect_scan_area_mm(&opts);
         let has_preview_option = opts.iter().any(|o| o.name == "preview");
+        let buttons = detect_buttons(&opts);
         let exposure_option = detect_exposure_option(&opts);
 
         // Quirks override / augment what we detect from options.
@@ -106,6 +111,7 @@ impl DeviceCapabilities {
             streaming_progress,
             recommended_dpi,
             neutralise,
+            buttons,
         })
     }
 }
@@ -183,9 +189,94 @@ fn detect_exposure_option(opts: &[OptionDescriptor]) -> Option<String> {
     opts.iter().find(|o| o.name.starts_with("exposure") || o.name.starts_with("analog-gamma") || o.name.starts_with("gain")).map(|o| o.name.clone())
 }
 
+/// Front-panel buttons, as the SANE sensor options that report them.
+///
+/// A sensor is a boolean the hardware sets and software only reads:
+/// `SANE_CAP_HARD_SELECT` together with `SANE_CAP_SOFT_DETECT`. That pair is
+/// the whole test, so this finds the buttons on any backend that follows the
+/// convention rather than only on the scanners we know about.
+///
+/// Options that merely report a state rather than an action are left out:
+/// a frontend polling for "the user asked for a scan" must not fire because
+/// the lid is open or a page is loaded.
+fn detect_buttons(opts: &[OptionDescriptor]) -> Vec<String> {
+    const NOT_ACTIONS: [&str; 4] = ["page-loaded", "cover-open", "door-open", "power"];
+
+    opts.iter()
+        .filter(|o| o.kind == OptionKind::Bool && o.is_hardware_select() && o.is_soft_detect() && o.is_active() && !NOT_ACTIONS.contains(&o.name.as_str()))
+        .map(|o| o.name.clone())
+        .collect()
+}
+
 fn guess_holder(area: &Option<[f64; 4]>) -> HolderKind {
     match area {
         Some([_, _, w, h]) if *w < 40.0 || *h < 30.0 => HolderKind::ManualAdvance,
         _ => HolderKind::MultiFrame,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nv_sane::{OptionConstraint, OptionUnit};
+
+    const SOFT_SELECT: i32 = 1;
+    const HARD_SELECT: i32 = 2;
+    const SOFT_DETECT: i32 = 4;
+    const INACTIVE: i32 = 32;
+    const ADVANCED: i32 = 64;
+
+    fn opt(name: &str, kind: OptionKind, cap: i32) -> OptionDescriptor {
+        OptionDescriptor {
+            index: 1,
+            name: name.to_owned(),
+            title: name.to_owned(),
+            desc: String::new(),
+            kind,
+            unit: OptionUnit::None,
+            size: 4,
+            cap,
+            constraint: OptionConstraint::None,
+        }
+    }
+
+    /// A sensor is the hard-select + soft-detect pair, whatever it is called:
+    /// that is what lets a scanner we have never seen report its buttons.
+    #[test]
+    fn finds_sensors_by_capability_not_by_name() {
+        let opts = vec![
+            opt("scan", OptionKind::Bool, HARD_SELECT | SOFT_DETECT | ADVANCED),
+            opt("intelliscan", OptionKind::Bool, HARD_SELECT | SOFT_DETECT | ADVANCED),
+            opt("surprise-button", OptionKind::Bool, HARD_SELECT | SOFT_DETECT),
+        ];
+        assert_eq!(detect_buttons(&opts), ["scan", "intelliscan", "surprise-button"]);
+    }
+
+    /// Ordinary settings are not buttons, however boolean they are.
+    #[test]
+    fn ignores_settable_and_inactive_options() {
+        let opts = vec![
+            opt("ir-clean", OptionKind::Bool, SOFT_SELECT | SOFT_DETECT),
+            opt("preview", OptionKind::Bool, SOFT_SELECT | SOFT_DETECT),
+            opt("mode", OptionKind::String, SOFT_SELECT | SOFT_DETECT),
+            // A sensor the backend has switched off for this device.
+            opt("scan", OptionKind::Bool, HARD_SELECT | SOFT_DETECT | INACTIVE),
+            // Hardware-selected but unreadable: nothing to poll.
+            opt("write-only", OptionKind::Bool, HARD_SELECT),
+        ];
+        assert!(detect_buttons(&opts).is_empty());
+    }
+
+    /// Sensors that report a state rather than a request must not be treated
+    /// as a button: a scan has to be asked for, not inferred from the lid.
+    #[test]
+    fn ignores_state_sensors() {
+        let opts = vec![
+            opt("page-loaded", OptionKind::Bool, HARD_SELECT | SOFT_DETECT),
+            opt("cover-open", OptionKind::Bool, HARD_SELECT | SOFT_DETECT),
+            opt("power", OptionKind::Bool, HARD_SELECT | SOFT_DETECT),
+            opt("scan", OptionKind::Bool, HARD_SELECT | SOFT_DETECT),
+        ];
+        assert_eq!(detect_buttons(&opts), ["scan"]);
     }
 }

@@ -22,5 +22,10 @@
       <item><p><gui>Stop</gui> stops the scanner and a batch that is under way.</p></item>
     </list>
   </section>
+  <section id="hardware-buttons"><title>Buttons on the scanner itself</title>
+    <p>Some scanners have buttons on the front, and those can start a scan without the keyboard or the mouse. On the Plustek OpticFilm 8200i, <gui>QuickScan</gui> scans the selected frame and <gui>IntelliScan</gui> makes a preview, the same as the buttons in the window.</p>
+    <p>The buttons work while the Negative Vibes window is the active one. Click another window and they stop, so that other scanning programs can use the scanner; click back and they work again. A press while a scan is already running is ignored, so a long scan cannot be followed by one you no longer expect.</p>
+    <note><p>This needs a scanner whose SANE driver reports its buttons. If the buttons do nothing, the driver most likely does not report them yet, and the buttons in the window do the same jobs.</p></note>
+  </section>
   <p>A scan is saved in the roll the moment it is finished, exactly as the scanner delivered it. Nothing you do afterwards changes it.</p>
 </page>

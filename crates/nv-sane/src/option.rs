@@ -68,6 +68,11 @@ impl OptionDescriptor {
     pub fn is_hardware_select(&self) -> bool {
         self.cap & sys::SANE_CAP_HARD_SELECT != 0
     }
+    /// The value can be read back. Together with [`is_hardware_select`](Self::is_hardware_select)
+    /// this is what marks a sensor: a button or switch the hardware sets and we only poll.
+    pub fn is_soft_detect(&self) -> bool {
+        self.cap & sys::SANE_CAP_SOFT_DETECT != 0
+    }
     pub fn is_advanced(&self) -> bool {
         self.cap & sys::SANE_CAP_ADVANCED != 0
     }

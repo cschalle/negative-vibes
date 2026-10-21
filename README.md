@@ -48,6 +48,10 @@ naming, folder, colour space and embedded profile and metadata.*
   Only, multi-sample and multi-exposure, infrared capture, cancel at any time. The app reads
   what the scanner can do instead of assuming a model (`data/devices.toml` adds what SANE
   cannot report).
+- **Scanner buttons:** a scanner that reports its front-panel buttons to SANE can drive the
+  app with them. On the OpticFilm 8200i, QuickScan scans and IntelliScan previews. The
+  buttons are watched only while the window is active, so the scanner stays available to
+  other programs the rest of the time.
 - **Rolls and frames:** settings for the whole roll with per-frame overrides, frame detection,
   resizable crop rectangles, rotate/flip, fine straighten, keep/reject, per-frame undo.
 - **Negative conversion:** density-space inversion with film base, dye crosstalk and colour
