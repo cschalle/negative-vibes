@@ -183,9 +183,17 @@
     <!--
         OpenScanner:
         @scanner_id: A scanner id granted to the application
-        @options: Vardict with optional further information. There is
-        currently no option supported.
+        @options: Vardict with optional further information
         @session_handle: Object path for the :ref:`org.freedesktop.portal.Session` of the open scanner
+
+        Supported keys in the @options vardict:
+
+        * ``session_handle_token`` (``s``)
+
+          A string that will be used as the last element of the session
+          handle. Must be a valid object path element. Optional: without
+          it the portal picks one, and it makes the handle unique if the
+          token is already taken.
 
         Opens a granted scanner and takes the host's exclusive lock on it.
         Fails with ``org.freedesktop.portal.Error.NotAllowed`` if the id was
