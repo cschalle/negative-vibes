@@ -39,7 +39,7 @@ fn map_error(e: zbus::Error) -> SaneError {
         let message = desc.clone().unwrap_or_else(|| name.to_string());
         return match name.as_str().rsplit('.').next().unwrap_or("") {
             "InvalidArgument" => status(sys::SANE_STATUS_INVAL, message),
-            "NotAllowed" => status(sys::SANE_STATUS_ACCESS_DENIED, message),
+            "NotAllowed" | "AccessDenied" => status(sys::SANE_STATUS_ACCESS_DENIED, message),
             "Busy" => status(sys::SANE_STATUS_DEVICE_BUSY, message),
             "Failed" => status(sys::SANE_STATUS_IO_ERROR, message),
             _ => SaneError::Portal(message),

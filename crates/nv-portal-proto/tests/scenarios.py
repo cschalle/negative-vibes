@@ -37,7 +37,7 @@ def main():
 
     # ---- a different app cannot use our session
     other = Client()
-    foreign = os.environ.get("PORTAL_FOREIGN_SESSION_ERROR", "Error.NotAllowed")
+    foreign = "Error.AccessDenied"
     check("another connection cannot read our session's options", (other.error("GetOptions", (sess, {}), "(oa{sv})") or "").endswith(foreign))
     check("another connection cannot start a frame on our session", (other.error("StartFrame", (sess, {}), "(oa{sv})") or "").endswith(foreign))
     check("another connection cannot Close our session", (other.error("Close", (), "()", iface="org.freedesktop.portal.Session", path=sess) or "").endswith(foreign))

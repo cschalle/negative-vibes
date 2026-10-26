@@ -6,9 +6,7 @@
 #   XDP_BUILD=/path/to/xdg-desktop-portal/build tests/run-scenarios-c-frontend.sh
 #
 # XDP_BUILD is a meson build directory of the scanner-frontend branch (build it with
-# -Dsane=enabled). The scenarios expect the prototype's error names, except for one: a call on
-# someone else's session or on one that does not exist is AccessDenied here, as in other portals,
-# and NotAllowed in the prototype.
+# -Dsane=enabled).
 set -e
 : "${XDP_BUILD:?set XDP_BUILD to the xdg-desktop-portal build directory}"
 here=$(cd "$(dirname "$0")" && pwd)
@@ -28,7 +26,7 @@ PORTAL
   # The frontend starts the permission store and the document portal; keep them off the real data
   export XDG_DATA_HOME=$tmp/data XDG_STATE_HOME=$tmp/state XDG_CACHE_HOME=$tmp/cache
   export XDP_SCANNER_HELPER=$XDP_BUILD/desktop-portal/xdg-desktop-portal-scanner-helper
-  export PORTAL_NAME=org.freedesktop.portal.Desktop PORTAL_FOREIGN_SESSION_ERROR=Error.AccessDenied
+  export PORTAL_NAME=org.freedesktop.portal.Desktop
   python3 "$here/impl_auto_grant.py" org.freedesktop.impl.portal.desktop.nvtest \
       "$root/docs/scanner-portal/org.freedesktop.impl.portal.Scanner.xml" > "$tmp/backend.log" 2>&1 &
   backend=$!

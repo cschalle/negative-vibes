@@ -23,6 +23,10 @@
       that the ``version`` property of this interface exists on
       org.freedesktop.portal.Desktop, and otherwise falls back to libsane.
 
+      A call that names a session that does not exist, has closed, or belongs
+      to another application fails with ``org.freedesktop.DBus.Error.AccessDenied``,
+      as in the other portals that have sessions.
+
       This documentation describes version 1 of this interface.
     -->
   <interface name="org.freedesktop.portal.Scanner">

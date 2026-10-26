@@ -13,16 +13,29 @@ use zbus::message::Header;
 use zbus::zvariant::{ObjectPath, OwnedFd, OwnedObjectPath, OwnedValue, Value};
 use zbus::{Connection, ObjectServer};
 
+// The prefix is shared by all variants, so each variant names its own path below it: most are
+// portal errors, but a session that is not the caller's is a D-Bus one, as in other portals.
 #[derive(Debug, zbus::DBusError)]
-#[zbus(prefix = "org.freedesktop.portal.Error")]
+#[zbus(prefix = "org.freedesktop")]
 pub enum PortalError {
     #[zbus(error)]
     ZBus(zbus::Error),
+    #[zbus(name = "portal.Error.Failed")]
     Failed(String),
+    #[zbus(name = "portal.Error.InvalidArgument")]
     InvalidArgument(String),
+    #[zbus(name = "portal.Error.NotAllowed")]
     NotAllowed(String),
     /// The scanner or session is in use. Not in xdg-desktop-portal's error set yet.
+    #[zbus(name = "portal.Error.Busy")]
     Busy(String),
+    /// A session that does not exist, has closed, or belongs to another application.
+    #[zbus(name = "DBus.Error.AccessDenied")]
+    AccessDenied(String),
+}
+
+fn access_denied(message: &str) -> PortalError {
+    PortalError::AccessDenied(message.to_owned())
 }
 
 /// What the stub dialog picks.
@@ -86,7 +99,7 @@ impl Shared {
     fn session(&self, path: &ObjectPath<'_>, sender: &str) -> Result<SessionRec, PortalError> {
         match self.sessions.lock().unwrap().get(path.as_str()) {
             Some(rec) if rec.owner == sender => Ok(rec.clone()),
-            _ => Err(PortalError::NotAllowed("no such session".into())),
+            _ => Err(access_denied("Invalid session")),
         }
     }
 
@@ -423,7 +436,7 @@ impl SessionObj {
         let sender = sender_of(&hdr)?;
         let owned = self.shared.sessions.lock().unwrap().get(&self.path).is_some_and(|r| r.owner == sender);
         if !owned {
-            return Err(PortalError::NotAllowed("not your session".into()));
+            return Err(access_denied("Invalid session"));
         }
         self.shared.close_session(conn, &self.path, false).await;
         Ok(())
