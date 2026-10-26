@@ -285,12 +285,12 @@ impl Watch {
 
 /// libsane in this process, or the scanner portal when `NV_SCANNER_BACKEND=portal`
 /// (and the crate is built with the `portal` feature). `NV_PORTAL_BUS_NAME` names the
-/// portal; it defaults to the prototype's, because the real one does not exist yet.
+/// portal; it defaults to the desktop's own, and the prototype service is reached by naming it.
 pub fn make_backend() -> Result<Box<dyn ScannerBackend>, String> {
     if std::env::var("NV_SCANNER_BACKEND").as_deref() == Ok("portal") {
         #[cfg(feature = "portal")]
         {
-            let bus = std::env::var("NV_PORTAL_BUS_NAME").unwrap_or_else(|_| nv_sane_portal::DEFAULT_BUS_NAME.to_owned());
+            let bus = std::env::var("NV_PORTAL_BUS_NAME").unwrap_or_else(|_| nv_sane_portal::PORTAL_BUS_NAME.to_owned());
             return nv_sane_portal::PortalBackend::connect(&bus).map(|b| Box::new(b) as Box<dyn ScannerBackend>).map_err(|e| format!("scanner portal: {e}"));
         }
         #[cfg(not(feature = "portal"))]

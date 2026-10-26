@@ -14,7 +14,8 @@
     "--filesystem=xdg-pictures",
     "--talk-name=org.freedesktop.portal.Desktop",
     "--talk-name=org.freedesktop.NvPortalProto",
-    "--env=NV_SCANNER_BACKEND=portal"
+    "--env=NV_SCANNER_BACKEND=portal",
+    "--env=NV_PORTAL_BUS_NAME=org.freedesktop.NvPortalProto"
   ],
   "build-options": {
     "append-path": "/usr/lib/sdk/rust-stable/bin"

@@ -20,6 +20,9 @@ pub const SESSION_INTERFACE: &str = "org.freedesktop.portal.Session";
 /// taken on a normal session, so the prototype never uses it.
 pub const DEFAULT_BUS_NAME: &str = "org.freedesktop.NvPortalProto";
 
+/// Where the portal frontend lives on a desktop that has it.
+pub const PORTAL_BUS_NAME: &str = "org.freedesktop.portal.Desktop";
+
 /// `:1.42` becomes `1_42`, as in the portal handle-path convention.
 pub fn sender_path_element(unique_name: &str) -> String {
     unique_name.trim_start_matches(':').replace('.', "_")

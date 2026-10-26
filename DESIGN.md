@@ -384,7 +384,8 @@ The app is the test bed. It is a prototype, off by default:
 - **`nv-sane-portal`** implements `ScannerBackend`/`ScannerHandle` over the portal.
   `nv-acquire` uses it when built with `--features portal` and run with
   `NV_SCANNER_BACKEND=portal` (`NV_PORTAL_BUS_NAME` names the portal; the default is the
-  prototype's). With the feature off, that variable is an error, never a silent fallback.
+  desktop's, `org.freedesktop.portal.Desktop`, and the prototype is reached by naming it).
+  With the feature off, that variable is an error, never a silent fallback.
 - **`nv-portal-proto`** is a stand-in for the real portal, implementing the draft interface
   over libsane on its own bus name, with the permission store and the dialog stubbed.
 - With the portal the list of devices is only what the user has granted, so "No Scanner Found"
