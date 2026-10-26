@@ -48,7 +48,9 @@ case "$FRONTEND" in
   proto) PORTAL_BUS=org.freedesktop.NvPortalProto ;;
   c)
     : "${XDP_BUILD:?--frontend c needs XDP_BUILD, the xdg-desktop-portal build directory}"
-    [ -x "$XDP_BUILD/desktop-portal/xdg-desktop-portal" ] || { echo "no xdg-desktop-portal in $XDP_BUILD/desktop-portal" >&2; exit 2; }
+    # The sources moved from src/ to desktop-portal/ after 1.22, so a build of either has it
+    for XDP_BIN in "$XDP_BUILD/desktop-portal" "$XDP_BUILD/src"; do [ -x "$XDP_BIN/xdg-desktop-portal" ] && break; done
+    [ -x "$XDP_BIN/xdg-desktop-portal" ] || { echo "no xdg-desktop-portal in $XDP_BUILD" >&2; exit 2; }
     PORTAL_BUS=org.freedesktop.portal.Desktop ;;
   *) echo "--frontend is proto or c" >&2; exit 2 ;;
 esac
@@ -180,11 +182,11 @@ UseIn=nvtest
 PORTALFILE
   export XDG_CURRENT_DESKTOP=nvtest XDG_DESKTOP_PORTAL_DIR=$PORTALS
   export XDG_DATA_HOME=$PORTALS/data XDG_STATE_HOME=$PORTALS/state XDG_CACHE_HOME=$PORTALS/cache
-  export XDP_SCANNER_HELPER=$XDP_BUILD/desktop-portal/xdg-desktop-portal-scanner-helper
+  export XDP_SCANNER_HELPER=$XDP_BIN/xdg-desktop-portal-scanner-helper
   python3 "$ROOT/crates/nv-portal-proto/tests/impl_auto_grant.py" org.freedesktop.impl.portal.desktop.nvtest \
       "$ROOT/docs/scanner-portal/org.freedesktop.impl.portal.Scanner.xml" > "$OUT/dialog-standin.log" 2>&1 &
   GRANT=$!
-  "$XDP_BUILD/desktop-portal/xdg-desktop-portal" -r 2> "$OUT/service.log" &
+  "$XDP_BIN/xdg-desktop-portal" -r 2> "$OUT/service.log" &
   SVC=$!
   WHAT="frontend in C (pid $SVC)"
 else

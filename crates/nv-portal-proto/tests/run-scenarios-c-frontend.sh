@@ -25,12 +25,19 @@ PORTAL
   export SANE_CONFIG_DIR=$tmp/sane XDG_CURRENT_DESKTOP=nvtest XDG_DESKTOP_PORTAL_DIR=$tmp/portals
   # The frontend starts the permission store and the document portal; keep them off the real data
   export XDG_DATA_HOME=$tmp/data XDG_STATE_HOME=$tmp/state XDG_CACHE_HOME=$tmp/cache
-  export XDP_SCANNER_HELPER=$XDP_BUILD/desktop-portal/xdg-desktop-portal-scanner-helper
+  # The sources moved from src/ to desktop-portal/ after 1.22, so a build of either has it
+  for XDP_BIN in "$XDP_BUILD/desktop-portal" "$XDP_BUILD/src"; do [ -x "$XDP_BIN/xdg-desktop-portal" ] && break; done
+  cat > "$tmp/helper" <<WRAP
+#!/bin/sh
+exec "$XDP_BIN/xdg-desktop-portal-scanner-helper" "\$@"
+WRAP
+  chmod +x "$tmp/helper"
+  export XDP_SCANNER_HELPER=$tmp/helper
   export PORTAL_NAME=org.freedesktop.portal.Desktop
   python3 "$here/impl_auto_grant.py" org.freedesktop.impl.portal.desktop.nvtest \
       "$root/docs/scanner-portal/org.freedesktop.impl.portal.Scanner.xml" > "$tmp/backend.log" 2>&1 &
   backend=$!
-  "$XDP_BUILD/desktop-portal/xdg-desktop-portal" -r > "$tmp/frontend.log" 2>&1 &
+  "$XDP_BIN/xdg-desktop-portal" -r > "$tmp/frontend.log" 2>&1 &
   frontend=$!
   trap "kill $backend $frontend 2>/dev/null; wait 2>/dev/null; rm -rf $tmp" EXIT
   for i in $(seq 100); do
