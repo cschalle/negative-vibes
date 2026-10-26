@@ -1,0 +1,84 @@
+{
+  "app-id": "io.github.cschalle.NegativeVibes.Devel",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.rust-stable"
+  ],
+  "command": "negative-vibes",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=dri",
+    "--filesystem=xdg-pictures",
+    "--talk-name=org.freedesktop.portal.Desktop",
+    "--env=NV_SCANNER_BACKEND=portal"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin"
+  },
+  "modules": [
+    {
+      "name": "sane-backends",
+      "subdir": "backends",
+      "buildsystem": "autotools",
+      "config-opts": [
+        "--disable-locking",
+        "--with-usb"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/cschalle/OpticFilm8200i-sane.git",
+          "commit": "e73221456902c6a12422ec24d49f191103642e1b"
+        },
+        {
+          "type": "shell",
+          "commands": [
+            "echo 1.4.0 > backends/.tarball-version"
+          ]
+        }
+      ],
+      "make-args": [
+        "SUBDIRS=include lib sanei backend tools"
+      ],
+      "make-install-args": [
+        "SUBDIRS=include lib sanei backend tools"
+      ]
+    },
+    {
+      "name": "negative-vibes",
+      "buildsystem": "meson",
+      "build-options": {
+        "build-args": [
+          "--share=network"
+        ],
+        "env": {
+          "CARGO_HOME": "/run/build/negative-vibes/cargo-home"
+        }
+      },
+      "config-opts": [
+        "-Dprofile=development",
+        "-Dportal=true"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "..",
+          "skip": [
+            "_build",
+            "target",
+            ".git",
+            ".flatpak-builder",
+            "build-flatpak",
+            "repo",
+            "screenshots",
+            "scan-1200dpi-positive.png"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -404,9 +404,14 @@ used unless asked for, and nothing in the release Flatpak depends on it.
 **Sandbox test.** `build-aux/io.github.cschalle.NegativeVibes.PortalTest.json` builds the app
 with `-Dportal=true` as the Devel app ID, with `NV_SCANNER_BACKEND=portal` and without
 `--device=all` and `--share=network`; its only bus access is `--talk-name` for
-`org.freedesktop.portal.Desktop` and the prototype's name. The scenario script and the
-hardware cancel check are installed in `/app/share/portal-test`. Run with `flatpak-builder --run`.
-The results are in §10.
+`org.freedesktop.portal.Desktop` and the prototype's name (the manifest sets
+`NV_PORTAL_BUS_NAME` to it). The scenario script and the hardware cancel check are installed in
+`/app/share/portal-test`. Run with `flatpak-builder --run`. The results are in §10.
+
+**Portal build.** `build-aux/io.github.cschalle.NegativeVibes.Portal.json` is the same build for
+a desktop that has the scanner portal: no test scripts, no bus access beyond the portal's own
+name, and the portal's default bus name. It is built into a local repository and installed as
+the `portal` branch of the Devel app ID.
 
 ---
 
