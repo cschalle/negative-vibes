@@ -37,9 +37,10 @@ def main():
 
     # ---- a different app cannot use our session
     other = Client()
-    check("another connection cannot read our session's options", (other.error("GetOptions", (sess, {}), "(oa{sv})") or "").endswith("Error.NotAllowed"))
-    check("another connection cannot start a frame on our session", (other.error("StartFrame", (sess, {}), "(oa{sv})") or "").endswith("Error.NotAllowed"))
-    check("another connection cannot Close our session", (other.error("Close", (), "()", iface="org.freedesktop.portal.Session", path=sess) or "").endswith("Error.NotAllowed"))
+    foreign = os.environ.get("PORTAL_FOREIGN_SESSION_ERROR", "Error.NotAllowed")
+    check("another connection cannot read our session's options", (other.error("GetOptions", (sess, {}), "(oa{sv})") or "").endswith(foreign))
+    check("another connection cannot start a frame on our session", (other.error("StartFrame", (sess, {}), "(oa{sv})") or "").endswith(foreign))
+    check("another connection cannot Close our session", (other.error("Close", (), "()", iface="org.freedesktop.portal.Session", path=sess) or "").endswith(foreign))
 
     # ---- options
     opts = c.opts(sess)
@@ -148,7 +149,9 @@ def main():
     sess = again
 
     # ---- hand scanner: unknown height
-    c.set(sess, [("hand-scanner", v("b", True))])
+    # The resolution is set here because a session does not have to inherit the previous one's
+    # options: the prototype keeps them on the device, the frontend in C starts a helper per session.
+    c.set(sess, [("resolution", v("d", 50.0)), ("hand-scanner", v("b", True))])
     n3 = len(c.events)
     fd = c.start_frame(sess)
     c.wait_state(sess, ("started",), n3)
