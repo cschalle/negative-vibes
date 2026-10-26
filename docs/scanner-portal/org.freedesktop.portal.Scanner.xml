@@ -62,6 +62,13 @@
 
           Label for the accept button. Mnemonic underlines are allowed.
 
+        * ``title`` (``s``)
+
+          Short text saying what the application wants the scanner for, such as
+          "Import photos". The dialog shows it as secondary text under the
+          application's own name, which the portal supplies and the application
+          cannot change, and may shorten it.
+
         * ``required_capabilities`` (``as``)
 
           Only offer scanners that have all of these capabilities. Known

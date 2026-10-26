@@ -73,7 +73,7 @@ frontend does the work.
     |  pixel data <-----------+-------|-- helper process per session -- libsane -- scanner
     |      (pipe fd)          |       |
                               |       '-- org.freedesktop.impl.portal.Scanner  (dialog)
-                              |             in xdg-desktop-portal-gtk / -kde
+                              |             in xdg-desktop-portal-gnome / -kde
 ```
 
 Two properties of this layout matter:
@@ -234,7 +234,17 @@ dialog, network scanners, and any provider other than SANE.
    `--talk-name=org.freedesktop.portal.Desktop`, which they already have, should cover it,
    and `--device=all` can then be dropped. This has not been tested against the real
    frontend.
-8. **Bundled backends as a fallback.** Scanners whose driver the host does not ship — the
+8. **Persistent grants or a dialog each time?** This proposal follows the USB portal: the
+   choice is stored in the permission store and revocable, so reopening an application does not
+   ask again. The print portal asks every time and keeps nothing. Persistent grants cost a
+   permission table, a revocation path and `Session.Closed`; a dialog each time costs a prompt
+   at every launch of every scanning application, which for an application like a document
+   scanner is the whole of its start-up. Which does upstream prefer?
+9. **Settings in the dialog.** Print's dialog also collects settings. This one only chooses
+   devices, because film and document scanning need the application's own option UI. A
+   simple resolution, mode and source step, for applications that have no UI of their own,
+   could be added later without changing the API; is it wanted?
+10. **Bundled backends as a fallback.** Scanners whose driver the host does not ship — the
    8200i is one — still need the USB portal and bundled backends. Worth saying so explicitly
    in the documentation.
 
@@ -244,7 +254,9 @@ dialog, network scanners, and any provider other than SANE.
    settle the open questions, question 1 first.
 2. Implement the frontend in C: `src/scanner.c`, the `scanner` permission store table,
    `data/org.freedesktop.portal.Scanner.xml`, documentation and tests in `tests/`.
-3. Implement the dialog in `xdg-desktop-portal-gtk`, with a KDE counterpart to follow.
+3. Implement the dialog in `xdg-desktop-portal-gnome`, where the USB portal's dialog lives
+   (`xdg-desktop-portal-gtk` has no USB dialog and would not need one here either), with a KDE
+   counterpart to follow.
 4. Land the Simple Scan port once the interface is accepted, as a non-prototype consumer.
 
 ## Prior art
@@ -252,8 +264,14 @@ dialog, network scanners, and any provider other than SANE.
 - sane-devel, September 2020, "Sandboxing scanner applications" (Bastien Nocera): concluded
   that a host-side service is preferable to bundled drivers. This proposal is that service,
   with a consent dialog and a permission store.
-- The print portal (`org.freedesktop.portal.Print`): the consent model this follows, and the
-  all-string settings dictionary it does not.
+- The print portal (`org.freedesktop.portal.Print`): the closest precedent for the dialog and
+  for the options of the call (`modal`, `accept_label`, `parent_window`, the response codes
+  0 success, 1 cancelled, 2 other, and `Request.Close` destroying the dialog). It differs in
+  three ways. Its dialog is `GtkPrintUnixDialog`, which lists the printers itself and also
+  collects print settings, whereas there is no scan dialog in GTK, so the backend draws the
+  list the frontend gives it, as the USB backend does. It has no permission store: the user is
+  asked on every print, and a `token` from `PreparePrint` skips the dialog for one later
+  `Print`. And it keeps the all-string settings dictionary that this proposal does not.
 - The USB portal (`org.freedesktop.portal.Usb`): the fd handover and the frontend/backend
   split this follows.
 - PWG IPP-Scan and WS-Scan: close to each other and to this option model in spirit.
