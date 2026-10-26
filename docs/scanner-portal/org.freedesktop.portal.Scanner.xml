@@ -34,11 +34,12 @@
         @handle: Object path for the :ref:`org.freedesktop.portal.Request` object representing this call
 
         Presents a dialog listing the scanners the host knows about and lets
-        the user choose which ones the application may use. The choice is
-        remembered for the application and can be revoked by the user.
+        the user choose which ones the application may use. The choice lasts
+        until the application leaves the bus; nothing is stored, so the
+        application must ask again the next time it starts.
 
         Call it in response to the user asking to choose a scanner, or when
-        ListScanners() returns nothing, not on every start. The dialog waits
+        ListScanners() returns nothing, which is the case after every start. The dialog waits
         for the user, so applications that have a worker thread should not
         block it on the response, and should close the request with
         org.freedesktop.portal.Request.Close() if they stop waiting.

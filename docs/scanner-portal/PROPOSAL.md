@@ -40,8 +40,9 @@ the same kind of consent question, has none.
 ## Goals
 
 - A sandboxed application can scan with no device, network or filesystem access.
-- The user chooses which scanners an application may use, in a dialog, once, and can revoke
-  the choice afterwards.
+- The user chooses which scanners an application may use, in a dialog. The choice lasts while
+  the application runs, so nothing is stored and there is nothing to revoke; remembering it
+  across runs is a possible later addition (open question 8).
 - libsane and its backends run on the host, so host and proprietary drivers work and the
   host's SANE configuration applies.
 - The API is rich enough for demanding applications: multi-bit-depth, infrared, multi-pass,
@@ -57,6 +58,7 @@ the same kind of consent question, has none.
 - **eSCL / IPP-Scan** as a provider, though the model is meant to allow it later.
 - A **per-scan prompt**. Scanning requires a physical action by the user, so the grant is the
   consent; see the decisions table.
+- **Persistent grants** and a permission store table. See open question 8.
 
 ## Architecture
 
@@ -69,7 +71,7 @@ frontend does the work.
   application                 |  xdg-desktop-portal
     |                         |    org.freedesktop.portal.Scanner  (frontend)
     |  D-Bus calls -----------+---->  |
-    |                         |       |-- permission store, table "scanner"
+    |                         |       |-- grants, in memory, per application connection
     |  pixel data <-----------+-------|-- helper process per session -- libsane -- scanner
     |      (pipe fd)          |       |
                               |       '-- org.freedesktop.impl.portal.Scanner  (dialog)
@@ -96,7 +98,7 @@ Consent and enumeration:
 
 | Member | Purpose |
 |---|---|
-| `SelectScanners(parent_window, options) → Request` | Shows the dialog and stores the grant. Called on a user action, or when `ListScanners` comes back empty — not on every start. `options` can ask for `multiple` and filter on `required_capabilities` (`film`, `adf`, `infrared`, `flatbed`, `color`). |
+| `SelectScanners(parent_window, options) → Request` | Shows the dialog and records the grant for the application's connection. Called on a user action, or when `ListScanners` comes back empty, which is the case on every start while grants are not remembered. `options` can ask for `multiple` and filter on `required_capabilities` (`film`, `adf`, `infrared`, `flatbed`, `color`). |
 | `ListScanners(options) → a(sa{sv})` | The granted, currently available scanners. Each is an opaque id plus `name`, `vendor`, `model`, `backend`, `kind`, `type`, `capabilities`, `available`. |
 | `CreateSession(options) → Session` | A monitoring session, needed only for `ScannerEvents`. |
 | `ScannerEvents(session, a(ssa{sv}))` | `add`, `change` or `remove` for granted scanners only. |
@@ -136,7 +138,8 @@ An application detects the portal by checking for the `version` property of
 libsane when it is absent.
 
 The backend interface has a single method, `SelectScanners`, which receives the scanner list
-the frontend assembled and returns the ids the user picked. The frontend stores the grant.
+the frontend assembled and returns the ids the user picked. The frontend keeps the grant in
+memory for as long as the application stays on the bus; nothing is written to disk.
 
 ## Decisions and why
 
@@ -156,7 +159,8 @@ the frontend assembled and returns the ids the user picked. The frontend stores 
 | Opaque scanner ids, never raw SANE device names | Some backends interpret device names as file paths or network addresses. Handing an application control of that string lets it steer the host at arbitrary files and hosts. |
 | The application sees only granted scanners | Enumerating the LAN's scanners is a fingerprinting and privacy problem, and not something an application needs before the user has chosen anything. |
 | A `Session` for an open scanner | Lifecycle comes for free: the application exiting releases the hardware lock, and the portal can revoke access with `Session.Closed`. |
-| No per-scan prompt once granted | Scanning needs the user to put something in the scanner, so it cannot happen unnoticed; the grant plus revocation is proportionate. Open to argument if reviewers disagree. |
+| No per-scan prompt once granted | Scanning needs the user to put something in the scanner, so it cannot happen unnoticed; one choice per run of the application is proportionate. Open to argument if reviewers disagree. |
+| Grants last for the application's run and are kept in memory | The print portal asks every time and keeps nothing, and scanning is an occasional, deliberate act like printing, so a dialog at the start of a scanning session is the expected cost. It removes the permission table, a revocation path and a settings panel from v1, and the user's only revocation is to close the application. Remembering the choice can be added later without changing the API; see open question 8. |
 | The backend does UI only | Same split as `org.freedesktop.impl.portal.Usb`, and it keeps libsane out of the desktop shell's process as well as out of the frontend's. |
 
 ## Security and privacy
@@ -167,8 +171,10 @@ the frontend assembled and returns the ids the user picked. The frontend stores 
   not granted, and cannot smuggle a path or host into a backend's device string.
 - Option types that would make the host open a file or socket of the application's choosing —
   file name options above all — are not listed by `GetOptions` and cannot be set.
-- Grants live in the permission store, per application, and are revocable; revocation closes
-  open sessions through `Session.Closed`.
+- Grants are kept in memory by the frontend, per application connection, and end when the
+  application leaves the bus, which also closes its sessions. A restart of the frontend forgets
+  them, and applications ask again. The portal can still end a session at any time with
+  `Session.Closed`.
 - The host's exclusive lock means one application at a time has the scanner, so one sandbox
   cannot read another's scan in progress.
 - Backend code runs in a helper process, not in xdg-desktop-portal, so a backend that crashes
@@ -192,8 +198,9 @@ than leaving to each implementation:
 
 ## Validation
 
-A prototype service implements the frontend interface over libsane, with the dialog and the
-permission store stubbed (auto-grant). Two applications have been ported to it, and both ran
+A prototype service implements the frontend interface over libsane, with the dialog stubbed
+(auto-grant) in the service and a real dialog tested separately against the backend
+interface. Two applications have been ported to it, and both ran
 against it from inside a Flatpak with neither `--device=all` nor `--share=network`.
 
 | Checked | How | Result |
@@ -204,13 +211,15 @@ against it from inside a Flatpak with neither `--device=all` nor `--share=networ
 | Real hardware | Plustek OpticFilm 8200i film scanner, 23 checks | Pass, including colour plus infrared, two numbered frames in one session, and cancel then rescan; colour, infrared, repeat and cancel match libsane within sensor noise |
 | Flatpak sandbox | Scenarios and a GTK application, no `--device=all`, no network | Pass: preview and raw scan on the 8200i, so fd passing and signals work through the Flatpak D-Bus proxy |
 | A second, independent application | GNOME Simple Scan ported to the draft | Scanned from the sandbox on the 8200i, was cancelled mid-frame and scanned again in the same session; the device arrived as `film scanner` |
+| The dialog | A libadwaita implementation of `org.freedesktop.impl.portal.Scanner` for xdg-desktop-portal-gnome, called directly with made-up scanners on a private bus on a Wayland session | Pass: select returns the chosen id, Escape and Cancel answer "cancelled" with no results, `Request.Close` destroys the window without an answer; unavailable scanners are shown and cannot be chosen; the application's title shows as secondary text under the heading the portal writes |
 
 The second application is what produced the frame numbers, the automatic values, the `type`
 field and a good deal of the interface documentation: the first application's needs alone
 were not enough to settle them.
 
-Not yet verified: a real backend dialog in a desktop shell, window-handle attachment for that
-dialog, network scanners, and any provider other than SANE.
+Not yet verified: the dialog against the real frontend, window-handle attachment for it,
+multiple selection, the dialog in portal-gtk and in KDE, network scanners, and any provider
+other than SANE.
 
 ## Open questions
 
@@ -234,12 +243,13 @@ dialog, network scanners, and any provider other than SANE.
    `--talk-name=org.freedesktop.portal.Desktop`, which they already have, should cover it,
    and `--device=all` can then be dropped. This has not been tested against the real
    frontend.
-8. **Persistent grants or a dialog each time?** This proposal follows the USB portal: the
-   choice is stored in the permission store and revocable, so reopening an application does not
-   ask again. The print portal asks every time and keeps nothing. Persistent grants cost a
-   permission table, a revocation path and `Session.Closed`; a dialog each time costs a prompt
-   at every launch of every scanning application, which for an application like a document
-   scanner is the whole of its start-up. Which does upstream prefer?
+8. **Remember the choice?** This proposal follows the print portal: the dialog is shown when
+   the application first needs a scanner, and the choice lasts until the application exits.
+   The USB portal stores grants in the permission store, where they are revocable. Storing
+   them costs a permission table, a revocation path and a place in Settings to review them;
+   not storing them costs a dialog on every launch of a scanning application. If reviewers
+   want persistence it can be added as a `remember` option on `SelectScanners` and a
+   `scanner` table, without changing anything else. Which does upstream prefer?
 9. **Settings in the dialog.** Print's dialog also collects settings. This one only chooses
    devices, because film and document scanning need the application's own option UI. A
    simple resolution, mode and source step, for applications that have no UI of their own,
@@ -252,26 +262,31 @@ dialog, network scanners, and any provider other than SANE.
 
 1. Open an issue on xdg-desktop-portal with this proposal and the measured results, and
    settle the open questions, question 1 first.
-2. Implement the frontend in C: `src/scanner.c`, the `scanner` permission store table,
-   `data/org.freedesktop.portal.Scanner.xml`, documentation and tests in `tests/`.
-3. Implement the dialog in `xdg-desktop-portal-gnome`, where the USB portal's dialog lives
-   (`xdg-desktop-portal-gtk` has no USB dialog and would not need one here either), with a KDE
-   counterpart to follow.
+2. Implement the frontend in C: `src/scanner.c`, the in-memory grants,
+   `data/org.freedesktop.portal.Scanner.xml`, `data/org.freedesktop.impl.portal.Scanner.xml`,
+   documentation and tests in `tests/`.
+3. Implement the dialog in `xdg-desktop-portal-gtk`, as a plain GTK 4 window, which is where the
+   print dialog lives and which serves GTK desktops other than GNOME (a sandboxed application
+   there has no other way to scan), and in `xdg-desktop-portal-gnome` with libadwaita, where the
+   USB dialog lives. A KDE counterpart follows. A libadwaita version is written and tested; the
+   GTK one is not yet.
 4. Land the Simple Scan port once the interface is accepted, as a non-prototype consumer.
 
 ## Prior art
 
 - sane-devel, September 2020, "Sandboxing scanner applications" (Bastien Nocera): concluded
   that a host-side service is preferable to bundled drivers. This proposal is that service,
-  with a consent dialog and a permission store.
-- The print portal (`org.freedesktop.portal.Print`): the closest precedent for the dialog and
-  for the options of the call (`modal`, `accept_label`, `parent_window`, the response codes
-  0 success, 1 cancelled, 2 other, and `Request.Close` destroying the dialog). It differs in
-  three ways. Its dialog is `GtkPrintUnixDialog`, which lists the printers itself and also
-  collects print settings, whereas there is no scan dialog in GTK, so the backend draws the
-  list the frontend gives it, as the USB backend does. It has no permission store: the user is
-  asked on every print, and a `token` from `PreparePrint` skips the dialog for one later
-  `Print`. And it keeps the all-string settings dictionary that this proposal does not.
+  with a consent dialog.
+- The print portal (`org.freedesktop.portal.Print`): the closest precedent for the dialog, for
+  the options of the call (`modal`, `accept_label`, `parent_window`, the response codes 0
+  success, 1 cancelled, 2 other, and `Request.Close` destroying the dialog) and for the consent
+  model: it stores nothing and asks when the application needs the device, as this proposal
+  does for v1. It differs in three ways. Its dialog is `GtkPrintUnixDialog`, which lists the
+  printers itself and also collects print settings, whereas there is no scan dialog in GTK, so
+  the backend draws the list the frontend gives it, as the USB backend does. Its backend also
+  does the printing, handing the document to CUPS, whereas here the frontend and a helper do
+  the scanning and the backend is only a dialog, so that GNOME and KDE do not each carry a
+  scanning stack. And it keeps the all-string settings dictionary that this proposal does not.
 - The USB portal (`org.freedesktop.portal.Usb`): the fd handover and the frontend/backend
   split this follows.
 - PWG IPP-Scan and WS-Scan: close to each other and to this option model in spirit.

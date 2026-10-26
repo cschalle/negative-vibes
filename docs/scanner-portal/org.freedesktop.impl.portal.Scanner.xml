@@ -32,7 +32,7 @@
 
         * ``scanners`` (``as``)
 
-          The ids chosen from @scanners. The frontend stores the grant.
+          The ids chosen from @scanners. The frontend keeps the grant in memory.
     -->
     <method name="SelectScanners">
       <arg type="o" name="handle" direction="in"/>
