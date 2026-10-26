@@ -9,7 +9,7 @@ import sys
 import time
 import os
 
-from gi.repository import GLib
+from gi.repository import Gio, GLib
 
 from portal_client import IFACE, NAME, PATH, Client, check, failures, v
 
@@ -141,6 +141,28 @@ def main():
     gsess_err = ghost.error("OpenScanner", (sid, {}), "(sa{sv})")
     check("scanner is held while c has it open (Busy)", (gsess_err or "").endswith("Error.Busy"), gsess_err)
     c.call("Close", (), "()", iface="org.freedesktop.portal.Session", path=sess)
+    # An app that leaves while its OpenScanner is still running. The runner's helper wrapper
+    # starts a session slowly while this file exists. The portal must notice that the caller is
+    # gone once the helper is up, and not keep the scanner for as long as it runs.
+    slow = os.environ.get("NV_TEST_SLOW_FLAG")
+    if slow:
+        quitter = Client()
+        quitter.select()
+        open(slow, "w").close()
+        try:
+            quitter.bus.call(NAME, PATH, IFACE, "OpenScanner", GLib.Variant("(sa{sv})", (sid, {})), None, Gio.DBusCallFlags.NONE, 20000, None, None, None)
+            quitter.pump(lambda: False, 0.5)
+            quitter.bus.close_sync(None)
+            time.sleep(4.0)
+        finally:
+            os.unlink(slow)
+        try:
+            path = c.open(sid, "q1")
+        except GLib.Error as e:
+            check("a scanner is free after its app left during OpenScanner", False, e.message)
+        else:
+            check("a scanner is free after its app left during OpenScanner", True)
+            c.call("Close", (), "()", iface="org.freedesktop.portal.Session", path=path)
     gs = ghost.open(sid, "g1")
     ghost.bus.close_sync(None)
     time.sleep(1.0)
