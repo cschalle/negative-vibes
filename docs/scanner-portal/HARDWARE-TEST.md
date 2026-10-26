@@ -99,6 +99,12 @@ runs are why the script now has a private configuration, a time limit on each sc
 USB-address guard: the first showed a service bug (a colour+infrared scan that never ended), and
 the second was cut short when opening the `genesys` entry for the scanner reset it.
 
+On 2026-10-26 the same 23 checks passed on the 8200i through the frontend written in C, with
+the installed `plustek8200i` 0.1.28 driver: 23 passed, 0 failed, 0 warnings. That mode is
+`XDP_BUILD=<xdg-desktop-portal build directory> tools/portal-hw-check.sh --frontend c`; it
+starts the frontend with its helper and a stand-in for the dialog that grants the scanner
+without asking, and `--dry-run` works with it too.
+
 ## From the Flatpak sandbox
 
 `build-aux/io.github.cschalle.NegativeVibes.PortalTest.json` builds the app with `-Dportal=true`

@@ -155,6 +155,7 @@ memory for as long as the application stays on the bus; nothing is written to di
 | `backend` in the scanner info | The scanner id is opaque, so applications cannot match device quirks on it — and device quirks are unavoidable in practice. The driver name has to be exposed on purpose. |
 | `type` in the scanner info, alongside `kind` | Applications hide devices that are not scanners (webcams through `v4l`) and rank by device type. `kind`, the connection, cannot express that. SANE's own type string can, as an untranslated hint, never as an identifier. |
 | `GetFrameParameters` as an estimate | SANE allows `sane_get_parameters` before `sane_start` and applications use it to size buffers and previews. Without it a client cannot know the frame size until data is already flowing. |
+| `org.freedesktop.DBus.Error.AccessDenied` for a session that is not the caller's, closed or unknown | The other portals that have sessions answer this way, and it does not tell an application whether the session exists for someone else. `NotAllowed` stays for a scanner that was not granted, which is a decision of the user's. |
 | A dedicated `Busy` error | A locked scanner, a frame in progress and an option set during a frame are ordinary, expected conditions that an application must handle differently from a real failure. Folding them into `Failed` forces clients to guess from the message. |
 | Opaque scanner ids, never raw SANE device names | Some backends interpret device names as file paths or network addresses. Handing an application control of that string lets it steer the host at arbitrary files and hosts. |
 | The application sees only granted scanners | Enumerating the LAN's scanners is a fingerprinting and privacy problem, and not something an application needs before the user has chosen anything. |
@@ -191,10 +192,14 @@ than leaving to each implementation:
    application reads or exits. The writer has to be non-blocking and poll for cancellation.
    The rule for the API is: *a frame is cancelled by `Cancel()` or by the application closing
    the pipe, and neither may depend on the application reading the data.*
-2. **Option state can be per device, not per handle.** Some SANE backends keep option values
-   on the device, so a new session can inherit the previous one's settings. This is existing
-   libsane behaviour that the portal passes through rather than hides; applications should set
-   every option they depend on instead of assuming defaults.
+2. **Whether a new session inherits the last one's options depends on the implementation.**
+   Some SANE backends keep option values on the device, so with libsane in one process a new
+   session can inherit the previous one's settings, as the prototype's does. The frontend in C
+   starts a helper per session, so every session starts from the backend's own defaults, and a
+   backend's defaults can be poor: the test backend's default resolution reads back as
+   0.00076 dpi, which gives a frame one pixel wide. Applications must set every option they
+   depend on, and the interface should say so; one of the scenario checks relied on the
+   inheritance and had to be changed.
 
 ## Validation
 
@@ -212,7 +217,7 @@ against it from inside a Flatpak with neither `--device=all` nor `--share=networ
 | Flatpak sandbox | Scenarios and a GTK application, no `--device=all`, no network | Pass: preview and raw scan on the 8200i, so fd passing and signals work through the Flatpak D-Bus proxy |
 | A second, independent application | GNOME Simple Scan ported to the draft | Scanned from the sandbox on the 8200i, was cancelled mid-frame and scanned again in the same session; the device arrived as `film scanner` |
 | The dialog | A libadwaita implementation of `org.freedesktop.impl.portal.Scanner` for xdg-desktop-portal-gnome, called directly with made-up scanners on a private bus on a Wayland session | Pass: select returns the chosen id, Escape and Cancel answer "cancelled" with no results, `Request.Close` destroys the window without an answer; unavailable scanners are shown and cannot be chosen; the application's title shows as secondary text under the heading the portal writes |
-| The frontend in C, in xdg-desktop-portal | The frontend, a helper process that holds libsane, and the dialog above, on a private bus: both applications, the SANE `test` backend, the 8200i and a network scanner | Pass for the grant and the dialog, `OpenScanner` with the exclusive lock and `Busy`, options, `auto`, `StartFrame` with the pipe, frame events and numbers, `Cancel`, closing the pipe early, the helper killed in the middle of a frame (the pipe ends and the application gets `Session.Closed`) and the application leaving in the middle of a frame, checked with scripted clients against the `test` backend. Negative Vibes scanned and rescanned after a stop on the 8200i; Simple Scan, from its Flatpak sandbox, scanned on the 8200i and on an HP Color LaserJet MFP M283cdw through the `airscan` backend. The stop on the 8200i was not confirmed from the logs, and Simple Scan has no cancel button |
+| The frontend in C, in xdg-desktop-portal | The frontend, a helper process that holds libsane, and the dialog above, on a private bus: both applications, the SANE `test` backend, the 8200i and a network scanner | Pass for the grant and the dialog, `OpenScanner` with the exclusive lock and `Busy`, options, `auto`, `StartFrame` with the pipe, frame events and numbers, `Cancel`, closing the pipe early, the helper killed in the middle of a frame (the pipe ends and the application gets `Session.Closed`) and the application leaving in the middle of a frame, checked with scripted clients against the `test` backend. Negative Vibes scanned and rescanned after a stop on the 8200i; Simple Scan, from its Flatpak sandbox, scanned on the 8200i and on an HP Color LaserJet MFP M283cdw through the `airscan` backend. The stop on the 8200i was confirmed by hand, and Simple Scan has no cancel button. The 23 hardware checks (`tools/portal-hw-check.sh --frontend c`) also passed on the 8200i with the frontend in C: colour and infrared scans against `scanimage`, a repeat scan, progress, and a cancel at 30% followed by a rescan |
 
 The second application is what produced the frame numbers, the automatic values, the `type`
 field and a good deal of the interface documentation: the first application's needs alone
