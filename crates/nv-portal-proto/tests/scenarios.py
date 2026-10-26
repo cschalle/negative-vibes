@@ -24,6 +24,13 @@ def main():
     check("scanner info names the SANE backend", info.get("backend") == "test", info)
     check("scanner info carries SANE's device type", info.get("type") == "virtual device", info)
 
+    # ---- an app that needs film is not offered a virtual device, and is granted nothing
+    film = Client()
+    code, results = film.select(required_capabilities=v("as", ["film"]))
+    check("a scanner without the required capability is not offered", code != 0 and not results.get("scanners"), (code, results))
+    check("... and nothing is granted for it", film.call("ListScanners", ({},), "(a{sv})")[0] == [])
+    film.bus.close_sync(None)
+
     # ---- permissions
     check("OpenScanner on a scanner that was never granted is NotAllowed", (c.error("OpenScanner", ("deadbeef", {}), "(sa{sv})") or "").endswith("Error.NotAllowed"))
     bad_token = c.error("SelectScanners", ("", {"handle_token": v("s", "has space")}), "(sa{sv})")

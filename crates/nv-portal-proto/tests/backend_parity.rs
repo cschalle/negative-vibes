@@ -91,7 +91,10 @@ fn portal_backend_matches_libsane() {
 
     // Listing only lists: nothing is granted until the user selects.
     assert!(portal.get_devices(true).expect("portal devices").is_empty(), "listed before any selection");
-    let chosen = portal.select_devices("").expect("select");
+    // Negative Vibes asks for film scanners only, and the test backend's virtual device is not one.
+    assert!(portal.select_devices("").expect("select").is_empty(), "a virtual device was offered as a film scanner");
+    assert!(portal.get_devices(true).expect("portal devices").is_empty(), "granted although nothing was offered");
+    let chosen = portal.select_scanners("", true, &[]).expect("select");
     assert!(!chosen.is_empty(), "the selection was empty");
     let devices = portal.get_devices(true).expect("portal devices");
     assert_eq!(devices.len(), chosen.len(), "list after select");

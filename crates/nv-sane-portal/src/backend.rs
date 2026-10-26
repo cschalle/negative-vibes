@@ -91,8 +91,9 @@ impl PortalBackend {
     }
 
     /// Ask the portal to show its scanner selection dialog and return what the user chose.
-    /// The grant is remembered by the portal, so later `get_devices` calls list it.
-    pub fn select_scanners(&self, parent_window: &str, multiple: bool) -> Result<Vec<DeviceInfo>> {
+    /// The grant is remembered by the portal, so later `get_devices` calls list it. The dialog only
+    /// offers scanners that have all of `required_capabilities`, as the portal names them.
+    pub fn select_scanners(&self, parent_window: &str, multiple: bool, required_capabilities: &[&str]) -> Result<Vec<DeviceInfo>> {
         zbus::block_on(async {
             let conn = self.proxy.inner().connection().clone();
             let me = conn.unique_name().ok_or_else(|| portal_err("no unique bus name"))?.to_string();
@@ -106,6 +107,9 @@ impl PortalBackend {
             let mut opts: HashMap<&str, Value<'_>> = HashMap::new();
             opts.insert("handle_token", token.as_str().into());
             opts.insert("multiple", multiple.into());
+            if !required_capabilities.is_empty() {
+                opts.insert("required_capabilities", required_capabilities.to_vec().into());
+            }
             self.proxy.select_scanners(parent_window, opts).await.map_err(map_error)?;
 
             let resp = responses.next().await.ok_or_else(|| portal_err("no Response from the portal"))?;
@@ -131,7 +135,8 @@ impl ScannerBackend for PortalBackend {
     }
 
     fn select_devices(&self, parent_window: &str) -> Result<Vec<DeviceInfo>> {
-        self.select_scanners(parent_window, true)
+        // Negative Vibes scans film, so a flatbed or a document feeder is of no use to it
+        self.select_scanners(parent_window, true, &["film"])
     }
 
     fn open(&self, name: &str) -> Result<Box<dyn ScannerHandle>> {
