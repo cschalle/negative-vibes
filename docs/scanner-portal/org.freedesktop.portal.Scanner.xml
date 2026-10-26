@@ -219,7 +219,8 @@
         @descriptors: Option descriptors, in backend order
 
         Returns the scanner's options, modelled on SANE option descriptors.
-        Call again when SetOptions() reports ``reload-options``.
+        Call again when SetOptions() reports ``reload-options``. Fails with
+        ``org.freedesktop.portal.Error.Busy`` while a frame is in progress.
 
         The order is the backend's and is kept until ``reload-options``.
         SANE's option 0, the number of options, is not listed, so an
@@ -284,7 +285,8 @@
         currently no option supported.
         @values: Current values by option name
 
-        Returns the current value of every readable, active option.
+        Returns the current value of every readable, active option. Fails with
+        ``org.freedesktop.portal.Error.Busy`` while a frame is in progress.
     -->
     <method name="GetOptionValues">
       <arg type="o" name="session_handle" direction="in"/>
@@ -407,7 +409,8 @@
         a frame it has cancelled.
 
         ``started``: the scanner is ready and data will flow. Details:
-        ``format`` (``s``: ``gray``, ``rgb``, ``red``, ``green``, ``blue``),
+        ``format`` (``s``: ``gray``, ``rgb``, ``red``, ``green``, ``blue``, and for
+        scanners with an infrared channel ``ir``, ``rgbi``, ``grayi``),
         ``depth`` (``u``), ``pixels_per_line`` (``u``), ``bytes_per_line``
         (``u``), ``lines`` (``i``, -1 when unknown, as for hand scanners)
         and ``last_frame`` (``b``).
