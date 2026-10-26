@@ -56,7 +56,9 @@ class Client:
         sub = self.bus.signal_subscribe(NAME, "org.freedesktop.portal.Request", "Response", sig_path, None, Gio.DBusSignalFlags.NONE, lambda *a: got.append(a[-1].unpack()))
         o = {"handle_token": GLib.Variant("s", token)}
         o.update(opts)
+        t0 = time.time()
         self.call("SelectScanners", ("", o), "(sa{sv})")
+        self.last_select_call_seconds = time.time() - t0
         self.pump(lambda: got)
         self.bus.signal_unsubscribe(sub)
         code, results = got[0]

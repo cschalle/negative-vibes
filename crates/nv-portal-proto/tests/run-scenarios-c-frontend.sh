@@ -28,11 +28,14 @@ PORTAL
   # The sources moved from src/ to desktop-portal/ after 1.22, so a build of either has it
   for XDP_BIN in "$XDP_BUILD/desktop-portal" "$XDP_BUILD/src"; do [ -x "$XDP_BIN/xdg-desktop-portal" ] && break; done
   # A wrapper that starts a session slowly while the flag file exists, for the check that an app
-  # may leave in the middle of OpenScanner
+  # may leave in the middle of OpenScanner, and lists slowly while the other does, for the
+  # check that the dialog does not wait for it
   export NV_TEST_SLOW_FLAG=$tmp/slow
+  export NV_TEST_SLOW_LIST=$tmp/slow-list
   cat > "$tmp/helper" <<WRAP
 #!/bin/sh
 if [ "\$1" = session ] && [ -e "$NV_TEST_SLOW_FLAG" ]; then sleep 2; fi
+if [ "\$1" = list ] && [ -e "$NV_TEST_SLOW_LIST" ]; then sleep 2; fi
 exec "$XDP_BIN/xdg-desktop-portal-scanner-helper" "\$@"
 WRAP
   chmod +x "$tmp/helper"

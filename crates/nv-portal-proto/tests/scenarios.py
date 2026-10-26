@@ -24,6 +24,26 @@ def main():
     check("scanner info names the SANE backend", info.get("backend") == "test", info)
     check("scanner info carries SANE's device type", info.get("type") == "virtual device", info)
 
+    # ---- scanners found after the dialog is shown. The runner's helper wrapper makes the listing
+    # take two seconds while this file exists; the call must still return at once, with the
+    # dialog getting the scanner when it is found, and the application's grant being for it.
+    slow_list = os.environ.get("NV_TEST_SLOW_LIST")
+    if slow_list:
+        late = Client()
+        open(slow_list, "w").close()
+        try:
+            t0 = time.time()
+            code, results = late.select()
+            total = time.time() - t0
+        finally:
+            os.unlink(slow_list)
+        check("SelectScanners returns before a slow search is over", late.last_select_call_seconds < 1.2,
+              late.last_select_call_seconds)
+        check("... the search did take long", total > 1.8, total)
+        check("... and the scanner found later can still be chosen",
+              code == 0 and [s[0] for s in results.get("scanners", [])] == [sid], (code, results))
+        late.bus.close_sync(None)
+
     # ---- an app that needs film is not offered a virtual device, and is granted nothing
     film = Client()
     code, results = film.select(required_capabilities=v("as", ["film"]))

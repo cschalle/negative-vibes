@@ -5,6 +5,9 @@ It shows nothing and answers at once: it grants the first scanner it is offered,
 when the application asked for `multiple`. That lets the scenario checks run against the real
 frontend without someone pressing Return. The real dialog is tested on its own.
 
+When the frontend says it is still searching, the answer waits for the last UpdateScanners, so the
+scanners that arrive later are offered too.
+
     impl_auto_grant.py BUS_NAME IMPL_INTERFACE_XML
 """
 import sys
@@ -23,18 +26,40 @@ def main():
         node = Gio.DBusNodeInfo.new_for_xml(f.read())
     iface = node.interfaces[0]
 
-    def on_call(_conn, _sender, _path, _iface, method, params, invocation):
-        if method != "SelectScanners":
-            invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
-            return
-        _handle, _parent, app_id, scanners, options = params.unpack()
-        ids = [s[0] for s in scanners]
-        chosen = ids if options.get("multiple") else ids[:1]
-        print(f"SelectScanners for {app_id!r}: offered {ids}, granting {chosen}", flush=True)
+    waiting = {}
+
+    def answer(invocation, ids, multiple, app_id, offered):
+        chosen = ids if multiple else ids[:1]
+        print(f"SelectScanners for {app_id!r}: offered {offered}, granting {chosen}", flush=True)
         if not chosen:
             invocation.return_value(GLib.Variant("(ua{sv})", (1, {})))
             return
         invocation.return_value(GLib.Variant("(ua{sv})", (0, {"scanners": GLib.Variant("as", chosen)})))
+
+    def on_call(_conn, _sender, _path, _iface, method, params, invocation):
+        if method == "UpdateScanners":
+            handle, scanners, searching = params.unpack()
+            ids = [s[0] for s in scanners]
+            print(f"UpdateScanners {ids}, searching {searching}", flush=True)
+            invocation.return_value(None)
+            entry = waiting.get(handle)
+            if entry is None:
+                return
+            entry["ids"] += ids
+            if not searching:
+                del waiting[handle]
+                answer(entry["invocation"], entry["ids"], entry["multiple"], entry["app_id"], entry["ids"])
+            return
+        if method != "SelectScanners":
+            invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
+            return
+        handle, _parent, app_id, scanners, options = params.unpack()
+        ids = [s[0] for s in scanners]
+        if options.get("searching"):
+            waiting[handle] = {"invocation": invocation, "ids": ids, "multiple": options.get("multiple"),
+                               "app_id": app_id}
+            return
+        answer(invocation, ids, options.get("multiple"), app_id, ids)
 
     def on_bus(conn, _name):
         conn.register_object(PATH, iface, on_call, None, None)

@@ -33,6 +33,13 @@
         * ``scanners`` (``as``)
 
           The ids chosen from @scanners. The frontend keeps the grant in memory.
+
+        The frontend does not wait for every driver before it calls this. Finding the
+        scanners can take seconds, mostly for the ones on the network, while a scanner on USB
+        is found at once. If the frontend is still looking, @options has ``searching`` (``b``)
+        set to true, @scanners is what was found so far, possibly nothing, and the rest comes
+        with :ref:`org.freedesktop.impl.portal.Scanner.UpdateScanners`. The dialog should show
+        what it has, and that it is still looking.
     -->
     <method name="SelectScanners">
       <arg type="o" name="handle" direction="in"/>
@@ -45,6 +52,24 @@
       <arg type="u" name="response" direction="out"/>
       <annotation name="org.qtproject.QtDBus.QtTypeName.Out1" value="QVariantMap"/>
       <arg type="a{sv}" name="results" direction="out"/>
+    </method>
+    <!--
+        UpdateScanners:
+        @handle: Object path of the Request of the SelectScanners call
+        @scanners: Array of scanner id and information vardict for the scanners found since
+        the last call, in the format of the @scanners of SelectScanners
+        @searching: Whether the frontend is still looking for scanners
+
+        Adds scanners to a dialog that SelectScanners showed with ``searching`` set, as
+        the frontend finds them. The last call has @searching false, possibly with no scanners.
+        Calls for a @handle that is not showing a dialog are ignored. Scanners from earlier
+        calls are not repeated.
+    -->
+    <method name="UpdateScanners">
+      <arg type="o" name="handle" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QList&lt;QPair&lt;QString,QVariantMap&gt;&gt;"/>
+      <arg type="a(sa{sv})" name="scanners" direction="in"/>
+      <arg type="b" name="searching" direction="in"/>
     </method>
     <property name="version" type="u" access="read"/>
   </interface>
