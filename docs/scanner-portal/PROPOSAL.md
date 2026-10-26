@@ -107,7 +107,7 @@ Scanning, on a `Session` from `OpenScanner`:
 
 | Member | Purpose |
 |---|---|
-| `OpenScanner(scanner_id, options) → Session` | Opens a granted scanner and takes the host's exclusive lock. May take seconds (lamp warm-up, calibration). Closing the session, or leaving the bus, cancels any scan and releases the scanner. |
+| `OpenScanner(scanner_id, options) → Session` | Opens a granted scanner and takes the host's exclusive lock. Can take tens of seconds: lamp warm-up and calibration, and on a network scanner 16 to 25 s in testing, which is at D-Bus's default 25 s call timeout (open question 11). Closing the session, or leaving the bus, cancels any scan and releases the scanner. |
 | `GetOptions(session, options) → aa{sv}` | SANE-shaped option descriptors in backend order: `name`, `title`, `description`, `type`, `unit`, `size`, `constraint`, `capabilities`. |
 | `GetOptionValues(session, options) → a{sv}` | The current value of every readable, active option. |
 | `SetOptions(session, a(sv), options) → applied, flags` | Sets options **in array order**. Returns what each option ended up with, and flags `inexact`, `reload-options`, `reload-params`. |
@@ -212,14 +212,16 @@ against it from inside a Flatpak with neither `--device=all` nor `--share=networ
 | Flatpak sandbox | Scenarios and a GTK application, no `--device=all`, no network | Pass: preview and raw scan on the 8200i, so fd passing and signals work through the Flatpak D-Bus proxy |
 | A second, independent application | GNOME Simple Scan ported to the draft | Scanned from the sandbox on the 8200i, was cancelled mid-frame and scanned again in the same session; the device arrived as `film scanner` |
 | The dialog | A libadwaita implementation of `org.freedesktop.impl.portal.Scanner` for xdg-desktop-portal-gnome, called directly with made-up scanners on a private bus on a Wayland session | Pass: select returns the chosen id, Escape and Cancel answer "cancelled" with no results, `Request.Close` destroys the window without an answer; unavailable scanners are shown and cannot be chosen; the application's title shows as secondary text under the heading the portal writes |
+| The frontend in C, in xdg-desktop-portal | The frontend, a helper process that holds libsane, and the dialog above, on a private bus: both applications, the SANE `test` backend, the 8200i and a network scanner | Pass for the grant and the dialog, `OpenScanner` with the exclusive lock and `Busy`, options, `auto`, `StartFrame` with the pipe, frame events and numbers, `Cancel`, closing the pipe early, the helper killed in the middle of a frame (the pipe ends and the application gets `Session.Closed`) and the application leaving in the middle of a frame, checked with scripted clients against the `test` backend. Negative Vibes scanned and rescanned after a stop on the 8200i; Simple Scan, from its Flatpak sandbox, scanned on the 8200i and on an HP Color LaserJet MFP M283cdw through the `airscan` backend. The stop on the 8200i was not confirmed from the logs, and Simple Scan has no cancel button |
 
 The second application is what produced the frame numbers, the automatic values, the `type`
 field and a good deal of the interface documentation: the first application's needs alone
 were not enough to settle them.
 
-Not yet verified: the dialog against the real frontend, window-handle attachment for it,
-multiple selection, the dialog in portal-gtk and in KDE, network scanners, and any provider
-other than SANE.
+Not yet verified: window-handle attachment for the dialog, the dialog in portal-gtk and in
+KDE, more than one network scanner or backend (one eSCL scanner has been tried), a helper
+that stops answering without dying, two applications opening the same scanner at the same
+instant, and any provider other than SANE.
 
 ## Open questions
 
@@ -257,6 +259,30 @@ other than SANE.
 10. **Bundled backends as a fallback.** Scanners whose driver the host does not ship — the
    8200i is one — still need the USB portal and bundled backends. Worth saying so explicitly
    in the documentation.
+
+11. **How long may `OpenScanner` take?** On the 8200i it is quick, but on a network scanner
+    through `airscan` it took 16 and 25 s, and D-Bus's default call timeout is 25 s, so a
+    client that keeps the default can fail on a scanner that would have opened. Either the
+    documentation tells clients to use a long timeout for this one call, or `OpenScanner`
+    becomes a request, answered with a `Response` that carries the session handle, as the
+    portals that create sessions upstream (ScreenCast, GlobalShortcuts) do. The second fits
+    the existing pattern and lets an application show progress, and costs a round trip and
+    one more signal to handle; it is the recommendation, and has not been prototyped.
+12. **What is `type`?** It is the backend's own device type string, passed through, and it
+    is whatever the backend puts there: `film scanner`, `virtual device`, and for `airscan`
+    the scanner's address, `ip=192.0.2.10`. Applications use it to hide devices that are
+    not scanners, and Simple Scan hides `virtual device`. An application that was granted the
+    scanner sees the address, which is probably acceptable, but should be a choice. Either
+    the documentation says that `type` is a backend-defined hint that can contain an address
+    and must not be parsed beyond that, or the portal reports its own small vocabulary
+    (`virtual`, `scanner`, `camera`) and keeps the raw string out.
+13. **Where do `capabilities` come from?** The prototype reads them from words in the type
+    string (`film`, `flatbed`, `adf`), so a scanner whose backend does not say, such as the
+    `airscan` one, has none, and a `required_capabilities` filter can never offer it.
+    Reading them from the scanner's options needs it opened, which takes the lock and, for a
+    network scanner, many seconds. The recommendation is to keep `capabilities` as a hint,
+    say that an empty list means unknown, and drop `required_capabilities` from v1 unless a
+    reliable source is found.
 
 ## Upstreaming plan
 
