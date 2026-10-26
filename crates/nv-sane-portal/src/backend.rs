@@ -166,6 +166,7 @@ impl ScannerBackend for PortalBackend {
                 close,
                 session,
                 events: RefCell::new(events),
+                values: RefCell::new(None),
                 frame: RefCell::new(None),
                 active: Cell::new(false),
                 done_frame: Cell::new(0),
@@ -189,6 +190,9 @@ pub struct PortalHandle {
     close: SessionProxy<'static>,
     session: OwnedObjectPath,
     events: RefCell<Pin<Box<dyn Stream<Item = Event>>>>,
+    /// The values of all options as `GetOptionValues` gave them, until an option changes.
+    /// The portal returns every value in one call, and the app reads the options one by one.
+    values: RefCell<Option<HashMap<String, OwnedValue>>>,
     /// Read end of the pipe for the frame in progress.
     frame: RefCell<Option<File>>,
     /// A frame was started and its end has not been seen yet.
@@ -408,15 +412,21 @@ impl ScannerHandle for PortalHandle {
         if matches!(desc.kind, OptionKind::Button | OptionKind::Group) {
             return Ok(OptionValue::Button);
         }
-        let values = zbus::block_on(self.proxy.get_option_values(&self.path(), HashMap::new())).map_err(map_error)?;
+        if self.values.borrow().is_none() {
+            let all = zbus::block_on(self.proxy.get_option_values(&self.path(), HashMap::new())).map_err(map_error)?;
+            *self.values.borrow_mut() = Some(all);
+        }
+        let values = self.values.borrow();
         values
-            .get(&desc.name)
+            .as_ref()
+            .and_then(|v| v.get(&desc.name))
             .and_then(|v| value_from_variant(&desc.kind, v))
             .ok_or_else(|| status(sys::SANE_STATUS_INVAL, format!("option '{}' has no readable value", desc.name)))
     }
 
     fn set_option(&self, desc: &OptionDescriptor, value: &OptionValue) -> Result<SetInfo> {
         *self.params.borrow_mut() = None;
+        *self.values.borrow_mut() = None;
         let (_applied, flags) = zbus::block_on(self.proxy.set_options(&self.path(), vec![(desc.name.as_str(), value_to_variant(value))], HashMap::new())).map_err(map_error)?;
         Ok(SetInfo {
             inexact: flags.iter().any(|f| f == "inexact"),
@@ -427,6 +437,7 @@ impl ScannerHandle for PortalHandle {
 
     fn set_option_auto(&self, desc: &OptionDescriptor) -> Result<SetInfo> {
         *self.params.borrow_mut() = None;
+        *self.values.borrow_mut() = None;
         let auto = Value::from(HashMap::from([("auto", Value::from(true))]));
         let (_applied, flags) = zbus::block_on(self.proxy.set_options(&self.path(), vec![(desc.name.as_str(), auto)], HashMap::new())).map_err(map_error)?;
         Ok(SetInfo {
@@ -452,6 +463,7 @@ impl ScannerHandle for PortalHandle {
         }
         self.drain_stale_events();
         *self.params.borrow_mut() = None;
+        *self.values.borrow_mut() = None;
 
         let fd = zbus::block_on(self.proxy.start_frame(&self.path(), HashMap::new())).map_err(map_error)?;
         *self.frame.borrow_mut() = Some(File::from(std::os::fd::OwnedFd::from(fd)));
