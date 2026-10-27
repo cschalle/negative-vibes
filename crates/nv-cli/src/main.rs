@@ -1,3 +1,4 @@
+mod buttons;
 mod calibrate;
 mod probe;
 mod render;
@@ -16,6 +17,8 @@ struct Cli {
 enum Cmd {
     /// List all SANE devices and their capabilities.
     Probe(probe::ProbeArgs),
+    /// Print the presses of the buttons on the scanner (through the scanner portal).
+    Buttons(buttons::ButtonsArgs),
     /// Scan a single frame and write raw PNM to disk.
     Scan(scan::ScanArgs),
     /// Run a raw PNM file through the nv-process pipeline and save a rendered PPM.
@@ -28,6 +31,7 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Cmd::Probe(args) => probe::run(args),
+        Cmd::Buttons(args) => buttons::run(args),
         Cmd::Scan(args) => scan::run(args),
         Cmd::Render(args) => render::run(args),
         Cmd::Calibrate(args) => calibrate::run(args),

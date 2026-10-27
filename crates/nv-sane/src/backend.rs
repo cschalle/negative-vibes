@@ -15,6 +15,15 @@
 use crate::{DeviceInfo, OptionDescriptor, OptionValue, Parameters, Result, SaneError, SetInfo};
 use nv_sane_sys as sys;
 
+/// A press of a button on the scanner, as the scanner portal reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ButtonPress {
+    /// The portal's name for it: `scan`, `copy`, `email`, `pdf`, `file` or `extra`.
+    pub button: String,
+    /// The driver's name for it (`intelliscan`), to tell apart two buttons that have the same `button`.
+    pub option: String,
+}
+
 /// A source of scanners: lists them and opens one.
 pub trait ScannerBackend {
     /// All scanners visible to the app. `local_only` skips network scanners where the
@@ -68,6 +77,14 @@ pub trait ScannerHandle {
 
     /// Cancel the frame in progress.
     fn cancel(&self);
+
+    /// The next press of a button on the scanner, waiting up to `timeout`. Only the scanner portal
+    /// reports buttons, and only while no frame is in progress; with libsane, read the sensor
+    /// options. Waits the whole time and gives `None` when there is nothing to report.
+    fn next_button(&self, timeout: std::time::Duration) -> Option<ButtonPress> {
+        std::thread::sleep(timeout);
+        None
+    }
 }
 
 impl<T: ScannerHandle + ?Sized> ScannerHandle for Box<T> {
@@ -97,5 +114,8 @@ impl<T: ScannerHandle + ?Sized> ScannerHandle for Box<T> {
     }
     fn cancel(&self) {
         (**self).cancel()
+    }
+    fn next_button(&self, timeout: std::time::Duration) -> Option<ButtonPress> {
+        (**self).next_button(timeout)
     }
 }

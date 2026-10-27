@@ -10,7 +10,7 @@ use crate::proxy::{RequestProxy, ScannerProxy, SessionProxy};
 use crate::{PORTAL_PATH, request_path};
 use futures_util::future::{Either, select};
 use futures_util::{FutureExt, Stream, StreamExt};
-use nv_sane::{DeviceInfo, FrameFormat, OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue, Parameters, SaneError, ScannerBackend, ScannerHandle, SetInfo};
+use nv_sane::{ButtonPress, DeviceInfo, FrameFormat, OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue, Parameters, SaneError, ScannerBackend, ScannerHandle, SetInfo};
 use nv_sane_sys as sys;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -166,7 +166,19 @@ impl ScannerBackend for PortalBackend {
                     }
                 })
                 .boxed_local();
+            let buttons = self
+                .proxy
+                .receive_button_event()
+                .await
+                .map_err(portal_err)?
+                .filter_map(|m| async move {
+                    let a = m.args().ok()?;
+                    let option = a.details().get("option").and_then(|v| String::try_from(v.try_to_owned().ok()?).ok()).unwrap_or_default();
+                    Some((a.session_handle().to_string(), ButtonPress { button: a.button().to_string(), option }))
+                })
+                .boxed_local();
             let handle: Box<dyn ScannerHandle> = Box::new(PortalHandle {
+                buttons: RefCell::new(buttons),
                 proxy: self.proxy.clone(),
                 close,
                 session,
@@ -195,6 +207,8 @@ pub struct PortalHandle {
     close: SessionProxy<'static>,
     session: OwnedObjectPath,
     events: RefCell<Pin<Box<dyn Stream<Item = Event>>>>,
+    /// ButtonEvents of every session of this app, as (session, press)
+    buttons: RefCell<Pin<Box<dyn Stream<Item = (String, ButtonPress)>>>>,
     /// The values of all options as `GetOptionValues` gave them, until an option changes.
     /// The portal returns every value in one call, and the app reads the options one by one.
     values: RefCell<Option<HashMap<String, OwnedValue>>>,
@@ -526,6 +540,23 @@ impl ScannerHandle for PortalHandle {
 
     /// Cancel the frame in progress, if any, and wait until the portal has let go of it so
     /// the next `start` is not refused. Does nothing when no frame is running.
+    fn next_button(&self, timeout: Duration) -> Option<ButtonPress> {
+        let mut buttons = self.buttons.borrow_mut();
+        let end = std::time::Instant::now() + timeout;
+        loop {
+            let left = end.saturating_duration_since(std::time::Instant::now());
+            let (session, press) = zbus::block_on(async {
+                match select(buttons.next(), Box::pin(async_io::Timer::after(left))).await {
+                    Either::Left((press, _)) => press,
+                    Either::Right(_) => None,
+                }
+            })?;
+            if session == self.session.as_str() {
+                return Some(press);
+            }
+        }
+    }
+
     fn cancel(&self) {
         if !self.active.get() {
             // Between the frames of a multi-frame scan this abandons the scan, so the next

@@ -23,6 +23,9 @@ pub trait Scanner {
     fn frame_event(&self, session_handle: ObjectPath<'_>, state: &str, details: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
 
     #[zbus(signal)]
+    fn button_event(&self, session_handle: ObjectPath<'_>, scanner_id: &str, button: &str, details: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
+
+    #[zbus(signal)]
     fn scanner_events(&self, session_handle: ObjectPath<'_>, events: Vec<(String, String, HashMap<String, OwnedValue>)>) -> zbus::Result<()>;
 
     #[zbus(property, name = "version")]
