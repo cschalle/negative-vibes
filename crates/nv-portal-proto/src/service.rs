@@ -3,6 +3,7 @@
 //! live in memory, shared by all apps) and the selection dialog (auto-selects).
 
 use crate::convert::{self, Vardict};
+use crate::curate::{self, Scanner as ScannerInfo};
 use crate::sane_thread::{Cmd, FrameEvent, FrameJob, Reply, SetError, Setting};
 use crate::{PORTAL_PATH, REQUEST_INTERFACE, SCANNER_INTERFACE, SESSION_INTERFACE, request_path, session_path};
 use nv_sane::DeviceInfo;
@@ -67,7 +68,7 @@ pub struct Shared {
     cmd: mpsc::Sender<Cmd>,
     policy: Policy,
     /// Granted scanners by opaque id, with the device the id stands for.
-    granted: Mutex<HashMap<String, DeviceInfo>>,
+    granted: Mutex<HashMap<String, ScannerInfo>>,
     sessions: Mutex<HashMap<String, SessionRec>>,
     /// Scanner ids open right now: the exclusive lock.
     open_ids: Mutex<HashSet<String>>,
@@ -89,10 +90,12 @@ impl Shared {
         rx.recv().await.map_err(|_| PortalError::Failed("SANE thread is gone".into()))
     }
 
-    async fn devices(&self) -> Result<Vec<DeviceInfo>, PortalError> {
+    /// One scanner for each physical scanner, however many drivers found it
+    async fn devices(&self) -> Result<Vec<ScannerInfo>, PortalError> {
         let local_only = !self.policy.network;
         let devs = self.ask(|reply| Cmd::Devices { local_only, reply }).await?.map_err(PortalError::Failed)?;
-        Ok(devs.into_iter().filter(convert::is_scanner).collect())
+        let devs: Vec<DeviceInfo> = devs.into_iter().filter(convert::is_scanner).collect();
+        Ok(curate::curate(&devs))
     }
 
     /// The session, if `sender` owns it. Others get the same error as for a missing one.
@@ -183,7 +186,9 @@ impl Scanner {
         }
 
         let multiple = opt_bool(&options, "multiple").unwrap_or(false);
-        let required: Vec<String> = options.get("required_capabilities").and_then(|v| Vec::<String>::try_from(v.try_clone().ok()?).ok()).unwrap_or_default();
+        let strv = |key: &str| -> Vec<String> { options.get(key).and_then(|v| Vec::<String>::try_from(v.try_clone().ok()?).ok()).unwrap_or_default() };
+        let required = strv("required_capabilities");
+        let any = strv("any_capabilities");
 
         let shared = self.0.clone();
         let conn2 = conn.clone();
@@ -196,8 +201,8 @@ impl Scanner {
                     let response = match shared.devices().await {
                         Ok(devs) => {
                             for d in devs {
-                                let wanted = shared.policy.select.as_ref().is_none_or(|s| d.name.contains(s.as_str()));
-                                if wanted && convert::wants_capabilities(&d, &required) {
+                                let wanted = shared.policy.select.as_ref().is_none_or(|s| d.candidates.iter().any(|c| c.contains(s.as_str())));
+                                if wanted && convert::wants_capabilities(&d, &required, &any) {
                                     picked.push(d);
                                 }
                             }
@@ -215,7 +220,7 @@ impl Scanner {
                     {
                         let mut granted = shared.granted.lock().unwrap();
                         for d in &picked {
-                            let id = convert::scanner_id(&d.name);
+                            let id = d.id.clone();
                             out.push((id.clone(), convert::device_to_dict(d)));
                             granted.insert(id, d.clone());
                         }
@@ -241,8 +246,7 @@ impl Scanner {
         Ok(devs
             .iter()
             .filter_map(|d| {
-                let id = convert::scanner_id(&d.name);
-                granted.contains_key(&id).then(|| (id, convert::device_to_dict(d)))
+                granted.contains_key(&d.id).then(|| (d.id.clone(), convert::device_to_dict(d)))
             })
             .collect())
     }
@@ -279,20 +283,36 @@ impl Scanner {
         if !self.0.open_ids.lock().unwrap().insert(scanner_id.to_owned()) {
             return Err(PortalError::Busy("scanner is in use".into()));
         }
-        let sid = match self.0.ask(|reply| Cmd::Open { name: dev.name.clone(), reply }).await {
-            Ok(Ok(sid)) => sid,
-            Ok(Err(e)) => {
-                self.0.open_ids.lock().unwrap().remove(scanner_id);
-                return Err(match &e {
-                    nv_sane::SaneError::Status { code, .. } if *code == nv_sane_sys::SANE_STATUS_DEVICE_BUSY => PortalError::Busy(e.to_string()),
-                    nv_sane::SaneError::Status { code, .. } if *code == nv_sane_sys::SANE_STATUS_ACCESS_DENIED => PortalError::NotAllowed(e.to_string()),
-                    _ => PortalError::Failed(e.to_string()),
-                });
+        // Try the drivers that found the scanner in turn: one can fail where another works, as
+        // HPLIP does for a network printer that only speaks eSCL. Busy ends the search.
+        let mut last: Option<PortalError> = None;
+        let mut opened = None;
+        for name in &dev.candidates {
+            match self.0.ask(|reply| Cmd::Open { name: name.clone(), reply }).await {
+                Ok(Ok(sid)) => {
+                    opened = Some(sid);
+                    break;
+                }
+                Ok(Err(e)) => {
+                    let busy = matches!(&e, nv_sane::SaneError::Status { code, .. } if *code == nv_sane_sys::SANE_STATUS_DEVICE_BUSY);
+                    last = Some(match &e {
+                        _ if busy => PortalError::Busy(e.to_string()),
+                        nv_sane::SaneError::Status { code, .. } if *code == nv_sane_sys::SANE_STATUS_ACCESS_DENIED => PortalError::NotAllowed(e.to_string()),
+                        _ => PortalError::Failed(e.to_string()),
+                    });
+                    if busy {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    last = Some(e);
+                    break;
+                }
             }
-            Err(e) => {
-                self.0.open_ids.lock().unwrap().remove(scanner_id);
-                return Err(e);
-            }
+        }
+        let Some(sid) = opened else {
+            self.0.open_ids.lock().unwrap().remove(scanner_id);
+            return Err(last.unwrap_or_else(|| PortalError::Failed("no driver for the scanner".into())));
         };
         let rec = SessionRec {
             owner: sender,

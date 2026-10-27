@@ -11,5 +11,6 @@ pub use nv_sane_portal::proxy;
 pub use nv_sane_portal::{DEFAULT_BUS_NAME, PORTAL_PATH, REQUEST_INTERFACE, SCANNER_INTERFACE, SESSION_INTERFACE, request_path, sender_path_element, session_path};
 
 pub mod convert;
+pub mod curate;
 pub mod sane_thread;
 pub mod service;

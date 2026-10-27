@@ -1,5 +1,6 @@
 //! SANE types to and from the draft interface's D-Bus types.
 
+use crate::curate::Scanner;
 use crate::sane_thread::Setting;
 use nv_sane::{DeviceInfo, FrameFormat, OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue};
 use nv_sane_sys as sys;
@@ -35,29 +36,14 @@ fn device_kind(name: &str) -> &'static str {
     }
 }
 
-/// Capabilities from SANE's device type string. Hints only; GetOptions is authoritative.
-fn device_capabilities(type_: &str) -> Vec<String> {
-    let t = type_.to_lowercase();
-    let mut caps = Vec::new();
-    if t.contains("film") || t.contains("slide") {
-        caps.push("film".to_owned());
-    }
-    if t.contains("flatbed") || t.contains("multi-function") || t.contains("all-in-one") {
-        caps.push("flatbed".to_owned());
-    }
-    if t.contains("sheet") || t.contains("adf") {
-        caps.push("adf".to_owned());
-    }
-    caps
-}
-
 /// Webcams show up through SANE's v4l backend. Type "virtual device" is not used: the
 /// SANE test backend has it too, and the portal should offer that for testing.
 pub fn is_scanner(dev: &DeviceInfo) -> bool {
     !dev.is_webcam()
 }
 
-pub fn device_to_dict(dev: &DeviceInfo) -> Vardict {
+pub fn device_to_dict(scanner: &Scanner) -> Vardict {
+    let dev = &scanner.device;
     let mut d = Vardict::new();
     d.insert("name".into(), ov(format!("{} {}", dev.vendor, dev.model).trim().to_owned()));
     d.insert("vendor".into(), ov(dev.vendor.clone()));
@@ -65,14 +51,15 @@ pub fn device_to_dict(dev: &DeviceInfo) -> Vardict {
     d.insert("backend".into(), ov(dev.backend.clone()));
     d.insert("kind".into(), ov(device_kind(&dev.name)));
     d.insert("type".into(), ov(dev.kind.clone()));
-    d.insert("capabilities".into(), ov(device_capabilities(&dev.kind)));
+    d.insert("capabilities".into(), ov(scanner.capabilities.clone()));
     d.insert("available".into(), ov(true));
     d
 }
 
-pub fn wants_capabilities(dev: &DeviceInfo, required: &[String]) -> bool {
-    let have = device_capabilities(&dev.kind);
-    required.iter().all(|r| have.contains(r))
+/// Has every capability in `required`, and, if `any` is not empty, at least one of those
+pub fn wants_capabilities(scanner: &Scanner, required: &[String], any: &[String]) -> bool {
+    let have = &scanner.capabilities;
+    required.iter().all(|r| have.contains(r)) && (any.is_empty() || any.iter().any(|a| have.contains(a)))
 }
 
 /// Options an app must not see or set. SANE has no filename option type, so this
