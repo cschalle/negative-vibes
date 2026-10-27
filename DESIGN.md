@@ -377,7 +377,8 @@ makes the pipeline testable with fixtures.
 A Flatpak app needs `--device=all` and the SANE backends inside the sandbox to scan, and the
 user cannot see or revoke that access. Printing has a portal; scanning does not. A proposal for
 `org.freedesktop.portal.Scanner`, written to go upstream to xdg-desktop-portal, lives in
-[`docs/scanner-portal/`](docs/scanner-portal/PROPOSAL.md), with the draft D-Bus interface files.
+[`flatpak-scanner-portal`](https://github.com/cschalle/flatpak-scanner-portal), a repository of
+its own, with the draft D-Bus interface files, the patches and the conformance tests.
 
 The app is the test bed. It is a prototype, off by default:
 
@@ -395,10 +396,10 @@ The app is the test bed. It is a prototype, off by default:
 
 A second application, GNOME Simple Scan, has been ported to the draft and has scanned on the
 8200i from a sandbox (patch outside this repository); what it needed that Negative Vibes did
-not is in `docs/scanner-portal/PROPOSAL.md` ("What a second application found"): automatic
+not is in `docs/PROPOSAL.md` of flatpak-scanner-portal ("What a second application found"): automatic
 option values, a frame number on `FrameEvent`, and the SANE device type.
 
-What is checked is in §11.4 and in `docs/scanner-portal/PROPOSAL.md`. The prototype is not
+What is checked is in §11.4 and in `docs/PROPOSAL.md` of flatpak-scanner-portal. The prototype is not
 used unless asked for, and nothing in the release Flatpak depends on it.
 
 **Sandbox test.** `build-aux/io.github.cschalle.NegativeVibes.PortalTest.json` builds the app
@@ -846,7 +847,7 @@ app with its headless hooks:
 | H9 Crop | Pass: a 50% × 60% area scan equals the same region of the full scan (dy +0.03, ncc 0.9991), one pixel up and left of the requested origin, which is the device's step size |
 
 **The scanner portal prototype** (2026-10-16): the portal-backed `ScannerBackend` was run on the
-8200i with `tools/portal-hw-check.sh`, against the installed `plustek8200i` 0.1.25 driver and the
+8200i with `tools/portal-hw-check.sh` of flatpak-scanner-portal, against the installed `plustek8200i` 0.1.25 driver and the
 reference frame (864 × 645 at 600 dpi, the size of the tulip fixture). The same frame was scanned
 with libsane inside the app (direct), through the portal, and with `scanimage` as the reference.
 All 23 checks of the last run passed, with the thresholds of §11.4:
@@ -953,11 +954,11 @@ export SANE_CONFIG_DIR=$PWD/tests/sane-config    # dll.conf lists: test
 scanimage -L                                     # test:0 and test:1
 ```
 
-The tests that drive it are the scanner portal's (`crates/nv-portal-proto/tests/`): a parity
+The tests that drive it are the scanner portal's: in `crates/nv-portal-proto/tests/`, a parity
 test that scans identical options through libsane and through the portal and compares frame
 parameters and pixels (gray, 8 and 16 bit, three-pass), the failure paths (busy, empty feeder,
-cancel with an unread pipe, a rejected value), and a scenario script for the portal's D-Bus
-behaviour. One thing the test backend cannot do is tell whether a driver restarts a scan on
+cancel with an unread pipe, a rejected value), and, in flatpak-scanner-portal, a scenario script
+for the portal's D-Bus behaviour. One thing the test backend cannot do is tell whether a driver restarts a scan on
 `sane_cancel`: the backend keeps its frame order. The portal service has a unit test with a fake
 scanner that resets on cancel, like the 8200i.
 
@@ -998,7 +999,7 @@ real scanner (§11.4). A simulator remains a way to test infrared styles other t
 | Tool | Location | Use |
 |---|---|---|
 | `scan-check.py` | `tools/` | Measurements: stats, alignment (to 0.05 row), per-band match, IR alignment, exact diff, downsample, preview, scanimage progress timing |
-| `portal-hw-check.sh` | `tools/` | The scanner portal prototype against libsane on the 8200i (below) |
+| `portal-hw-check.sh` | `tools/` of flatpak-scanner-portal | The scanner portal prototype against libsane on the 8200i (below) |
 | `irscan` | `~/projects/scanner/tools/irscan/` | Reference client for the two-frame Color+Infrared mode; writes `.pnm` + `-ir.pgm`; `-D` picks the device |
 | `scanimage` | sane-backends | Reference acquisitions; `-p` for progress |
 | Driver debug log | `SANE_DEBUG_PLUSTEK8200I=3` | Timing of each phase, the cancel path, calibration |
@@ -1034,7 +1035,7 @@ scanimage -d plustek8200i --format=pnm --mode Color --resolution 600 > $S/ref.pn
 ./tools/scan-check.py iralign $S/refir.pnm $S/refir-ir.pgm
 ```
 
-**The portal path.** `tools/portal-hw-check.sh` scans the same frame with libsane in the app and
+**The portal path.** `tools/portal-hw-check.sh` of flatpak-scanner-portal scans the same frame with libsane in the app and
 through the portal prototype, on a private session bus, against the thresholds above (H1 to H5),
 and compares `nv-cli probe` both ways so a quirks entry that fails to match through the portal
 shows up. It uses the installed driver by default (`--dev-backend` for a build) through a private
@@ -1042,7 +1043,7 @@ SANE configuration that lists only `plustek8200i` (see R10 in §13), stops if th
 address changes, puts a time limit on every step that scans, and never detaches the scanner from
 the VM or power-cycles it.
 `--dry-run` runs the same steps against the SANE test backend. See
-`docs/scanner-portal/HARDWARE-TEST.md`.
+`docs/HARDWARE-TEST.md` of flatpak-scanner-portal.
 
 **When something goes wrong.**
 
@@ -1114,10 +1115,9 @@ negative-vibes/
 │  ├─ goldens/                   golden images
 │  ├─ sane-config/               private SANE configuration for tests
 │  └─ reports/                   comparison reports (none yet)
-├─ tools/                        scan-check.py, portal-hw-check.sh, progress-marks.py
+├─ tools/                        scan-check.py, progress-marks.py
 ├─ docs/
-│  ├─ design-history.md          the original plan and per-slice build notes
-│  └─ scanner-portal/            the portal proposal, draft D-Bus interfaces, hardware test
+│  └─ design-history.md          the original plan and per-slice build notes
 ├─ build-aux/                    Flatpak manifests (release, Devel, PortalTest, flathub/), Meson helper
 └─ screenshots/                  used by the README
 ```
@@ -1145,7 +1145,7 @@ Conventions:
 | R6 | IR dust removal on other scanners may need registration and crosstalk handling that the 8200i does not exercise. | Both are implemented and tested on synthetic data only. |
 | R7 | The `plustek8200i` backend is outside sane-backends. | It ships as a separate RPM and is built into the Flatpak. Upstreaming is separate work; an upstream SANE ticket exists. |
 | R8 | Google Photos upload needs an OAuth client that does not exist, and, for other users, Google's app verification. | Run only against a stand-in server. Users can enter their own client under Preferences. |
-| R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype and checks in `docs/scanner-portal/`; the 8200i checks pass (§10). The application has been run against it from a Flatpak without `--device=all` (§10). The next steps are the GTK window identifier and the upstream issue. |
+| R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype here; proposal and checks in flatpak-scanner-portal; the 8200i checks pass (§10). The application has been run against it from a Flatpak without `--device=all` (§10). The next steps are the GTK window identifier and the upstream issue. |
 | R10 | With the system SANE configuration the stock `genesys` backend also lists the 8200i ("OpticFilm 8200i SE"), and opening that entry appears to reset it. On 2026-10-16 `nv-cli probe` opened it; the kernel logged `device firmware changed` and a new USB address, and the product strings were gone. The application's probe opens every device that is not a webcam, so it may do the same. | Not yet checked in the application. Hardware checks use a private configuration with only `plustek8200i`. Options: skip a device that another backend already lists at the same USB address, or have the quirks file name the backend to use. The Oct 8 results in §10 predate the sane-backends update that added the genesys entry. |
 
 Open questions:

@@ -2,7 +2,7 @@
 //!
 //! [`PortalBackend`] implements `nv_sane::ScannerBackend` over D-Bus, so the acquisition
 //! worker uses it the same way it uses libsane. The interface is a draft: see
-//! `docs/scanner-portal/`. Blocking: calls wait on D-Bus, so use it from the worker
+//! `flatpak-scanner-portal/docs/`. Blocking: calls wait on D-Bus, so use it from the worker
 //! thread, never from a UI thread.
 
 mod backend;

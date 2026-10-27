@@ -91,7 +91,7 @@
       "sources": [
         {
           "type": "dir",
-          "path": "../crates/nv-portal-proto/tests",
+          "path": "../../flatpak-scanner-portal/tests",
           "skip": [
             "__pycache__",
             "target"

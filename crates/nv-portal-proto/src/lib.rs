@@ -1,7 +1,7 @@
 //! Prototype of the proposed `org.freedesktop.portal.Scanner` interface.
 //!
 //! The service binary (`nv-portal-proto`) is a test double for the real portal: it
-//! implements the draft interface in `docs/scanner-portal/` over libsane, with the
+//! implements the draft interface in `flatpak-scanner-portal/docs/` over libsane, with the
 //! permission store and the selection dialog stubbed. The client side, which the app uses,
 //! is in `nv-sane-portal`.
 //!

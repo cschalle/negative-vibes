@@ -2,7 +2,7 @@
 //! scanner is driven from.
 //!
 //! [`Session`] and [`Handle`] implement these over libsane in this process. A scanner
-//! portal client (see `docs/scanner-portal/`) will implement them over D-Bus, so the
+//! portal client (see `flatpak-scanner-portal/docs/`) will implement them over D-Bus, so the
 //! worker, capability detection and CLI need no change to use either.
 //!
 //! The traits mirror the SANE call sequence on purpose: the portal's

@@ -15,5 +15,5 @@ thiserror = "1"
 
 [features]
 # Scan through the proposed scanner portal instead of libsane in this process, when
-# NV_SCANNER_BACKEND=portal. Prototype; see docs/scanner-portal/.
+# NV_SCANNER_BACKEND=portal. Prototype; see flatpak-scanner-portal/docs/.
 portal = ["dep:nv-sane-portal"]
