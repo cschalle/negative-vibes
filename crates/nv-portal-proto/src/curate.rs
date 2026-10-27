@@ -5,42 +5,70 @@
 use nv_sane::DeviceInfo;
 use std::collections::HashMap;
 
+/// A scanner or a product line the portal knows about
 struct Known {
-    usb_id: Option<&'static str>,
-    model_contains: Option<&'static str>,
-    name: Option<&'static str>,
-    capabilities: &'static [&'static str],
+    usb_id: Option<String>,
+    model_contains: Option<String>,
+    name: Option<String>,
+    capabilities: Vec<String>,
 }
 
-const FILM: &[&str] = &["film", "color"];
-const FLATBED_FILM: &[&str] = &["flatbed", "film", "color"];
+/// What the portal knows, from `scanner-devices.json`: the C portal reads the same file from the
+/// data directories. When there is none, the copy that came with this crate is used.
+struct Table {
+    known: Vec<Known>,
+    ranks: HashMap<String, i64>,
+    default_rank: i64,
+}
 
-const KNOWN: &[Known] = &[
-    Known { usb_id: Some("07b3:1825"), model_contains: None, name: Some("Plustek OpticFilm 8200i SE"), capabilities: &["film", "infrared", "color"] },
-    Known { usb_id: None, model_contains: Some("opticfilm"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("coolscan"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("dimage scan"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("scan elite"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("filmscan"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("primefilm"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("film scanner"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("slide scanner"), name: None, capabilities: FILM },
-    Known { usb_id: None, model_contains: Some("perfection v370"), name: None, capabilities: FLATBED_FILM },
-    Known { usb_id: None, model_contains: Some("perfection v500"), name: None, capabilities: FLATBED_FILM },
-    Known { usb_id: None, model_contains: Some("perfection v550"), name: None, capabilities: FLATBED_FILM },
-    Known { usb_id: None, model_contains: Some("perfection v600"), name: None, capabilities: FLATBED_FILM },
-    Known { usb_id: None, model_contains: Some("perfection v700"), name: None, capabilities: FLATBED_FILM },
-    Known { usb_id: None, model_contains: Some("perfection v750"), name: None, capabilities: FLATBED_FILM },
-    Known { usb_id: None, model_contains: Some("perfection v800"), name: None, capabilities: FLATBED_FILM },
-    Known { usb_id: None, model_contains: Some("perfection v850"), name: None, capabilities: FLATBED_FILM },
-];
+const EMBEDDED: &str = include_str!("../data/scanner-devices.json");
+const DEFAULT_RANK: i64 = 2;
 
-/// How a driver ranks for a scanner that more than one driver found: the lower the better.
-const DEFAULT_RANK: i32 = 2;
-const RANKS: &[(&str, i32)] = &[("airscan", 0), ("escl", 1), ("hpaio", 8), ("net", 9)];
+impl Table {
+    fn parse(text: &str) -> Option<Table> {
+        let root: serde_json::Value = serde_json::from_str(text).ok()?;
+        let str_of = |e: &serde_json::Value, k: &str| e.get(k).and_then(|v| v.as_str()).map(str::to_lowercase);
+        let known = root
+            .get("scanners")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|e| {
+                let (usb_id, model_contains) = (str_of(e, "usb_id"), str_of(e, "model_contains"));
+                // An entry with nothing to match on is ignored, not taken for every scanner
+                if usb_id.is_none() && model_contains.is_none() {
+                    return None;
+                }
+                let capabilities = e.get("capabilities")?.as_array()?.iter().filter_map(|c| c.as_str().map(str::to_owned)).collect();
+                Some(Known { usb_id, model_contains, name: e.get("name").and_then(|v| v.as_str()).map(str::to_owned), capabilities })
+            })
+            .collect();
+        let ranks = root.get("driver_ranks").and_then(|v| v.as_object()).into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_i64()?))).collect();
+        let default_rank = root.get("default_rank").and_then(|v| v.as_i64()).unwrap_or(DEFAULT_RANK);
+        Some(Table { known, ranks, default_rank })
+    }
 
-fn backend_rank(backend: &str) -> i32 {
-    RANKS.iter().find(|(b, _)| *b == backend).map_or(DEFAULT_RANK, |(_, r)| *r)
+    fn load() -> Table {
+        std::env::var("XDG_DATA_DIRS")
+            .unwrap_or_else(|_| "/usr/local/share:/usr/share".into())
+            .split(':')
+            .filter(|d| !d.is_empty())
+            .find_map(|d| std::fs::read_to_string(format!("{d}/xdg-desktop-portal/scanner-devices.json")).ok().and_then(|t| Table::parse(&t)))
+            .or_else(|| Table::parse(EMBEDDED))
+            .expect("the scanner-devices.json that came with the crate parses")
+    }
+
+    fn rank(&self, backend: &str) -> i64 {
+        self.ranks.get(backend).copied().unwrap_or(self.default_rank)
+    }
+
+    fn lookup(&self, usb_id: Option<&str>, vendor: &str, model: &str) -> Option<&Known> {
+        let full = format!("{vendor} {model}").to_lowercase();
+        self.known
+            .iter()
+            .find(|k| matches!((&k.usb_id, usb_id), (Some(a), Some(b)) if a.eq_ignore_ascii_case(b)))
+            .or_else(|| self.known.iter().find(|k| k.model_contains.as_ref().is_some_and(|m| full.contains(m.as_str()))))
+    }
 }
 
 /// A scanner as applications see it: one per physical scanner, with the SANE names of every
@@ -116,25 +144,17 @@ fn type_hints(kind: &str) -> Vec<String> {
     caps
 }
 
-fn lookup(usb_id: Option<&str>, vendor: &str, model: &str) -> Option<&'static Known> {
-    let full = format!("{vendor} {model}").to_lowercase();
-    KNOWN
-        .iter()
-        .find(|k| matches!((k.usb_id, usb_id), (Some(a), Some(b)) if a.eq_ignore_ascii_case(b)))
-        .or_else(|| KNOWN.iter().find(|k| k.model_contains.is_some_and(|m| full.contains(m))))
-}
-
 /// Opaque stable id. For a scanner with a known physical key it is the same for every driver.
 fn id_for(key: &str) -> String {
     // FNV-1a, 64 bit, as `convert::scanner_id`
     crate::convert::scanner_id(key)
 }
 
-fn curate_one(dev: &DeviceInfo) -> (Option<String>, i32, Scanner) {
+fn curate_one(table: &Table, dev: &DeviceInfo) -> (Option<String>, i32, Scanner) {
     let (phys, usb_id) = physical(dev);
-    let known = lookup(usb_id.as_deref(), &dev.vendor, &dev.model);
+    let known = table.lookup(usb_id.as_deref(), &dev.vendor, &dev.model);
     let mut caps: Vec<String> = match known {
-        Some(k) => k.capabilities.iter().map(|s| (*s).to_owned()).collect(),
+        Some(k) => k.capabilities.clone(),
         None => type_hints(&dev.kind),
     };
     // What is not known to be only for film is for documents
@@ -142,7 +162,7 @@ fn curate_one(dev: &DeviceInfo) -> (Option<String>, i32, Scanner) {
         caps.push("flatbed".to_owned());
     }
     let mut device = dev.clone();
-    if let Some(name) = known.and_then(|k| k.name) {
+    if let Some(name) = known.and_then(|k| k.name.as_deref()) {
         // The name shown is vendor and model: carry the clean name in the model
         device.vendor = String::new();
         device.model = name.to_owned();
@@ -151,17 +171,18 @@ fn curate_one(dev: &DeviceInfo) -> (Option<String>, i32, Scanner) {
         Some(p) => id_for(p),
         None => crate::convert::scanner_id(&dev.name),
     };
-    (phys, backend_rank(&dev.backend), Scanner { id, device, capabilities: caps, candidates: vec![dev.name.clone()] })
+    (phys, table.rank(&dev.backend) as i32, Scanner { id, device, capabilities: caps, candidates: vec![dev.name.clone()] })
 }
 
 /// One scanner for each physical scanner. Scanners not known to be the same stay separate.
 pub fn curate(devices: &[DeviceInfo]) -> Vec<Scanner> {
+    let table = Table::load();
     let mut out: Vec<Scanner> = Vec::new();
     // Candidate ranks kept beside each scanner, to order the names
     let mut ranks: Vec<Vec<i32>> = Vec::new();
     let mut groups: HashMap<String, usize> = HashMap::new();
     for dev in devices {
-        let (phys, rank, s) = curate_one(dev);
+        let (phys, rank, s) = curate_one(&table, dev);
         match phys.as_ref().and_then(|p| groups.get(p).copied()) {
             None => {
                 if let Some(p) = phys {

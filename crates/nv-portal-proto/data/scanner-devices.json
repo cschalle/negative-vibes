@@ -1,0 +1,33 @@
+{
+  "_comment": "What the scanner portal knows about scanners that SANE does not say. A scanner is matched by its USB id (exact) or by a lower case part of 'vendor model' (a product line). The first match in the list wins, USB ids before product lines. Capabilities: film, infrared, flatbed, adf, color. A scanner that is not named here and is not film by its driver's type is assumed to be for documents. A flatbed with a transparency unit has both film and flatbed.",
+  "version": 1,
+  "scanners": [
+    { "usb_id": "07b3:1825", "name": "Plustek OpticFilm 8200i SE", "capabilities": ["film", "infrared", "color"] },
+
+    { "model_contains": "opticfilm", "capabilities": ["film", "color"] },
+    { "model_contains": "coolscan", "capabilities": ["film", "color"] },
+    { "model_contains": "dimage scan", "capabilities": ["film", "color"] },
+    { "model_contains": "scan elite", "capabilities": ["film", "color"] },
+    { "model_contains": "filmscan", "capabilities": ["film", "color"] },
+    { "model_contains": "primefilm", "capabilities": ["film", "color"] },
+    { "model_contains": "film scanner", "capabilities": ["film", "color"] },
+    { "model_contains": "slide scanner", "capabilities": ["film", "color"] },
+
+    { "model_contains": "perfection v370", "capabilities": ["flatbed", "film", "color"] },
+    { "model_contains": "perfection v500", "capabilities": ["flatbed", "film", "color"] },
+    { "model_contains": "perfection v550", "capabilities": ["flatbed", "film", "color"] },
+    { "model_contains": "perfection v600", "capabilities": ["flatbed", "film", "color"] },
+    { "model_contains": "perfection v700", "capabilities": ["flatbed", "film", "color"] },
+    { "model_contains": "perfection v750", "capabilities": ["flatbed", "film", "color"] },
+    { "model_contains": "perfection v800", "capabilities": ["flatbed", "film", "color"] },
+    { "model_contains": "perfection v850", "capabilities": ["flatbed", "film", "color"] }
+  ],
+  "driver_ranks": {
+    "_comment": "For a scanner that more than one driver found: the lower the better. Drivers that speak a standard protocol work on more scanners than the vendor's. A driver not named here ranks default_rank, and one that goes through another host comes last.",
+    "airscan": 0,
+    "escl": 1,
+    "hpaio": 8,
+    "net": 9
+  },
+  "default_rank": 2
+}

@@ -1692,6 +1692,7 @@ dependencies = [
  "nv-sane",
  "nv-sane-portal",
  "nv-sane-sys",
+ "serde_json",
  "zbus",
 ]
 
