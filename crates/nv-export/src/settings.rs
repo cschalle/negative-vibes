@@ -170,8 +170,10 @@ pub struct ExportSettings {
     pub embed_metadata: bool,
     /// Send each exported picture to Google Photos once it is written.
     pub google_photos: bool,
-    /// ... into an album named after the roll.
+    /// ... into an album.
     pub google_album: bool,
+    /// The album's name, the same for every roll; empty names it after the roll.
+    pub google_album_name: String,
 }
 
 impl Default for ExportSettings {
@@ -192,6 +194,7 @@ impl Default for ExportSettings {
             embed_metadata: true,
             google_photos: false,
             google_album: true,
+            google_album_name: String::new(),
         }
     }
 }
@@ -302,6 +305,14 @@ mod tests {
     }
 
     #[test]
+    fn the_album_name_is_kept_and_defaults_to_the_roll() {
+        let s: ExportSettings = serde_json::from_str(r#"{"google_album_name":"Family negatives"}"#).unwrap();
+        assert_eq!(s.google_album_name, "Family negatives");
+        assert_eq!(serde_json::from_str::<ExportSettings>(&serde_json::to_string(&s).unwrap()).unwrap(), s);
+        assert!(ExportSettings::default().google_album_name.is_empty(), "empty means named after the roll");
+    }
+
+    #[test]
     fn presets_have_distinct_purposes() {
         let p = ExportSettings::presets();
         assert_eq!(p.len(), 4);
@@ -311,6 +322,6 @@ mod tests {
         assert!(!ExportSettings::default().google_photos, "nothing is uploaded unless asked for");
         // Files written before the setting existed still load.
         let old: ExportSettings = serde_json::from_str(r#"{"format":"png"}"#).unwrap();
-        assert!(!old.google_photos && old.google_album);
+        assert!(!old.google_photos && old.google_album && old.google_album_name.is_empty());
     }
 }

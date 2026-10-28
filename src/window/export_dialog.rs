@@ -74,7 +74,8 @@ impl Window {
             "Sign in under Preferences, or when asked, to turn this on"
         };
         let google = adw::SwitchRow::builder().title("Send to Google Photos").subtitle(google_sub).active(current.google_photos).build();
-        let google_album = adw::SwitchRow::builder().title("Put the Roll in an Album").subtitle("An album named after the roll").active(current.google_album).build();
+        let google_album = adw::SwitchRow::builder().title("Put Pictures in an Album").subtitle("Named after the roll, or as below").active(current.google_album).build();
+        let google_album_name = adw::EntryRow::builder().title("Album Name (empty: the roll's name)").text(&current.google_album_name).build();
         // One switch for "scan, and it is in my library": both of the two that make that happen.
         let google_auto = adw::SwitchRow::builder()
             .title("Send Each New Scan")
@@ -99,7 +100,7 @@ impl Window {
 
         // The dialog's widgets as an ExportSettings.
         let read = {
-            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value, embed_meta, google, google_album) = (
+            let (format, depth, compression, quality, space, grey, embed, template, after_scan, folder, size, size_value, embed_meta, google, google_album, google_album_name) = (
                 format.clone(),
                 depth.clone(),
                 compression.clone(),
@@ -115,6 +116,7 @@ impl Window {
                 embed_meta.clone(),
                 google.clone(),
                 google_album.clone(),
+                google_album_name.clone(),
             );
             let metadata = current.metadata.clone();
             Rc::new(move || ExportSettings {
@@ -140,12 +142,13 @@ impl Window {
                 embed_metadata: embed_meta.is_active(),
                 google_photos: google.is_active(),
                 google_album: google_album.is_active(),
+                google_album_name: google_album_name.text().trim().to_string(),
             })
         };
 
         // What applies to what, and the example name.
         let refresh = {
-            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value, space, grey, embed, google_album) = (
+            let (win, read, depth, compression, quality, preview, folder_row, folder, size, size_value, space, grey, embed, google_album, google_album_name) = (
                 self.downgrade(),
                 read.clone(),
                 depth.clone(),
@@ -160,6 +163,7 @@ impl Window {
                 grey.clone(),
                 embed.clone(),
                 google_album.clone(),
+                google_album_name.clone(),
             );
             Rc::new(move || {
                 let Some(win) = win.upgrade() else { return };
@@ -176,6 +180,7 @@ impl Window {
                 }
                 compression.set_sensitive(s.format == ExportFormat::Tiff);
                 google_album.set_sensitive(s.google_photos);
+                google_album_name.set_sensitive(s.google_photos && s.google_album);
                 size_value.set_sensitive(!dng);
                 quality.set_sensitive(jpeg);
                 let n = OutputSize::presets().len();
@@ -200,6 +205,8 @@ impl Window {
         refresh();
 
         {
+            let again = refresh.clone();
+            google_album.connect_active_notify(move |_| again());
             let refresh = refresh.clone();
             google.connect_active_notify(move |_| refresh());
         }
@@ -331,6 +338,7 @@ impl Window {
         g_files.add(&after_scan);
         g_google.add(&google);
         g_google.add(&google_album);
+        g_google.add(&google_album_name);
         g_google.add(&google_auto);
         g_which.add(&frames);
         for grp in [&g_preset, &g_format, &g_colour, &g_files, &g_google, &g_which] {
