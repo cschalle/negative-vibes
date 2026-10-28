@@ -376,8 +376,28 @@ impl Window {
                 set(id, &|j| j.state = JobState::Failed(message.clone()));
                 self.show_toast(&format!("Could not export {label}: {message}"));
             }
-            ExportEvent::Uploading { id } => set(id, &|j| j.upload = UploadState::Sending),
-            ExportEvent::Uploaded { id, url } => set(id, &|j| j.upload = UploadState::Done(url.clone())),
+            ExportEvent::Uploading { id } => {
+                // One toast when a run of uploads starts, not one per picture.
+                let (first, pending, label) = {
+                    let jobs = self.imp().export_jobs.borrow();
+                    (
+                        !jobs.iter().any(|j| j.upload == UploadState::Sending),
+                        jobs.iter().filter(|j| j.upload.active()).count(),
+                        jobs.iter().find(|j| j.id == id).map(|j| j.label.clone()).unwrap_or_default(),
+                    )
+                };
+                set(id, &|j| j.upload = UploadState::Sending);
+                if first {
+                    self.show_toast(&if pending > 1 { format!("Sending {pending} pictures to Google Photos…") } else { format!("Sending {label} to Google Photos…") });
+                }
+            }
+            ExportEvent::Uploaded { id, url } => {
+                set(id, &|j| j.upload = UploadState::Done(url.clone()));
+                // Said once the run is over; a failure has its own toast.
+                if !self.imp().export_jobs.borrow().iter().any(|j| j.upload.active()) {
+                    self.show_toast("Added to your Google Photos library");
+                }
+            }
             ExportEvent::AlbumCreated { title, id } => self.remember_album(&title, &id),
             ExportEvent::UploadFailed { id, message, sign_in_needed } => {
                 let label = self.imp().export_jobs.borrow().iter().find(|j| j.id == id).map(|j| j.label.clone()).unwrap_or_default();
