@@ -42,17 +42,15 @@ pub fn is_scanner(dev: &DeviceInfo) -> bool {
     !dev.is_webcam()
 }
 
-/// What the device is, in the portal's words: `film` for a scanner that is only for film, `camera`
-/// and `virtual` for what is not a scanner, `scanner` for the rest. The driver's own type says
-/// little, differs between drivers and can hold an address.
+/// What the device is, in the portal's words: `film` for a scanner that is only for film, `other`
+/// for what is not a scanner, such as a camera or SANE's test device, `scanner` for the rest. The
+/// driver's own type says little, differs between drivers and can hold an address.
 pub fn portal_type(raw: &str, capabilities: &[String]) -> &'static str {
     let raw = raw.to_lowercase();
     let has = |c: &str| capabilities.iter().any(|x| x == c);
-    if raw.contains("camera") || raw.contains("webcam") {
-        "camera"
-    } else if raw.contains("virtual") {
-        "virtual"
-    } else if has("film") && !has("flatbed") && !has("adf") {
+    if raw.contains("camera") || raw.contains("webcam") || raw.contains("virtual") {
+        "other"
+    } else if has("film") && !has("flatbed") && !has("feeder") {
         "film"
     } else {
         "scanner"
@@ -225,5 +223,27 @@ pub fn format_str(f: &FrameFormat) -> &'static str {
         FrameFormat::Green => "green",
         FrameFormat::Blue => "blue",
         FrameFormat::Rgbi => "rgbi",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::portal_type;
+
+    fn caps(c: &[&str]) -> Vec<String> {
+        c.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn type_is_scanner_film_or_other() {
+        assert_eq!(portal_type("flatbed scanner", &caps(&["flatbed"])), "scanner");
+        assert_eq!(portal_type("film scanner", &caps(&["film", "color"])), "film");
+        assert_eq!(portal_type("sheetfed scanner", &caps(&["feeder"])), "scanner");
+        // A scanner with a transparency unit and a document glass is not only for film
+        assert_eq!(portal_type("flatbed scanner", &caps(&["film", "flatbed"])), "scanner");
+        assert_eq!(portal_type("film scanner", &caps(&["film", "feeder"])), "scanner");
+        assert_eq!(portal_type("virtual device", &caps(&["flatbed"])), "other");
+        assert_eq!(portal_type("video camera", &caps(&[])), "other");
+        assert_eq!(portal_type("webcam", &caps(&[])), "other");
     }
 }

@@ -16,8 +16,8 @@ pub trait Scanner {
     fn get_option_values(&self, session_handle: &ObjectPath<'_>, options: Vardict<'_>) -> zbus::Result<HashMap<String, OwnedValue>>;
     fn set_options(&self, session_handle: &ObjectPath<'_>, values: Vec<(&str, Value<'_>)>, options: Vardict<'_>) -> zbus::Result<(HashMap<String, OwnedValue>, Vec<String>)>;
     fn get_frame_parameters(&self, session_handle: &ObjectPath<'_>, options: Vardict<'_>) -> zbus::Result<HashMap<String, OwnedValue>>;
-    fn start_frame(&self, session_handle: &ObjectPath<'_>, options: Vardict<'_>) -> zbus::Result<OwnedFd>;
-    fn cancel(&self, session_handle: &ObjectPath<'_>) -> zbus::Result<()>;
+    fn start_frame(&self, session_handle: &ObjectPath<'_>, options: Vardict<'_>) -> zbus::Result<(OwnedFd, u32)>;
+    fn cancel(&self, session_handle: &ObjectPath<'_>, frame: u32) -> zbus::Result<()>;
 
     #[zbus(signal)]
     fn frame_event(&self, session_handle: ObjectPath<'_>, state: &str, details: HashMap<&str, Value<'_>>) -> zbus::Result<()>;

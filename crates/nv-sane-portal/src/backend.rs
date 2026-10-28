@@ -216,6 +216,7 @@ impl ScannerBackend for PortalBackend {
                 frame: RefCell::new(None),
                 active: Cell::new(false),
                 done_frame: Cell::new(0),
+                last_frame: Cell::new(0),
                 mid_scan: Cell::new(false),
                 params: RefCell::new(None),
             });
@@ -248,6 +249,8 @@ pub struct PortalHandle {
     /// Number of the latest frame whose end was seen. Events numbered at or below it belong to
     /// a frame that is over and are dropped.
     done_frame: Cell<u32>,
+    /// Number of the latest frame started, which `Cancel` names.
+    last_frame: Cell<u32>,
     /// The last frame finished but its scan has more (colour then infrared; R, G, B). The next
     /// `start` continues that scan; `cancel` between the frames abandons it.
     mid_scan: Cell<bool>,
@@ -513,7 +516,8 @@ impl ScannerHandle for PortalHandle {
         *self.params.borrow_mut() = None;
         *self.values.borrow_mut() = None;
 
-        let fd = zbus::block_on(self.proxy.start_frame(&self.path(), HashMap::new())).map_err(map_error)?;
+        let (fd, frame) = zbus::block_on(self.proxy.start_frame(&self.path(), HashMap::new())).map_err(map_error)?;
+        self.last_frame.set(frame);
         *self.frame.borrow_mut() = Some(File::from(std::os::fd::OwnedFd::from(fd)));
         self.active.set(true);
 
@@ -595,12 +599,12 @@ impl ScannerHandle for PortalHandle {
             // Between the frames of a multi-frame scan this abandons the scan, so the next
             // `start` begins a new one. With nothing in progress there is nothing to do.
             if self.mid_scan.replace(false) {
-                let _ = zbus::block_on(self.proxy.cancel(&self.path()));
+                let _ = zbus::block_on(self.proxy.cancel(&self.path(), self.last_frame.get()));
             }
             return;
         }
         self.mid_scan.set(false);
-        let _ = zbus::block_on(self.proxy.cancel(&self.path()));
+        let _ = zbus::block_on(self.proxy.cancel(&self.path(), self.last_frame.get()));
         // Closing our end cancels as well, and unblocks the portal if it is waiting to write.
         *self.frame.borrow_mut() = None;
         while let Some(ev) = self.next_event(END_TIMEOUT) {

@@ -377,7 +377,7 @@ impl Scanner {
         self.0.ask(|reply| Cmd::Params { sid: s.sid, reply }).await?.map_err(PortalError::Failed)
     }
 
-    async fn start_frame(&self, session_handle: ObjectPath<'_>, _options: HashMap<String, OwnedValue>, #[zbus(header)] hdr: Header<'_>) -> Result<OwnedFd, PortalError> {
+    async fn start_frame(&self, session_handle: ObjectPath<'_>, _options: HashMap<String, OwnedValue>, #[zbus(header)] hdr: Header<'_>) -> Result<(OwnedFd, u32), PortalError> {
         let sender = sender_of(&hdr)?;
         let s = self.0.scanner_session(&session_handle, &sender)?;
         if s.busy.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
@@ -397,11 +397,20 @@ impl Scanner {
             s.busy.store(false, Ordering::SeqCst);
             return Err(PortalError::Failed("SANE thread is gone".into()));
         }
-        Ok(OwnedFd::from(std::os::fd::OwnedFd::from(reader)))
+        Ok((OwnedFd::from(std::os::fd::OwnedFd::from(reader)), serial))
     }
 
-    async fn cancel(&self, session_handle: ObjectPath<'_>, #[zbus(header)] hdr: Header<'_>) -> Result<(), PortalError> {
+    async fn cancel(&self, session_handle: ObjectPath<'_>, frame: u32, #[zbus(header)] hdr: Header<'_>) -> Result<(), PortalError> {
         let s = self.0.scanner_session(&session_handle, &sender_of(&hdr)?)?;
+        // Only the last frame that was started can be cancelled: an older one is over, and
+        // cancelling it must not stop the one that came after.
+        let last = s.frames.load(Ordering::SeqCst);
+        if frame == 0 || frame > last {
+            return Err(PortalError::InvalidArgument("that frame was not started".into()));
+        }
+        if frame < last {
+            return Ok(());
+        }
         if s.busy.load(Ordering::SeqCst) {
             s.cancel.store(true, Ordering::SeqCst);
         } else {

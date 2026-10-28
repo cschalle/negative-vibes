@@ -148,7 +148,7 @@ fn type_hints(kind: &str) -> Vec<String> {
         caps.push("flatbed".to_owned());
     }
     if t.contains("sheet") || t.contains("adf") {
-        caps.push("adf".to_owned());
+        caps.push("feeder".to_owned());
     }
     caps
 }
@@ -167,7 +167,7 @@ fn curate_one(table: &Table, dev: &DeviceInfo) -> (Option<String>, i32, Scanner)
         None => type_hints(&dev.kind),
     };
     // What is not known to be only for film is for documents
-    if !caps.iter().any(|c| c == "film" || c == "flatbed" || c == "adf") {
+    if !caps.iter().any(|c| c == "film" || c == "flatbed" || c == "feeder") {
         caps.push("flatbed".to_owned());
     }
     let mut device = dev.clone();

@@ -106,7 +106,7 @@ async fn run(name: String, sets: Vec<(String, String)>, output: Option<String>) 
     let mut events = portal.receive_frame_event().await?;
     let mut frames: Vec<Frame> = Vec::new();
     loop {
-        let fd = portal.start_frame(&session_path, HashMap::new()).await?;
+        let (fd, _frame) = portal.start_frame(&session_path, HashMap::new()).await?;
         let mut file = std::fs::File::from(std::os::fd::OwnedFd::from(fd));
         let reader = std::thread::spawn(move || {
             let mut data = Vec::new();
