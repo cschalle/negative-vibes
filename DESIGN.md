@@ -749,12 +749,15 @@ Open Folder, Scan Another Roll).
   multi-exposure, the two alignment limits), **Output** (format including DNG, name template,
   folder, colour space, embedded profile and metadata), **Colour** (the scanner profile new rolls
   start with, a shortcut to IT8 calibration), **Film Profiles** (your profiles: import, export,
-  delete, create) and **Google Photos** (sign in and out, an Advanced section with a client ID and secret,
-  for builds that have none baked in or for your own Google project).
+  delete, create) and **Google Photos** (sign in and out, *Send New Rolls to Google Photos*, which new rolls start
+  with, and an Advanced section with a client ID and secret, for builds that have none baked in or
+  for your own Google project).
 - **Export** (Ctrl+E): preset (Archive, Share, Print, Google Photos), format (TIFF, JPEG, PNG,
   DNG, and the raw), depth, compression, quality, colour space, grey, profile, size (original,
   long edge, fit in a box, percent, named sizes; never larger than the scan), folder, name
-  template with a live example, metadata, and *Send to Google Photos* with an album per roll.
+  template with a live example, metadata, and *Send to Google Photos* with an album per roll,
+  and *Send Each New Scan*, which turns that on together with *Export After Each Scan*. Export acts on the
+  selected frame when it is scanned, else on all scanned frames, and is disabled when there is nothing to export.
 - **Metadata** (Ctrl+I): the IPTC/XMP fields, with presets.
 - **Calibrate with IT8 Target…**, **Create Film Profile…**, **Keyboard Shortcuts**, **About**,
   and **Help** (F1).

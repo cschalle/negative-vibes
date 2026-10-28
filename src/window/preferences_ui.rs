@@ -418,6 +418,19 @@ impl Window {
                 }
             });
         }
+        let new_rolls = group("New Rolls", "");
+        new_rolls.add(&switch(
+            "Send New Rolls to Google Photos",
+            "A new roll starts with Send to Google Photos and Export After Each Scan turned on, so every scan goes to your library. Each roll can change this in Export",
+            prefs.export.google_photos,
+            &save,
+            |p, v| {
+                p.export.google_photos = v;
+                if v {
+                    p.export.after_scan = true;
+                }
+            },
+        ));
         let own = adw::ExpanderRow::builder()
             .title("Use Your Own Google Client")
             .subtitle("Leave empty to use the one built into this copy. For forks, or your own Google Cloud project: an OAuth client of type Desktop app with the Photos Library API enabled")
@@ -442,6 +455,7 @@ impl Window {
         let advanced = group("Advanced", "");
         advanced.add(&own);
         google.add(&account);
+        google.add(&new_rolls);
         google.add(&advanced);
 
         for p in [&general, &scanning, &output, &cms, &film, &google] {

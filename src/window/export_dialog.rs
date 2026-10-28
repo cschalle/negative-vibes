@@ -2,7 +2,7 @@
 //! preview of the file name, and Export for the selected frame or all
 //! scanned frames.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -69,13 +69,26 @@ impl Window {
             adw::SwitchRow::builder().title("Embed Metadata").subtitle("The author, caption and film details from Metadata (Ctrl+I)").active(current.embed_metadata).build();
         let after_scan = adw::SwitchRow::builder().title("Export After Each Scan").active(current.after_scan).build();
         let google_sub = if self.google_signed_in() {
-            "Signed in. Each picture is added to your library once it is exported"
+            "Signed in. Every picture you export is added to your library"
         } else {
             "Sign in under Preferences, or when asked, to turn this on"
         };
         let google = adw::SwitchRow::builder().title("Send to Google Photos").subtitle(google_sub).active(current.google_photos).build();
         let google_album = adw::SwitchRow::builder().title("Put the Roll in an Album").subtitle("An album named after the roll").active(current.google_album).build();
-        let frames = combo("Frames", &["Selected Frame", "All Scanned Frames"], 0);
+        // One switch for "scan, and it is in my library": both of the two that make that happen.
+        let google_auto = adw::SwitchRow::builder()
+            .title("Send Each New Scan")
+            .subtitle("Export and send every scan as soon as it is saved. Turns on Send to Google Photos and Export After Each Scan")
+            .active(current.google_photos && current.after_scan)
+            .build();
+        // Export acts on the selected frame, which has to be scanned; when it is not (a new
+        // frame that has only been previewed), the scanned ones are the useful default.
+        let (selected_scanned, scanned_count) = {
+            let roll = self.imp().roll.borrow();
+            let scanned = |i: u32| roll.as_ref().and_then(|r| r.frame(i)).is_some_and(|f| f.raw.is_some());
+            (selected.is_some_and(scanned), roll.as_ref().map_or(0, |r| r.frames.iter().filter(|f| f.raw.is_some()).count()))
+        };
+        let frames = combo("Frames", &["Selected Frame", "All Scanned Frames"], usize::from(!selected_scanned && scanned_count > 0));
 
         let folder: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::new(RefCell::new(current.folder.clone()));
         let folder_row = adw::ActionRow::builder().title("Folder").build();
@@ -205,8 +218,17 @@ impl Window {
 
         // A preset fills in the format, depth, compression, quality and colour; the folder and name stay.
         {
-            let (format, depth, compression, quality, space, size, size_value, google) =
-                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), size.clone(), size_value.clone(), google.clone());
+            let (format, depth, compression, quality, space, size, size_value, google, after_scan) = (
+                format.clone(),
+                depth.clone(),
+                compression.clone(),
+                quality.clone(),
+                space.clone(),
+                size.clone(),
+                size_value.clone(),
+                google.clone(),
+                after_scan.clone(),
+            );
             let refresh = refresh.clone();
             preset.connect_selected_notify(move |row| {
                 let Some((_, p)) = (row.selected() as usize).checked_sub(1).and_then(|i| ExportSettings::presets().into_iter().nth(i)) else { return };
@@ -230,6 +252,10 @@ impl Window {
                     },
                 }
                 google.set_active(p.google_photos);
+                // The Google Photos preset is for sending as you scan.
+                if p.google_photos {
+                    after_scan.set_active(true);
+                }
                 refresh();
             });
         }
@@ -256,6 +282,35 @@ impl Window {
             });
         }
 
+        {
+            let syncing = Rc::new(Cell::new(false));
+            {
+                let (google, after_scan, syncing) = (google.clone(), after_scan.clone(), syncing.clone());
+                google_auto.connect_active_notify(move |row| {
+                    if syncing.replace(true) {
+                        return;
+                    }
+                    if row.is_active() {
+                        google.set_active(true);
+                        after_scan.set_active(true);
+                    } else {
+                        after_scan.set_active(false);
+                    }
+                    syncing.set(false);
+                });
+            }
+            for real in [&google, &after_scan] {
+                let (google, after_scan, google_auto, syncing) = (google.clone(), after_scan.clone(), google_auto.clone(), syncing.clone());
+                real.connect_active_notify(move |_| {
+                    if syncing.replace(true) {
+                        return;
+                    }
+                    google_auto.set_active(google.is_active() && after_scan.is_active());
+                    syncing.set(false);
+                });
+            }
+        }
+
         let page = adw::PreferencesPage::new();
         let g = |title: &str| adw::PreferencesGroup::builder().title(title).build();
         let (g_preset, g_format, g_colour, g_files, g_google, g_which) = (g(""), g("Format"), g("Colour"), g("Files"), g("Google Photos"), g(""));
@@ -276,6 +331,7 @@ impl Window {
         g_files.add(&after_scan);
         g_google.add(&google);
         g_google.add(&google_album);
+        g_google.add(&google_auto);
         g_which.add(&frames);
         for grp in [&g_preset, &g_format, &g_colour, &g_files, &g_google, &g_which] {
             page.add(grp);
@@ -291,6 +347,23 @@ impl Window {
         toolbar.set_content(Some(&page));
         dialog.set_content(Some(&toolbar));
 
+        {
+            let (frames_row, export) = (frames.clone(), export.clone());
+            let check = Rc::new(move || {
+                let (frames, all) = (&frames_row, frames_row.selected() == 1);
+                let (ok, why) = if all {
+                    (scanned_count > 0, "No frame has been scanned yet")
+                } else if selected.is_none() {
+                    (false, "No frame is selected")
+                } else {
+                    (selected_scanned, "The selected frame has not been scanned: scan it, or export all scanned frames")
+                };
+                export.set_sensitive(ok);
+                frames.set_subtitle(if ok { "" } else { why });
+            });
+            check();
+            frames.connect_selected_notify(move |_| check());
+        }
         {
             let dialog = dialog.clone();
             cancel.connect_clicked(move |_| dialog.close());

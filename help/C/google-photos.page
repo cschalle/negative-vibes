@@ -25,7 +25,9 @@
     <p>In the <link xref="export">Export</link> dialog, choose the <gui>Google Photos</gui> preset, or turn on <gui>Send to Google Photos</gui> with any other settings. The preset makes an 8-bit sRGB JPEG with a long edge of 4000 pixels, which looks good on any screen and uploads quickly. Every picture is also saved in the export folder.</p>
     <p>With <gui>Put the Roll in an Album</gui> on, the pictures go into an album named after the roll. The album is made the first time and used afterwards. Google only lets an application add to albums it made itself, so Negative Vibes cannot add to an album you made by hand.</p>
     <p>Each picture is given a description in Google Photos: the caption or title you wrote, then the film, the roll and the frame number. Frames you have rejected are not uploaded.</p>
-    <p>Together with <gui>Export After Each Scan</gui>, a roll can go from the scanner to your library without any more clicks.</p>
+    <p>Pictures are sent when they are exported, so a picture goes only when you press <gui>Export</gui>, unless it is exported by itself after each scan. To send every scan as you make it, turn on <gui>Send Each New Scan</gui> in the Google Photos section of the Export dialog. That turns on <gui>Send to Google Photos</gui> and <gui>Export After Each Scan</gui> together, and the roll then goes from the scanner to your library without any more clicks. The Google Photos preset turns it on too.</p>
+    <p>These choices belong to each roll. To have every new roll start with them on, turn on <gui>Send New Rolls to Google Photos</gui> under <gui>Google Photos</gui> in Preferences.</p>
+    <p><gui>Export</gui> sends the selected frame, which has to be scanned. If the selected frame has only been previewed, the dialog offers <gui>All Scanned Frames</gui> instead.</p>
   </section>
 
   <section id="date"><title>When it was taken</title>
