@@ -260,7 +260,9 @@ impl Window {
                     if win.imp().busy.get() || !win.device_ready() {
                         win.show_toast("The scanner is not ready");
                     } else {
+                        win.imp().guide_action.set(true);
                         win.start_preview();
+                        win.imp().guide_action.set(false);
                     }
                 }
             });
@@ -277,7 +279,9 @@ impl Window {
             let weak = self.downgrade();
             scan_btn.connect_clicked(move |_| {
                 if let Some(win) = weak.upgrade() {
+                    win.imp().guide_action.set(true);
                     gio::prelude::ActionGroupExt::activate_action(&win, "scan-all", None);
+                    win.imp().guide_action.set(false);
                 }
             });
             let weak = self.downgrade();
@@ -323,6 +327,21 @@ impl Window {
         if let Some(split) = self.imp().guide_split.borrow().as_ref() {
             split.set_show_sidebar(show);
         }
+    }
+
+    /// A preview or scan was started from outside the guide (the header buttons, the scan menu,
+    /// the scanner's own buttons): the guide no longer describes what is happening, so it
+    /// goes. What the guide starts itself, and the loop it runs on a one-frame scanner, stay.
+    pub(super) fn outside_guide(&self) {
+        let imp = self.imp();
+        if imp.guide_action.get() || imp.guide.borrow().is_none() {
+            return;
+        }
+        // The banner and the loop's own previews keep a guided loop going.
+        if imp.batch_loop.get() {
+            return;
+        }
+        self.close_guide();
     }
 
     /// Hide the guide and forget it; opening it again starts from the first step.

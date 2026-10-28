@@ -34,6 +34,7 @@ impl Window {
         if imp.busy.get() {
             return;
         }
+        self.outside_guide();
         if !imp.preview_ready.get() || !self.device_ready() {
             self.show_toast("Preview the film first");
             return;
@@ -51,6 +52,7 @@ impl Window {
         if imp.busy.get() {
             return;
         }
+        self.outside_guide();
         if !self.device_ready() {
             self.show_toast("No scanner is ready");
             return;

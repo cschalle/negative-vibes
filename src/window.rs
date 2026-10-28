@@ -137,6 +137,8 @@ pub(crate) mod imp {
         pub film_profiles: RefCell<Vec<nv_film::FilmProfile>>,
         /// The Scan a Roll panel while it is open, docked in `guide_split`.
         pub guide: RefCell<Option<gtk::Widget>>,
+        /// The Scan a Roll panel is acting for one of its own buttons, so what it starts is its own.
+        pub guide_action: Cell<bool>,
         pub guide_split: RefCell<Option<adw::OverlaySplitView>>,
         pub scanner_profile_row: RefCell<Option<adw::ComboRow>>,
         pub navigator_area: RefCell<Option<gtk::DrawingArea>>,
@@ -771,6 +773,7 @@ impl Window {
             if let Some(win) = win_weak.upgrade() {
                 win.start_preview();
             }
+                win.outside_guide();
         });
 
         let win_weak = self.downgrade();
@@ -782,6 +785,7 @@ impl Window {
                 } else {
                     win.start_preview();
                 }
+                    win.outside_guide();
             }
         });
 
@@ -2409,6 +2413,7 @@ impl Window {
     /// Start or stop watching the scanner's buttons.
     ///
     /// Watching holds the scanner open, so it is limited to when the window is
+                    self.outside_guide();
     /// active: with Negative Vibes in the background, `scanimage` and friends
     /// keep working. The worker gives the scanner up for its own scans and
     /// takes it back afterwards, so this does not have to follow a scan.
