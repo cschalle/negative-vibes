@@ -26,6 +26,7 @@
     "_comment": "For a scanner that more than one driver found: the lower the better. Drivers that speak a standard protocol work on more scanners than the vendor's. A driver not named here ranks default_rank, and one that goes through another host comes last.",
     "airscan": 0,
     "escl": 1,
+    "plustek8200i": 1,
     "hpaio": 8,
     "net": 9
   },
