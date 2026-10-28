@@ -411,7 +411,9 @@ with `-Dportal=true` as the Devel app ID, with `NV_SCANNER_BACKEND=portal` and w
 
 **Portal build.** `build-aux/io.github.cschalle.NegativeVibes.Portal.json` is the same build for
 a desktop that has the scanner portal: no test scripts, no bus access beyond the portal's own
-name, and the portal's default bus name. It is built into a local repository and installed as
+name, and the portal's default bus name. It has `--share=network` and not `--device=all`: Google
+Photos sign-in listens on loopback for the browser's redirect and uploads to Google, and neither
+works in a sandbox without a network. Scanning itself needs no network. It is built into a local repository and installed as
 the `portal` branch of the Devel app ID.
 
 ---
