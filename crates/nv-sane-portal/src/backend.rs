@@ -126,6 +126,35 @@ impl PortalBackend {
     }
 }
 
+impl PortalBackend {
+    /// OpenScanner is a request: the call returns at once, and the Response says when the scanner is
+    /// open, which on a network scanner is longer than D-Bus's default call timeout.
+    async fn open_scanner_request(&self, conn: &zbus::Connection, name: &str) -> Result<OwnedObjectPath> {
+        let me = conn.unique_name().ok_or_else(|| portal_err("no unique bus name"))?.to_string();
+        let token = format!("nvopen{}", self.request_counter.fetch_add(1, Ordering::SeqCst));
+        // Subscribe at the predicted Request path before calling, so Response cannot be missed.
+        let request = RequestProxy::builder(conn).destination(self.bus_name.clone()).map_err(portal_err)?.path(request_path(&me, &token)).map_err(portal_err)?.build().await.map_err(portal_err)?;
+        let mut responses = request.receive_response().await.map_err(portal_err)?;
+
+        let mut opts: HashMap<&str, Value<'_>> = HashMap::new();
+        opts.insert("handle_token", token.as_str().into());
+        self.proxy.open_scanner(name, opts).await.map_err(map_error)?;
+
+        let resp = responses.next().await.ok_or_else(|| portal_err("no Response from the portal"))?;
+        let args = resp.args().map_err(portal_err)?;
+        let results = args.results();
+        let text = |key: &str| results.get(key).and_then(|v| <&str>::try_from(v).ok()).unwrap_or("").to_owned();
+        if *args.response() != 0 {
+            let message = format!("Could not open the scanner: {}", text("message"));
+            return Err(match text("error").as_str() {
+                "busy" => status(sys::SANE_STATUS_DEVICE_BUSY, message),
+                _ => status(sys::SANE_STATUS_IO_ERROR, message),
+            });
+        }
+        OwnedObjectPath::try_from(text("session_handle")).map_err(portal_err)
+    }
+}
+
 impl ScannerBackend for PortalBackend {
     /// Scanners this app was granted. Only lists: choosing is [`select_devices`](Self::select_devices),
     /// because it needs a window. `local_only` is ignored: the portal decides what the app may see.
@@ -141,8 +170,8 @@ impl ScannerBackend for PortalBackend {
 
     fn open(&self, name: &str) -> Result<Box<dyn ScannerHandle>> {
         zbus::block_on(async {
-            let session = self.proxy.open_scanner(name, HashMap::new()).await.map_err(map_error)?;
             let conn = self.proxy.inner().connection().clone();
+            let session = self.open_scanner_request(&conn, name).await?;
             let close = SessionProxy::builder(&conn)
                 .destination(self.bus_name.clone())
                 .map_err(portal_err)?

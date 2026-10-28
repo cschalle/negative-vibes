@@ -42,6 +42,23 @@ pub fn is_scanner(dev: &DeviceInfo) -> bool {
     !dev.is_webcam()
 }
 
+/// What the device is, in the portal's words: `film` for a scanner that is only for film, `camera`
+/// and `virtual` for what is not a scanner, `scanner` for the rest. The driver's own type says
+/// little, differs between drivers and can hold an address.
+pub fn portal_type(raw: &str, capabilities: &[String]) -> &'static str {
+    let raw = raw.to_lowercase();
+    let has = |c: &str| capabilities.iter().any(|x| x == c);
+    if raw.contains("camera") || raw.contains("webcam") {
+        "camera"
+    } else if raw.contains("virtual") {
+        "virtual"
+    } else if has("film") && !has("flatbed") && !has("adf") {
+        "film"
+    } else {
+        "scanner"
+    }
+}
+
 pub fn device_to_dict(scanner: &Scanner) -> Vardict {
     let dev = &scanner.device;
     let mut d = Vardict::new();
@@ -50,7 +67,7 @@ pub fn device_to_dict(scanner: &Scanner) -> Vardict {
     d.insert("model".into(), ov(dev.model.clone()));
     d.insert("backend".into(), ov(dev.backend.clone()));
     d.insert("kind".into(), ov(device_kind(&dev.name)));
-    d.insert("type".into(), ov(dev.kind.clone()));
+    d.insert("type".into(), ov(portal_type(&dev.kind, &scanner.capabilities)));
     d.insert("capabilities".into(), ov(scanner.capabilities.clone()));
     d.insert("available".into(), ov(true));
     d

@@ -216,6 +216,8 @@ impl Scanner {
                             2u32
                         }
                     };
+                    // As in the C frontend: nothing granted is not a success
+                    let response = if picked.is_empty() { 2u32 } else { response };
                     let mut out: Vec<(String, Vardict)> = Vec::new();
                     {
                         let mut granted = shared.granted.lock().unwrap();
@@ -272,58 +274,57 @@ impl Scanner {
         scanner_id: &str,
         options: HashMap<String, OwnedValue>,
         #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
         #[zbus(object_server)] server: &ObjectServer,
     ) -> Result<OwnedObjectPath, PortalError> {
         let sender = sender_of(&hdr)?;
         let dev = self.0.granted.lock().unwrap().get(scanner_id).cloned().ok_or_else(|| PortalError::NotAllowed("scanner was not granted".into()))?;
-        let token = opt_str(&options, "session_handle_token").unwrap_or_else(|| self.0.token("scanner"));
-        if !valid_token(&token) {
+        let session_token = opt_str(&options, "session_handle_token").unwrap_or_else(|| self.0.token("scanner"));
+        if !valid_token(&session_token) {
             return Err(PortalError::InvalidArgument("bad session_handle_token".into()));
         }
-        if !self.0.open_ids.lock().unwrap().insert(scanner_id.to_owned()) {
-            return Err(PortalError::Busy("scanner is in use".into()));
+        // The call is a request, answered at once: opening takes seconds, and on a network scanner
+        // more than D-Bus's default call timeout. The outcome is the Response.
+        let token = opt_str(&options, "handle_token").unwrap_or_else(|| self.0.token("req"));
+        if !valid_token(&token) {
+            return Err(PortalError::InvalidArgument("bad handle_token".into()));
         }
-        // Try the drivers that found the scanner in turn: one can fail where another works, as
-        // HPLIP does for a network printer that only speaks eSCL. Busy ends the search.
-        let mut last: Option<PortalError> = None;
-        let mut opened = None;
-        for name in &dev.candidates {
-            match self.0.ask(|reply| Cmd::Open { name: name.clone(), reply }).await {
-                Ok(Ok(sid)) => {
-                    opened = Some(sid);
-                    break;
-                }
-                Ok(Err(e)) => {
-                    let busy = matches!(&e, nv_sane::SaneError::Status { code, .. } if *code == nv_sane_sys::SANE_STATUS_DEVICE_BUSY);
-                    last = Some(match &e {
-                        _ if busy => PortalError::Busy(e.to_string()),
-                        nv_sane::SaneError::Status { code, .. } if *code == nv_sane_sys::SANE_STATUS_ACCESS_DENIED => PortalError::NotAllowed(e.to_string()),
-                        _ => PortalError::Failed(e.to_string()),
-                    });
-                    if busy {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    last = Some(e);
-                    break;
-                }
-            }
+        let path = request_path(&sender, &token);
+        if !server.at(path.as_str(), RequestObj).await? {
+            return Err(PortalError::InvalidArgument("handle_token already in use".into()));
         }
-        let Some(sid) = opened else {
-            self.0.open_ids.lock().unwrap().remove(scanner_id);
-            return Err(last.unwrap_or_else(|| PortalError::Failed("no driver for the scanner".into())));
-        };
-        let rec = SessionRec {
-            owner: sender,
-            scanner: Some(ScannerRec { sid, id: scanner_id.to_owned(), busy: Default::default(), cancel: Default::default(), frames: Default::default() }),
-        };
-        let path = session_path(&rec.owner, &token);
-        if let Err(e) = self.register_session(server, &path, rec).await {
-            let _ = self.0.cmd.send(Cmd::Close { sid });
-            self.0.open_ids.lock().unwrap().remove(scanner_id);
-            return Err(e);
-        }
+
+        let shared = self.0.clone();
+        let conn2 = conn.clone();
+        let path2 = path.clone();
+        let scanner_id = scanner_id.to_owned();
+        conn.executor()
+            .spawn(
+                async move {
+                    let outcome = open_session(&shared, &conn2, sender.clone(), &dev, &scanner_id, &session_token).await;
+                    let mut results: HashMap<&str, Value<'_>> = HashMap::new();
+                    let response = match &outcome {
+                        Ok(session) => {
+                            results.insert("session_handle", Value::from(session.as_str()));
+                            0u32
+                        }
+                        Err(e) => {
+                            let (kind, message) = match e {
+                                PortalError::Busy(m) => ("busy", m.clone()),
+                                PortalError::Failed(m) | PortalError::NotAllowed(m) | PortalError::InvalidArgument(m) | PortalError::AccessDenied(m) => ("failed", m.clone()),
+                                other => ("failed", format!("{other:?}")),
+                            };
+                            results.insert("error", Value::from(kind));
+                            results.insert("message", Value::from(message));
+                            2u32
+                        }
+                    };
+                    let _ = conn2.emit_signal(Some(sender.as_str()), path2.as_str(), REQUEST_INTERFACE, "Response", &(response, results)).await;
+                    let _ = conn2.object_server().remove::<RequestObj, _>(path2.as_str()).await;
+                },
+                "open-scanner",
+            )
+            .detach();
         to_path(path)
     }
 
@@ -430,6 +431,64 @@ impl Scanner {
         self.0.sessions.lock().unwrap().insert(path.to_owned(), rec);
         Ok(())
     }
+}
+
+/// Opens a granted scanner for an application and registers its session, giving the path of the
+/// session. Another driver is tried only when the one before said it does not drive the scanner:
+/// not after a busy scanner, which another driver would only meet too, and not after an I/O error,
+/// since the driver may have talked to the device and a second one on a device in an unknown state
+/// is how a scanner gets reset.
+async fn open_session(shared: &Arc<Shared>, conn: &Connection, owner: String, dev: &crate::curate::Scanner, scanner_id: &str, token: &str) -> Result<String, PortalError> {
+    if !shared.open_ids.lock().unwrap().insert(scanner_id.to_owned()) {
+        return Err(PortalError::Busy("scanner is in use".into()));
+    }
+    let mut last: Option<PortalError> = None;
+    let mut opened = None;
+    for name in &dev.candidates {
+        match shared.ask(|reply| Cmd::Open { name: name.clone(), reply }).await {
+            Ok(Ok(sid)) => {
+                opened = Some(sid);
+                break;
+            }
+            Ok(Err(e)) => {
+                let code = match &e {
+                    nv_sane::SaneError::Status { code, .. } => Some(*code),
+                    _ => None,
+                };
+                last = Some(match code {
+                    Some(c) if c == nv_sane_sys::SANE_STATUS_DEVICE_BUSY => PortalError::Busy(e.to_string()),
+                    Some(c) if c == nv_sane_sys::SANE_STATUS_ACCESS_DENIED => PortalError::NotAllowed(e.to_string()),
+                    _ => PortalError::Failed(e.to_string()),
+                });
+                // Only the driver saying it does not drive the scanner sends the search on
+                let unsupported = matches!(code, Some(c) if c == nv_sane_sys::SANE_STATUS_INVAL || c == nv_sane_sys::SANE_STATUS_UNSUPPORTED);
+                if !unsupported {
+                    break;
+                }
+            }
+            Err(e) => {
+                last = Some(e);
+                break;
+            }
+        }
+    }
+    let Some(sid) = opened else {
+        shared.open_ids.lock().unwrap().remove(scanner_id);
+        return Err(last.unwrap_or_else(|| PortalError::Failed("no driver for the scanner".into())));
+    };
+    let path = session_path(&owner, token);
+    let rec = SessionRec {
+        owner,
+        scanner: Some(ScannerRec { sid, id: scanner_id.to_owned(), busy: Default::default(), cancel: Default::default(), frames: Default::default() }),
+    };
+    let registered = conn.object_server().at(path.as_str(), SessionObj { shared: shared.clone(), path: path.clone() }).await;
+    if !matches!(registered, Ok(true)) {
+        let _ = shared.cmd.send(Cmd::Close { sid });
+        shared.open_ids.lock().unwrap().remove(scanner_id);
+        return Err(PortalError::InvalidArgument("session_handle_token already in use".into()));
+    }
+    shared.sessions.lock().unwrap().insert(path.clone(), rec);
+    Ok(path)
 }
 
 /// `org.freedesktop.portal.Request`: only `Close` and the `Response` signal.

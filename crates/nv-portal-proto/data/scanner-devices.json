@@ -1,8 +1,8 @@
 {
-  "_comment": "What the scanner portal knows about scanners that SANE does not say. A scanner is matched by its USB id (exact) or by a lower case part of 'vendor model' (a product line). The first match in the list wins, USB ids before product lines. Capabilities: film, infrared, flatbed, adf, color. A scanner that is not named here and is not film by its driver's type is assumed to be for documents. A flatbed with a transparency unit has both film and flatbed.",
+  "_comment": "What the scanner portal knows about scanners that SANE does not say. A scanner is matched by its USB id (exact) or by a lower case part of 'vendor model' (a product line). The first match in the list wins, USB ids before product lines. Capabilities: film, infrared, flatbed, adf, color. A scanner that is not named here and is not film by its driver's type is assumed to be for documents. A flatbed with a transparency unit has both film and flatbed. An entry can also name a driver, which is then the one that opens the scanner when it is among the drivers that found it, ahead of any rank.",
   "version": 1,
   "scanners": [
-    { "usb_id": "07b3:1825", "name": "Plustek OpticFilm 8200i SE", "capabilities": ["film", "infrared", "color"] },
+    { "usb_id": "07b3:1825", "name": "Plustek OpticFilm 8200i SE", "driver": "plustek8200i", "capabilities": ["film", "infrared", "color"] },
 
     { "model_contains": "opticfilm", "capabilities": ["film", "color"] },
     { "model_contains": "coolscan", "capabilities": ["film", "color"] },

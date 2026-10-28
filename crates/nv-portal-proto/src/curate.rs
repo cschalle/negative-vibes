@@ -10,6 +10,8 @@ struct Known {
     usb_id: Option<String>,
     model_contains: Option<String>,
     name: Option<String>,
+    /// The backend to open the scanner with before any other
+    driver: Option<String>,
     capabilities: Vec<String>,
 }
 
@@ -23,6 +25,7 @@ struct Table {
 
 const EMBEDDED: &str = include_str!("../data/scanner-devices.json");
 const DEFAULT_RANK: i64 = 2;
+const PREFERRED_RANK: i32 = -1;
 
 impl Table {
     fn parse(text: &str) -> Option<Table> {
@@ -40,7 +43,13 @@ impl Table {
                     return None;
                 }
                 let capabilities = e.get("capabilities")?.as_array()?.iter().filter_map(|c| c.as_str().map(str::to_owned)).collect();
-                Some(Known { usb_id, model_contains, name: e.get("name").and_then(|v| v.as_str()).map(str::to_owned), capabilities })
+                Some(Known {
+                    usb_id,
+                    model_contains,
+                    name: e.get("name").and_then(|v| v.as_str()).map(str::to_owned),
+                    driver: e.get("driver").and_then(|v| v.as_str()).map(str::to_owned),
+                    capabilities,
+                })
             })
             .collect();
         let ranks = root.get("driver_ranks").and_then(|v| v.as_object()).into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_i64()?))).collect();
@@ -171,7 +180,13 @@ fn curate_one(table: &Table, dev: &DeviceInfo) -> (Option<String>, i32, Scanner)
         Some(p) => id_for(p),
         None => crate::convert::scanner_id(&dev.name),
     };
-    (phys, table.rank(&dev.backend) as i32, Scanner { id, device, capabilities: caps, candidates: vec![dev.name.clone()] })
+    // A scanner whose entry names a driver is opened with it first when it is among the ones that
+    // found it, ahead of every rank
+    let rank = match known.and_then(|k| k.driver.as_deref()) {
+        Some(driver) if driver == dev.backend => PREFERRED_RANK,
+        _ => table.rank(&dev.backend) as i32,
+    };
+    (phys, rank, Scanner { id, device, capabilities: caps, candidates: vec![dev.name.clone()] })
 }
 
 /// One scanner for each physical scanner. Scanners not known to be the same stay separate.
@@ -192,10 +207,14 @@ pub fn curate(devices: &[DeviceInfo]) -> Vec<Scanner> {
                 out.push(s);
             }
             Some(i) => {
-                // After the names of equal or better rank, so that the search order breaks ties
-                let at = ranks[i].iter().rposition(|r| *r <= rank).map_or(0, |p| p + 1);
+                // By rank, and for equal ranks by the driver's name, never by which one answered first
+                let at = (0..ranks[i].len()).find(|&j| (ranks[i][j], out[i].candidates[j].as_str()) > (rank, dev.name.as_str())).unwrap_or(ranks[i].len());
                 ranks[i].insert(at, rank);
                 out[i].candidates.insert(at, dev.name.clone());
+                // The scanner is described by the driver that will open it
+                if at == 0 {
+                    out[i].device.backend = dev.backend.clone();
+                }
             }
         }
     }
@@ -231,6 +250,33 @@ mod tests {
         let mut d = hp();
         d.reverse();
         assert!(curate(&d)[0].candidates[0].starts_with("airscan:"));
+    }
+
+    #[test]
+    fn equal_ranks_are_ordered_by_name_whichever_answered_first() {
+        let a = dev("fakey:tie", "fakey", "Fake", "Tie Pair", "all-in-one");
+        let b = dev("fakez:tie", "fakez", "Fake", "Tie Pair", "all-in-one");
+        // Same host, so the same scanner
+        let (a, b) = (DeviceInfo { kind: "ip=192.0.2.30".into(), ..a }, DeviceInfo { kind: "ip=192.0.2.30".into(), ..b });
+        for order in [[a.clone(), b.clone()], [b, a]] {
+            let list = curate(&order);
+            assert_eq!(list.len(), 1);
+            assert_eq!(list[0].candidates, vec!["fakey:tie", "fakez:tie"]);
+            assert_eq!(list[0].device.backend, "fakey");
+        }
+    }
+
+    #[test]
+    fn the_film_scanner_driver_ranks_ahead_of_genesys() {
+        // genesys finds the 8200i SE too. Without the scanner on this machine there is no USB id to
+        // match the table's entry that names the driver, so this is the rank that decides.
+        let list = curate(&[
+            dev("genesys:libusb:003:002", "genesys", "Plustek", "OpticFilm 8200i", "flatbed scanner"),
+            dev("plustek8200i:libusb:003:002", "plustek8200i", "Plustek", "OpticFilm 8200i SE", "film scanner"),
+        ]);
+        assert_eq!(list.len(), 1);
+        assert!(list[0].candidates[0].starts_with("plustek8200i:"), "{:?}", list[0].candidates);
+        assert_eq!(list[0].device.backend, "plustek8200i");
     }
 
     #[test]
