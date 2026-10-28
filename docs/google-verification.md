@@ -12,6 +12,7 @@ Notes for the Google Auth Platform Verification Center. Not part of the applicat
 | Client type | Desktop app (installed application, loopback redirect with PKCE) |
 | Home page | https://linuxrising.org/negative-vibes/ |
 | Privacy policy | https://linuxrising.org/negative-vibes/privacy.html (the HTML copy of `docs/privacy.md`; keep them the same) |
+| Terms of service (optional) | https://linuxrising.org/negative-vibes/terms.html (the HTML copy of `docs/terms.md`; keep them the same) |
 | Authorized domain | `linuxrising.org` |
 | Support / developer contact | christian.schaller@gmail.com |
 | Source code | https://github.com/cschalle/negative-vibes (GPL-3.0-or-later) |
