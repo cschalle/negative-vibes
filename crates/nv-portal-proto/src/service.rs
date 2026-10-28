@@ -50,7 +50,7 @@ pub struct Policy {
 #[derive(Clone)]
 struct SessionRec {
     owner: String,
-    /// `None` for a monitoring session from CreateSession.
+    /// Always set: the interface has only sessions of an open scanner.
     scanner: Option<ScannerRec>,
 }
 
@@ -253,22 +253,6 @@ impl Scanner {
             .collect())
     }
 
-    async fn create_session(
-        &self,
-        options: HashMap<String, OwnedValue>,
-        #[zbus(header)] hdr: Header<'_>,
-        #[zbus(object_server)] server: &ObjectServer,
-    ) -> Result<OwnedObjectPath, PortalError> {
-        let sender = sender_of(&hdr)?;
-        let token = opt_str(&options, "session_handle_token").unwrap_or_else(|| self.0.token("mon"));
-        if !valid_token(&token) {
-            return Err(PortalError::InvalidArgument("bad session_handle_token".into()));
-        }
-        let path = session_path(&sender, &token);
-        self.register_session(server, &path, SessionRec { owner: sender, scanner: None }).await?;
-        to_path(path)
-    }
-
     async fn open_scanner(
         &self,
         scanner_id: &str,
@@ -423,22 +407,9 @@ impl Scanner {
     #[zbus(signal)]
     async fn frame_event(emitter: &zbus::object_server::SignalEmitter<'_>, session_handle: ObjectPath<'_>, state: &str, details: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
 
-    #[zbus(signal)]
-    async fn scanner_events(emitter: &zbus::object_server::SignalEmitter<'_>, session_handle: ObjectPath<'_>, events: Vec<(String, String, Vardict)>) -> zbus::Result<()>;
-
     #[zbus(property, name = "version")]
     fn version(&self) -> u32 {
         1
-    }
-}
-
-impl Scanner {
-    async fn register_session(&self, server: &ObjectServer, path: &str, rec: SessionRec) -> Result<(), PortalError> {
-        if !server.at(path, SessionObj { shared: self.0.clone(), path: path.to_owned() }).await? {
-            return Err(PortalError::InvalidArgument("session_handle_token already in use".into()));
-        }
-        self.0.sessions.lock().unwrap().insert(path.to_owned(), rec);
-        Ok(())
     }
 }
 

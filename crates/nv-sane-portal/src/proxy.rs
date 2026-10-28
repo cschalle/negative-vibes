@@ -10,7 +10,6 @@ pub type ScannerInfo = (String, HashMap<String, OwnedValue>);
 pub trait Scanner {
     fn select_scanners(&self, parent_window: &str, options: Vardict<'_>) -> zbus::Result<OwnedObjectPath>;
     fn list_scanners(&self, options: Vardict<'_>) -> zbus::Result<Vec<ScannerInfo>>;
-    fn create_session(&self, options: Vardict<'_>) -> zbus::Result<OwnedObjectPath>;
     fn open_scanner(&self, scanner_id: &str, options: Vardict<'_>) -> zbus::Result<OwnedObjectPath>;
     fn get_options(&self, session_handle: &ObjectPath<'_>, options: Vardict<'_>) -> zbus::Result<Vec<HashMap<String, OwnedValue>>>;
     fn get_option_values(&self, session_handle: &ObjectPath<'_>, options: Vardict<'_>) -> zbus::Result<HashMap<String, OwnedValue>>;
@@ -24,9 +23,6 @@ pub trait Scanner {
 
     #[zbus(signal)]
     fn button_event(&self, session_handle: ObjectPath<'_>, scanner_id: &str, button: &str, details: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
-
-    #[zbus(signal)]
-    fn scanner_events(&self, session_handle: ObjectPath<'_>, events: Vec<(String, String, HashMap<String, OwnedValue>)>) -> zbus::Result<()>;
 
     #[zbus(property, name = "version")]
     fn version(&self) -> zbus::Result<u32>;
