@@ -18,8 +18,6 @@ pub(crate) mod imp {
         pub preview_btn: RefCell<Option<gtk::Button>>,
         pub scan_btn: RefCell<Option<adw::SplitButton>>,
         pub progress_bar: RefCell<Option<gtk::ProgressBar>>,
-        /// The scanner is on its infrared pass, which reports no progress: the bar pulses.
-        pub ir_pulse: Cell<bool>,
         /// Small text above the progress bar saying what the scanner is doing.
         pub progress_label: RefCell<Option<gtk::Label>>,
         /// "pass 2 of 3" while a multi-pass acquisition runs; empty otherwise.
@@ -2271,7 +2269,6 @@ impl Window {
                     *self.imp().proxy.borrow_mut() = None;
                     self.set_page("canvas");
                 }
-                self.imp().ir_pulse.set(false);
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(true);
                     pb.set_fraction(0.0);
@@ -2305,18 +2302,12 @@ impl Window {
                     self.imp().stop_at.set(Some(std::time::Instant::now()));
                     self.stop();
                 }
-                if self.imp().ir_pulse.replace(false) {
-                    self.set_progress_label("Colour scan running");
-                }
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_fraction(p as f64);
                 }
             }
 
-            ScanEvent::InfraredPass => self.start_ir_pulse(),
-
             ScanEvent::ScanDone if self.imp().scan_kind.get() == imp::ScanKind::Final => {
-                self.imp().ir_pulse.set(false);
                 self.imp().pass_text.borrow_mut().clear();
                 if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
                     pb.set_visible(false);
@@ -2459,32 +2450,7 @@ impl Window {
         self.show_toast("The scanner is not ready");
     }
 
-    /// The infrared pass runs inside the scanner's start call and says nothing until it is
-    /// done: show that it is going on, with a bar that pulses, until colour data or progress
-    /// arrives.
-    fn start_ir_pulse(&self) {
-        if let Some(pb) = self.imp().progress_bar.borrow().as_ref() {
-            pb.set_visible(true);
-        }
-        self.set_progress_label("Infrared pass running (finds dust), then the colour scan");
-        if self.imp().ir_pulse.replace(true) {
-            return;
-        }
-        let weak = self.downgrade();
-        glib::timeout_add_local(std::time::Duration::from_millis(120), move || {
-            let Some(win) = weak.upgrade() else { return glib::ControlFlow::Break };
-            if !win.imp().ir_pulse.get() {
-                return glib::ControlFlow::Break;
-            }
-            if let Some(pb) = win.imp().progress_bar.borrow().as_ref() {
-                pb.pulse();
-            }
-            glib::ControlFlow::Continue
-        });
-    }
-
     fn abort_acquisition(&self) {
-        self.imp().ir_pulse.set(false);
         *self.imp().final_buf.borrow_mut() = None;
         *self.imp().final_ir.borrow_mut() = None;
         self.imp().receiving_ir.set(false);

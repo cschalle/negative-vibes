@@ -98,11 +98,6 @@ pub enum ScanEvent {
         exposure: f32,
     },
 
-    /// The scanner is making its infrared pass before the colour data starts. Some backends
-    /// (the plustek8200i) do this inside `start()`, which blocks and reports nothing until it
-    /// is done, so there is no progress to show, only that it is happening.
-    InfraredPass,
-
     /// The passes are being lined up and merged.
     Merging,
 
