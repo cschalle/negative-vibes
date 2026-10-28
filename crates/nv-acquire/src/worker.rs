@@ -198,6 +198,27 @@ fn run_worker(cmd_rx: Receiver<WorkerCmd>, evt_tx: Sender<ScanEvent>, quirks_pat
     }
 }
 
+/// Open a scanner that may still be letting go of the previous handle.
+///
+/// Closing a handle returns before the driver has released the USB device (the 8200i parks its
+/// carriage first), so an open right after a preview, or after the button watch resumes, can be
+/// answered with SANE_STATUS_DEVICE_BUSY. That passes within a few seconds; anything else fails
+/// at once.
+fn open_retrying(session: &dyn ScannerBackend, name: &str) -> nv_sane::Result<Box<dyn ScannerHandle>> {
+    const BUSY: u32 = 3; // SANE_STATUS_DEVICE_BUSY
+    let mut waited = std::time::Duration::ZERO;
+    loop {
+        match session.open(name) {
+            Err(nv_sane::SaneError::Status { code: BUSY, .. }) if waited < std::time::Duration::from_secs(8) => {
+                let step = std::time::Duration::from_millis(500);
+                std::thread::sleep(step);
+                waited += step;
+            }
+            other => return other,
+        }
+    }
+}
+
 /// How long the loop sleeps between turns while watching buttons. Shorter than
 /// [`WATCH_INTERVAL`] so a command does not wait for a whole poll period.
 const WATCH_SLICE: std::time::Duration = std::time::Duration::from_millis(100);
@@ -223,7 +244,7 @@ impl Watch {
     /// Open `device_name` and find its button sensors. `None` if it cannot be
     /// opened or reports no button we act on, so the caller simply does not watch.
     fn start(session: &dyn ScannerBackend, device_name: String) -> Option<Self> {
-        let handle = match session.open(&device_name) {
+        let handle = match open_retrying(session, &device_name) {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("nv-acquire: cannot watch buttons on {device_name}: {e}");
@@ -377,7 +398,7 @@ fn do_scan(
     // Drain any stray Cancel commands before we start.
     while cmd_rx.try_recv().is_ok() {}
 
-    let handle = match session.open(device_name) {
+    let handle = match open_retrying(session, device_name) {
         Ok(h) => h,
         Err(e) => {
             let _ = evt_tx.send_blocking(ScanEvent::Error(format!("sane_open: {e}")));
