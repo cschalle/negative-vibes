@@ -148,6 +148,8 @@ pub(crate) mod imp {
         pub no_scanner_page: RefCell<Option<(adw::StatusPage, gtk::Button, gtk::Button)>>,
         /// Allowed scanners that did not answer the last probe, by name.
         pub unreachable_scanners: RefCell<Vec<String>>,
+        /// The scanner dialog has been opened on its own once, because nothing was chosen yet.
+        pub auto_picked: std::cell::Cell<bool>,
         /// The picture as last rendered (before orientation): width, height, RGB8.
         pub last_rgb: RefCell<(usize, usize, Vec<u8>)>,
         /// Parameters when a drag began; the edit is recorded when it ends.
@@ -2216,6 +2218,14 @@ impl Window {
                     self.set_page("no-scanner");
                     *self.imp().scan_state.borrow_mut() = ScanUiState::NoScanner;
                     self.set_scan_controls_sensitive(false, false);
+                    // Nothing is chosen yet and the app does nothing without a scanner, so ask right
+                    // away, once: after a cancelled dialog the page's button is the way back.
+                    if unreachable.is_empty()
+                        && !self.imp().auto_picked.replace(true)
+                        && let Some(app) = self.application()
+                    {
+                        app.activate_action("select-scanner", None);
+                    }
                 } else {
                     let first = caps.into_iter().next().unwrap();
                     *self.imp().device_resolutions.borrow_mut() = first.resolutions.clone();
