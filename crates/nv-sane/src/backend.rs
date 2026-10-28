@@ -85,6 +85,13 @@ pub trait ScannerHandle {
         std::thread::sleep(timeout);
         None
     }
+
+    /// Whether presses come through [`next_button`](Self::next_button). Then the sensor options
+    /// must not be read as well: the portal reads them for its own events, a reading clears the
+    /// press, and whoever reads second sees nothing.
+    fn reports_button_events(&self) -> bool {
+        false
+    }
 }
 
 impl<T: ScannerHandle + ?Sized> ScannerHandle for Box<T> {
@@ -117,5 +124,8 @@ impl<T: ScannerHandle + ?Sized> ScannerHandle for Box<T> {
     }
     fn next_button(&self, timeout: std::time::Duration) -> Option<ButtonPress> {
         (**self).next_button(timeout)
+    }
+    fn reports_button_events(&self) -> bool {
+        (**self).reports_button_events()
     }
 }

@@ -213,6 +213,9 @@ struct Watch {
     handle: Box<dyn ScannerHandle>,
     /// The sensor options to read, and the button each one reports.
     sensors: Vec<(crate::event::ScanButton, nv_sane::OptionDescriptor)>,
+    /// The backend reports presses itself (the portal), so the sensors are only evidence that the
+    /// scanner has buttons and are not read.
+    events: bool,
     last_poll: std::time::Instant,
 }
 
@@ -240,7 +243,8 @@ impl Watch {
             return None;
         }
 
-        Some(Self { device_name, handle, sensors, last_poll: std::time::Instant::now() })
+        let events = handle.reports_button_events();
+        Some(Self { device_name, handle, sensors, events, last_poll: std::time::Instant::now() })
     }
 
     /// Close the scanner, keeping only what it takes to start watching again.
@@ -273,6 +277,15 @@ impl Watch {
     /// into an event here; there is no second chance to ask.
     fn poll(&mut self, evt_tx: &Sender<ScanEvent>) -> Result<(), nv_sane::SaneError> {
         self.last_poll = std::time::Instant::now();
+
+        if self.events {
+            while let Some(press) = self.handle.next_button(std::time::Duration::ZERO) {
+                if let Some(button) = crate::event::ScanButton::from_option_name(&press.option) {
+                    let _ = evt_tx.send_blocking(ScanEvent::ButtonPressed(button));
+                }
+            }
+            return Ok(());
+        }
 
         for (button, desc) in &self.sensors {
             if let nv_sane::OptionValue::Bool(true) = self.handle.get_option(desc)? {

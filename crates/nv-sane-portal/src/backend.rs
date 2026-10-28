@@ -538,8 +538,6 @@ impl ScannerHandle for PortalHandle {
         }
     }
 
-    /// Cancel the frame in progress, if any, and wait until the portal has let go of it so
-    /// the next `start` is not refused. Does nothing when no frame is running.
     fn next_button(&self, timeout: Duration) -> Option<ButtonPress> {
         let mut buttons = self.buttons.borrow_mut();
         let end = std::time::Instant::now() + timeout;
@@ -557,6 +555,12 @@ impl ScannerHandle for PortalHandle {
         }
     }
 
+    fn reports_button_events(&self) -> bool {
+        true
+    }
+
+    /// Cancel the frame in progress, if any, and wait until the portal has let go of it so
+    /// the next `start` is not refused. Does nothing when no frame is running.
     fn cancel(&self) {
         if !self.active.get() {
             // Between the frames of a multi-frame scan this abandons the scan, so the next
