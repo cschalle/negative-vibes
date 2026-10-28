@@ -214,6 +214,8 @@ pub(crate) mod imp {
         pub autosave_id: RefCell<Option<glib::SourceId>>,
         /// Sidebar thumbnails by frame number.
         pub thumbs: RefCell<std::collections::HashMap<u32, gtk::gdk::Texture>>,
+        /// Frames whose sidebar thumbnail shows the negative as scanned, not the positive.
+        pub thumb_negative: RefCell<std::collections::HashSet<u32>>,
 
         // ── Zoom ──────────────────────────────────────────────────────────
         /// Display scale; `None` fits the image to the window.

@@ -42,7 +42,7 @@ pub(super) fn fit_dpi(list: &[u32], want: u32) -> u32 {
 }
 
 /// A reduced copy of the proxy for the look thumbnails.
-fn reduced(p: &Proxy, side: usize) -> Proxy {
+pub(super) fn reduced(p: &Proxy, side: usize) -> Proxy {
     let step = p.width.max(p.height).div_ceil(side).max(1);
     let (w, h) = (p.width / step, p.height / step);
     let mut px = Vec::with_capacity(w * h * 3);

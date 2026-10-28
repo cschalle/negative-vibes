@@ -51,9 +51,24 @@ impl Window {
                 // without removing it.
                 let _ = win.imp().autosave_id.take();
                 win.save_roll();
+                win.refresh_thumbnails_after_edit();
             }
         });
         *self.imp().autosave_id.borrow_mut() = Some(id);
+    }
+
+    /// The thumbnails are positives, so an edit that changes the look (film type, stock,
+    /// exposure) changes them: redo the selected frame's, or all of them when the edit was
+    /// on the roll. Not while a scan is running, which is writing the files.
+    fn refresh_thumbnails_after_edit(&self) {
+        if self.imp().busy.get() {
+            return;
+        }
+        let indices = match (self.imp().scope.get(), self.selected()) {
+            (super::history::Scope::Frame, Some(sel)) => vec![sel],
+            _ => self.all_frame_indices(),
+        };
+        self.spawn_thumbnails(indices);
     }
 
     /// Write any pending change now (on close, before a long scan).
@@ -280,8 +295,22 @@ impl Window {
         }
         if let Some(roll) = self.imp().roll.borrow().as_ref() {
             let thumbs = self.imp().thumbs.borrow();
+            let negatives = self.imp().thumb_negative.borrow();
             for frame in &roll.frames {
-                list.append(&make_frame_row(frame, thumbs.get(&frame.index)));
+                let (idx, weak) = (frame.index, self.downgrade());
+                let on_toggle = move |negative: bool| {
+                    let Some(win) = weak.upgrade() else { return };
+                    {
+                        let mut set = win.imp().thumb_negative.borrow_mut();
+                        if negative {
+                            set.insert(idx);
+                        } else {
+                            set.remove(&idx);
+                        }
+                    }
+                    win.spawn_thumbnails(vec![idx]);
+                };
+                list.append(&make_frame_row(frame, thumbs.get(&frame.index), negatives.contains(&frame.index), on_toggle));
             }
         }
         self.imp().suppress_select.set(false);
@@ -357,14 +386,22 @@ impl Window {
 
     // ── Thumbnails ────────────────────────────────────────────────────────────
 
-    /// Build sidebar thumbnails in the background, one frame at a time.
+    /// Build sidebar thumbnails in the background, one frame at a time. A thumbnail is the
+    /// positive, through the frame's own film settings, unless the frame is set to show its
+    /// negative.
     pub(super) fn spawn_thumbnails(&self, indices: Vec<u32>) {
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             for idx in indices {
-                let Some(src) = weak.upgrade().and_then(|w| w.frame_source(idx)) else { continue };
+                let Some(win) = weak.upgrade() else { return };
+                let Some(src) = win.frame_source(idx) else { continue };
+                let negative = win.imp().thumb_negative.borrow().contains(&idx);
+                let params = win.effective_params(idx);
+                drop(win);
                 let thumb = gio::spawn_blocking(move || {
-                    let (w, h, px) = if src.is_preview {
+                    let (w, h, px) = if !negative {
+                        positive_thumbnail(&src, params)?
+                    } else if src.is_preview {
                         let buf = RawReader::read(&src.path).ok()?;
                         let region = src.crop.and_then(|c| geom::crop_to_rect(c, buf.width, buf.effective_height()));
                         buf.thumbnail_rgba(THUMB_SIDE, region)
@@ -652,6 +689,7 @@ impl Window {
     /// Open a roll that has just been read from disk.
     pub(super) fn show_opened_roll(&self) {
         self.imp().thumbs.borrow_mut().clear();
+        self.imp().thumb_negative.borrow_mut().clear();
         self.rebuild_frame_list();
         self.set_page("canvas");
         self.clear_canvas();
@@ -663,7 +701,40 @@ impl Window {
     }
 }
 
-fn make_frame_row(frame: &Frame, thumb: Option<&gdk::Texture>) -> gtk::ListBoxRow {
+/// The frame as a positive, longest side at most twice `THUMB_SIDE`: the picture rendered
+/// through the frame's own film settings. The film base is read off the whole image, so a
+/// frame cut from a preview of several still finds the rebate.
+fn positive_thumbnail(src: &Source, mut params: nv_process::ProcessParams) -> Option<(u32, u32, Vec<u8>)> {
+    // Dust repair is not worth its time at this size.
+    params.dust.mode = nv_process::DustMode::Off;
+    params.conversion.region = None;
+    let side = THUMB_SIDE as usize * 2;
+    let (whole, region) = if src.is_preview {
+        let buf = RawReader::read(&src.path).ok()?;
+        let whole = nv_process::Proxy::from_raw(&buf, 1 << 16);
+        let region = src.crop.and_then(|c| geom::crop_to_rect(c, buf.width, buf.effective_height())).map(|[x0, y0, x1, y1]| {
+            let (bw, bh) = (buf.width as usize, buf.effective_height() as usize);
+            let (x, y) = ((x0 * bw as f64) as usize, (y0 * bh as f64) as usize);
+            nv_process::Proxy::from_raw_region(&buf, x, y, ((x1 * bw as f64).ceil() as usize).saturating_sub(x), ((y1 * bh as f64).ceil() as usize).saturating_sub(y))
+        });
+        (whole, region)
+    } else {
+        (RawReader::proxy(&src.path, 1 << 18).ok()?.0, None)
+    };
+    if params.conversion.film_base.is_none() {
+        params.conversion.film_base = Some(nv_process::estimate_film_base_proxy(&whole));
+    }
+    let picture = region.unwrap_or(whole);
+    if picture.width == 0 || picture.height == 0 {
+        return None;
+    }
+    let small = super::guided_ui::reduced(&picture, side);
+    let rgb = nv_process::render(&small, &params);
+    let rgba = rgb.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect();
+    Some((small.width as u32, small.height as u32, rgba))
+}
+
+fn make_frame_row(frame: &Frame, thumb: Option<&gdk::Texture>, negative: bool, on_toggle: impl Fn(bool) + 'static) -> gtk::ListBoxRow {
     let preview: gtk::Widget = match thumb {
         Some(t) => {
             let pic = gtk::Picture::for_paintable(t);
@@ -704,6 +775,15 @@ fn make_frame_row(frame: &Frame, thumb: Option<&gdk::Texture>) -> gtk::ListBoxRo
         star.set_tooltip_text(Some("Kept"));
         row_box.append(&star);
     }
+    let neg_toggle = gtk::ToggleButton::builder()
+        .label("Neg")
+        .active(negative)
+        .valign(gtk::Align::Center)
+        .css_classes(["flat", "caption"])
+        .tooltip_text("Show the negative as scanned instead of the picture")
+        .build();
+    neg_toggle.connect_toggled(move |b| on_toggle(b.is_active()));
+    row_box.append(&neg_toggle);
     row_box.append(&state);
 
     let row = gtk::ListBoxRow::builder().child(&row_box).build();
