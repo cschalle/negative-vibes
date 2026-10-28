@@ -2039,7 +2039,20 @@ impl Window {
         }
     }
 
+    /// The "move the holder" banner is up: the picture in the window is the next frame, not the
+    /// one just scanned. Close the banner, and say so, so that a Preview or a Scan pressed
+    /// instead of its button still makes a new frame and cannot overwrite the last one.
+    fn take_advance(&self) -> bool {
+        let banner = self.imp().advance_banner.borrow();
+        let Some(b) = banner.as_ref().filter(|b| b.is_revealed()) else { return false };
+        b.set_revealed(false);
+        true
+    }
+
     fn start_preview(&self) {
+        if self.take_advance() {
+            self.imp().advance_pending.set(true);
+        }
         self.imp().last_scan_event.set(Some(std::time::Instant::now()));
         self.imp().scan_kind.set(imp::ScanKind::Preview);
         self.imp().preview_ready.set(false);
@@ -2058,6 +2071,15 @@ impl Window {
     /// Scan the frame on the canvas, inside the rectangle drawn on it.
     pub(super) fn start_final_scan(&self) {
         if !self.imp().preview_ready.get() {
+            return;
+        }
+        // Scan pressed with the holder still to be moved: preview the next frame, which gets a
+        // frame of its own, and scan that. Scanning now would replace the last frame's scan.
+        if self.take_advance() {
+            self.imp().advance_pending.set(true);
+            self.imp().auto_scan_next.set(true);
+            self.show_toast("Previewing the next frame first");
+            self.start_preview();
             return;
         }
         // Make sure there is a roll and a frame to put the result in before
@@ -2372,11 +2394,15 @@ impl Window {
         if self.imp().busy.get() {
             return;
         }
-        let Some(app) = self.application() else { return };
-
+        // The same paths as the window's own buttons, so the frame, the area and the advance
+        // banner are handled the same way: the app's actions alone would scan the last target.
         match button {
-            ScanButton::Scan => app.activate_action("scan", None),
-            ScanButton::IntelliScan => app.activate_action("preview", None),
+            ScanButton::Scan => self.scan_selected(false),
+            ScanButton::IntelliScan => {
+                if self.device_ready() {
+                    self.start_preview();
+                }
+            }
         }
     }
 
