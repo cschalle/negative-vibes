@@ -392,7 +392,7 @@ impl Window {
             2 => {
                 let frames = imp.roll.borrow().as_ref().map_or(0, |r| r.frames.iter().filter(|f| f.preview.is_some()).count());
                 let text = if !self.device_ready() {
-                    "No scanner is ready. Connect and switch on the scanner.".to_owned()
+                    "No scanner is ready. Choose one in the main menu, or check that it is switched on and connected.".to_owned()
                 } else if imp.busy.get() {
                     format!("Previewing…{}", self.stuck_hint())
                 } else if imp.preview_ready.get() {

@@ -322,6 +322,7 @@ fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanE
     };
 
     let mut caps_list = Vec::new();
+    let mut unreachable = Vec::new();
 
     for dev in &devices {
         // Skip webcams, which cannot scan film. libsane also types them "virtual device", as it
@@ -338,6 +339,7 @@ fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanE
             Ok(h) => h,
             Err(e) => {
                 eprintln!("nv-acquire: could not open {}: {e}", dev.name);
+                unreachable.push(format!("{} {}", dev.vendor, dev.model).trim().to_owned());
                 continue;
             }
         };
@@ -345,11 +347,18 @@ fn do_probe(session: &dyn ScannerBackend, quirks: &Quirks, evt_tx: &Sender<ScanE
         let qk = quirks.find(&dev.backend, &dev.model);
         match DeviceCapabilities::detect(&dev.name, &dev.vendor, &dev.model, &handle, qk) {
             Ok(caps) => caps_list.push(caps),
-            Err(e) => eprintln!("nv-acquire: capability detect failed for {}: {e}", dev.name),
+            Err(e) => {
+                eprintln!("nv-acquire: capability detect failed for {}: {e}", dev.name);
+                unreachable.push(format!("{} {}", dev.vendor, dev.model).trim().to_owned());
+            }
         }
         // handle is dropped here → sane_close
     }
 
+    // Allowed but not answering is a different page from nothing allowed yet.
+    if caps_list.is_empty() && !unreachable.is_empty() {
+        let _ = evt_tx.send_blocking(ScanEvent::Unreachable(unreachable));
+    }
     let _ = evt_tx.send_blocking(ScanEvent::DeviceList(caps_list));
 }
 

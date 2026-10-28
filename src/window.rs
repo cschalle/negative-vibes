@@ -142,6 +142,10 @@ pub(crate) mod imp {
         pub navigator_area: RefCell<Option<gtk::DrawingArea>>,
         pub densi_on: Cell<bool>,
         pub densi_label: RefCell<Option<gtk::Label>>,
+        /// The "no scanner" page and its Try Again and Choose Scanner buttons.
+        pub no_scanner_page: RefCell<Option<(adw::StatusPage, gtk::Button, gtk::Button)>>,
+        /// Allowed scanners that did not answer the last probe, by name.
+        pub unreachable_scanners: RefCell<Vec<String>>,
         /// The picture as last rendered (before orientation): width, height, RGB8.
         pub last_rgb: RefCell<(usize, usize, Vec<u8>)>,
         /// Parameters when a drag began; the edit is recorded when it ends.
@@ -395,6 +399,7 @@ impl Window {
         view_menu.append(Some("Show Frames"), Some("win.toggle-frames"));
         view_menu.append(Some("Show Inspector"), Some("win.toggle-inspector"));
         main_menu.append_section(None, &view_menu);
+        main_menu.append(Some("Choose Scanner…"), Some("app.select-scanner"));
         main_menu.append(Some("Calibrate with IT8 Target…"), Some("win.calibrate"));
         let film_menu = gio::Menu::new();
         film_menu.append(Some("Create Film Profile…"), Some("win.film-create"));
@@ -513,22 +518,25 @@ impl Window {
         info_label.connect_label_notify(|l| l.set_visible(!l.label().is_empty()));
 
         // ── Canvas stack ──────────────────────────────────────────────────
+        // The scanner portal lists only what the user has allowed, so an empty list normally
+        // means "none chosen yet" and the page leads with Choose Scanner…. `show_no_scanner`
+        // switches it to "chosen but not answering", where Try Again is the useful button.
         let no_scanner = adw::StatusPage::new();
         no_scanner.set_icon_name(Some("scanner-symbolic"));
-        no_scanner.set_title("No Scanner Found");
-        no_scanner.set_description(Some("Make sure your scanner is connected and powered on."));
-        let try_again = gtk::Button::builder().label("Try Again").css_classes(["pill", "suggested-action"]).build();
-        // The portal only offers scanners the user has chosen, so with it "No Scanner Found"
-        // usually means "none chosen yet". libsane has nothing to choose.
-        let choose_scanner = gtk::Button::builder().label("Choose Scanner…").css_classes(["pill"]).visible(std::env::var("NV_SCANNER_BACKEND").as_deref() == Ok("portal")).build();
+        let try_again = gtk::Button::builder().label("Try Again").css_classes(["pill", "suggested-action"]).visible(false).build();
+        let choose_scanner = gtk::Button::builder().label("Choose Scanner…").css_classes(["pill", "suggested-action"]).build();
         let open_raw = gtk::Button::builder().label("Open Raw Scans…").css_classes(["pill"]).build();
         let open_roll = gtk::Button::builder().label("Open Roll…").css_classes(["pill"]).build();
+        let without_label = gtk::Label::builder().label("Without a scanner").css_classes(["dim-label"]).margin_top(12).build();
         let btn_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).halign(gtk::Align::Center).build();
         btn_box.append(&try_again);
         btn_box.append(&choose_scanner);
+        btn_box.append(&without_label);
         btn_box.append(&open_raw);
         btn_box.append(&open_roll);
         no_scanner.set_child(Some(&btn_box));
+        *self.imp().no_scanner_page.borrow_mut() = Some((no_scanner.clone(), try_again.clone(), choose_scanner.clone()));
+        self.show_no_scanner(&[]);
 
         let insert_page = adw::StatusPage::new();
         insert_page.set_icon_name(Some("scanner-symbolic"));
@@ -2003,6 +2011,26 @@ impl Window {
 
     // ── Actions ───────────────────────────────────────────────────────────────
 
+    /// Fill the "no scanner" page: `unreachable` names the scanners the user allowed that did
+    /// not answer, or is empty when none has been chosen.
+    fn show_no_scanner(&self, unreachable: &[String]) {
+        let page = self.imp().no_scanner_page.borrow();
+        let Some((page, try_again, choose)) = page.as_ref() else { return };
+        if unreachable.is_empty() {
+            page.set_title("Choose a Scanner");
+            page.set_description(Some("Negative Vibes can only use scanners you allow. Choose your film scanner to get started."));
+            choose.set_label("Choose Scanner…");
+            choose.add_css_class("suggested-action");
+        } else {
+            page.set_title("Scanner Not Responding");
+            let names = unreachable.join(" and ");
+            page.set_description(Some(&format!("{names} is not available. Check that it is switched on and connected.")));
+            choose.set_label("Choose a Different Scanner…");
+            choose.remove_css_class("suggested-action");
+        }
+        try_again.set_visible(!unreachable.is_empty());
+    }
+
     fn emit_probe(&self) {
         if let Some(app) = self.application() {
             app.activate_action("probe", None);
@@ -2150,8 +2178,13 @@ impl Window {
 
         self.imp().last_scan_event.set(Some(std::time::Instant::now()));
         match event {
+            ScanEvent::Unreachable(names) => {
+                *self.imp().unreachable_scanners.borrow_mut() = names;
+            }
             ScanEvent::DeviceList(caps) => {
                 if caps.is_empty() {
+                    let unreachable = std::mem::take(&mut *self.imp().unreachable_scanners.borrow_mut());
+                    self.show_no_scanner(&unreachable);
                     self.set_page("no-scanner");
                     *self.imp().scan_state.borrow_mut() = ScanUiState::NoScanner;
                     self.set_scan_controls_sensitive(false, false);

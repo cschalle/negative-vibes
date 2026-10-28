@@ -389,8 +389,8 @@ The app is the test bed. It is a prototype, off by default:
   With the feature off, that variable is an error, never a silent fallback.
 - **`nv-portal-proto`** is a stand-in for the real portal, implementing the draft interface
   over libsane on its own bus name, with the permission store and the dialog stubbed.
-- With the portal the list of devices is only what the user has granted, so "No Scanner Found"
-  usually means "none chosen yet": the page then offers **Choose Scanner…**, which asks the
+- With the portal the list of devices is only what the user has granted, so an empty list
+  usually means "none chosen yet": the page then leads with **Choose Scanner…** (also in the main menu), which asks the
   worker to show the portal's dialog (`select_devices`) and probe again. The app passes no
   window identifier yet, so the real portal's dialog would not be attached to its window.
 
@@ -710,7 +710,8 @@ the bottom. The Scan a Roll guide docks beside the picture in a third split view
 
 | State | What the window shows |
 |---|---|
-| No scanner | A status page "No Scanner Found" with **Try Again**, **Open Raw Scans…**, **Open Roll…**, and, with the portal backend, **Choose Scanner…** |
+| No scanner chosen | A status page "Choose a Scanner" with **Choose Scanner…** (the suggested action), and under "Without a scanner" **Open Raw Scans…** and **Open Roll…** |
+| Scanner chosen, not answering | "Scanner Not Responding", naming the scanner, with **Try Again** (suggested) and **Choose a Different Scanner…**, then the same two buttons |
 | Scanner found, no frames | "Insert Film and Preview" with a large **Preview** button and the film type toggle above it |
 | Previewing, scanning | The canvas fills in as data arrives; Preview becomes **Stop**; the progress says which pass is running |
 | Scan finished | A toast; on a manual-advance scanner the banner "Move the holder to the next frame" with **Scan Next Frame**. A scanned frame shows its scan, and *Show Preview or Scan* in the frame's menu swaps back to the preview |

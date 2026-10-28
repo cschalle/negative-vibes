@@ -58,6 +58,10 @@ pub enum ScanEvent {
     /// A new device list (result of Probe or reconnect attempt).
     DeviceList(Vec<DeviceCapabilities>),
 
+    /// Scanners the user has allowed that could not be opened (switched off, unplugged, or
+    /// resetting), by display name. Sent just before an empty `DeviceList`, and only then.
+    Unreachable(Vec<String>),
+
     /// The selected device has been opened and options read.
     DeviceReady { caps: Box<DeviceCapabilities> },
 
