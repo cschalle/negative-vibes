@@ -18,7 +18,7 @@
       <item><p>The browser says you are signed in. Go back to Negative Vibes.</p></item>
     </steps>
     <p>Your password is never seen by Negative Vibes. What it keeps is a token from Google, in the system's password keyring. <gui>Sign Out</gui> deletes the token and tells Google the access is no longer needed. You can also remove the access at any time in your Google Account, under <gui>Security</gui> and <gui>Your connections to third-party apps and services</gui>.</p>
-    <note style="tip"><p>If a copy of Negative Vibes was built without a Google client, <gui>Preferences</gui> says so. Create an OAuth client of type <gui>Desktop app</gui> in the Google Cloud console, turn on the <gui>Photos Library API</gui>, and enter its client ID and secret under <gui>Use Your Own Google Client</gui>.</p></note>
+    <note style="tip"><p>Some copies of Negative Vibes, such as ones built from the source, come without a Google client. <gui>Preferences</gui> then says that Google Photos is not available, and exports are still saved to your folder. Under <gui>Advanced</gui>, <gui>Use Your Own Google Client</gui> takes the client ID and secret of an OAuth client of type <gui>Desktop app</gui> from the Google Cloud console, with the <gui>Photos Library API</gui> turned on.</p></note>
   </section>
 
   <section id="upload"><title>Upload</title>

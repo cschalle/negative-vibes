@@ -56,7 +56,8 @@
           "--share=network"
         ],
         "env": {
-          "CARGO_HOME": "/run/build/negative-vibes/cargo-home"
+          "CARGO_HOME": "/run/build/negative-vibes/cargo-home",
+          "NV_GOOGLE_CLIENT_ID": "747297767936-n3ndkb36kred25ct7unarjgtd2p048pi.apps.googleusercontent.com"
         }
       },
       "config-opts": [

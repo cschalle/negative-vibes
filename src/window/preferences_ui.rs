@@ -382,7 +382,7 @@ impl Window {
                     status.set_subtitle("Signed in");
                     button.set_label("Sign Out");
                 } else if !has_client {
-                    status.set_subtitle("This copy has no Google client: add one below");
+                    status.set_subtitle("Not available in this copy. Exports are still saved to your folder");
                     button.set_label("Sign In…");
                     button.set_sensitive(false);
                 } else {
@@ -420,7 +420,7 @@ impl Window {
         }
         let own = adw::ExpanderRow::builder()
             .title("Use Your Own Google Client")
-            .subtitle("For a copy built without one. Create an OAuth client of type Desktop app in the Google Cloud console and enable the Photos Library API")
+            .subtitle("Leave empty to use the one built into this copy. For forks, or your own Google Cloud project: an OAuth client of type Desktop app with the Photos Library API enabled")
             .show_enable_switch(false)
             .build();
         own.set_expanded(!prefs.google_client_id.is_empty());
@@ -439,7 +439,7 @@ impl Window {
         }
         own.add_row(&client_id);
         own.add_row(&client_secret);
-        let advanced = group("", "");
+        let advanced = group("Advanced", "");
         advanced.add(&own);
         google.add(&account);
         google.add(&advanced);

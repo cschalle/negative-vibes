@@ -747,8 +747,8 @@ Open Folder, Scan Another Roll).
   multi-exposure, the two alignment limits), **Output** (format including DNG, name template,
   folder, colour space, embedded profile and metadata), **Colour** (the scanner profile new rolls
   start with, a shortcut to IT8 calibration), **Film Profiles** (your profiles: import, export,
-  delete, create) and **Google Photos** (sign in and out, a client ID and secret for builds that
-  have none baked in).
+  delete, create) and **Google Photos** (sign in and out, an Advanced section with a client ID and secret,
+  for builds that have none baked in or for your own Google project).
 - **Export** (Ctrl+E): preset (Archive, Share, Print, Google Photos), format (TIFF, JPEG, PNG,
   DNG, and the raw), depth, compression, quality, colour space, grey, profile, size (original,
   long edge, fit in a box, percent, named sizes; never larger than the scan), folder, name
@@ -1145,7 +1145,7 @@ Conventions:
 | R5 | Manual-advance batch scanning depends on the user. | Clear prompts. A scanner button to continue is not supported by the backend. |
 | R6 | IR dust removal on other scanners may need registration and crosstalk handling that the 8200i does not exercise. | Both are implemented and tested on synthetic data only. |
 | R7 | The `plustek8200i` backend is outside sane-backends. | It ships as a separate RPM and is built into the Flatpak. Upstreaming is separate work; an upstream SANE ticket exists. |
-| R8 | Google Photos upload needs an OAuth client that does not exist, and, for other users, Google's app verification. | Run only against a stand-in server. Users can enter their own client under Preferences. |
+| R8 | Google Photos upload needs Google's app verification before anyone but the listed test users can sign in. | The OAuth client exists and is built in from `build-aux/google-client.env` (git-ignored; the ID is in the manifests). Until it is verified the app is in testing mode. Users can enter their own client under Preferences, Advanced. |
 | R9 | The scanner portal is a proposal, and the prototype is not the real portal. | Prototype here; proposal and checks in flatpak-scanner-portal; the 8200i checks pass (§10). The application has been run against it from a Flatpak without `--device=all` (§10). The next steps are the GTK window identifier and the upstream issue. |
 | R10 | With the system SANE configuration the stock `genesys` backend also lists the 8200i ("OpticFilm 8200i SE"), and opening that entry appears to reset it. On 2026-10-16 `nv-cli probe` opened it; the kernel logged `device firmware changed` and a new USB address, and the product strings were gone. The application's probe opens every device that is not a webcam, so it may do the same. | Not yet checked in the application. Hardware checks use a private configuration with only `plustek8200i`. Options: skip a device that another backend already lists at the same USB address, or have the quirks file name the backend to use. The Oct 8 results in §10 predate the sane-backends update that added the genesys entry. |
 

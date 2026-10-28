@@ -36,3 +36,6 @@ __pycache__/
 # Local test scan
 /scan-1200dpi-positive.png
 .flatpak-builder/
+
+# Google OAuth client secret for local builds (see build-aux/meson/cargo-build.sh)
+/build-aux/google-client.env
