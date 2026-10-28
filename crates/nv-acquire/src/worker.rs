@@ -441,6 +441,9 @@ fn do_scan(
             return;
         }
 
+        if frame_index == 0 && ir_follows {
+            let _ = evt_tx.send_blocking(ScanEvent::InfraredPass);
+        }
         if let Err(e) = handle.start() {
             let _ = evt_tx.send_blocking(ScanEvent::Error(format!("Could not start scan: {e}\nCheck that the scanner lid is closed and film is loaded.")));
             return;
@@ -682,6 +685,9 @@ fn do_multi_pass(handle: &dyn ScannerHandle, ctx: &MultiCtx) {
             return;
         }
         let _ = ctx.evt_tx.send_blocking(ScanEvent::PassStarted { index, total, exposure });
+        if ctx.ir_follows {
+            let _ = ctx.evt_tx.send_blocking(ScanEvent::InfraredPass);
+        }
         let fraction = move |f: f32| (index as f32 + f) / total as f32 * 0.95;
         let pass = match collect_pass(handle, ctx, &fraction) {
             Ok(p) => p,
