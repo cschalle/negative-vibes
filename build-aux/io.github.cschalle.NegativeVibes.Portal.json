@@ -33,7 +33,7 @@
         {
           "type": "git",
           "url": "https://github.com/cschalle/OpticFilm8200i-sane.git",
-          "commit": "e73221456902c6a12422ec24d49f191103642e1b"
+          "commit": "f0f20a47812e6b22cb1c87425d3bd252381e7f28"
         },
         {
           "type": "shell",
