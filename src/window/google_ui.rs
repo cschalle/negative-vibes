@@ -168,11 +168,8 @@ impl Window {
         if rejected {
             return None;
         }
-        // A name set in the export settings is the one album for every roll; otherwise the roll's own
-        let title = match settings.google_album_name.trim() {
-            "" => self.imp().roll.borrow().as_ref().map(|r| r.name.clone()).unwrap_or_default(),
-            fixed => fixed.to_owned(),
-        };
+        let roll = self.imp().roll.borrow().as_ref().map(|r| r.name.clone()).unwrap_or_default();
+        let title = settings.album_title(&roll);
         let album = (settings.google_album && !title.trim().is_empty()).then(|| {
             let known = self.known_album(&title);
             (title, known)

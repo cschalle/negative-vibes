@@ -75,7 +75,7 @@ impl Window {
         };
         let google = adw::SwitchRow::builder().title("Send to Google Photos").subtitle(google_sub).active(current.google_photos).build();
         let google_album = adw::SwitchRow::builder().title("Put Pictures in an Album").subtitle("Named after the roll, or as below").active(current.google_album).build();
-        let google_album_name = adw::EntryRow::builder().title("Album Name (empty: the roll's name)").text(&current.google_album_name).build();
+        let google_album_name = adw::EntryRow::builder().title("Album Name ({roll} is the roll's name)").text(&current.google_album_name).build();
         // One switch for "scan, and it is in my library": both of the two that make that happen.
         let google_auto = adw::SwitchRow::builder()
             .title("Send Each New Scan")

@@ -172,7 +172,8 @@ pub struct ExportSettings {
     pub google_photos: bool,
     /// ... into an album.
     pub google_album: bool,
-    /// The album's name, the same for every roll; empty names it after the roll.
+    /// The album's name; `{roll}` stands for the roll's name. Empty is just the roll's name, and a
+    /// name without `{roll}` is one album for every roll.
     pub google_album_name: String,
 }
 
@@ -200,6 +201,17 @@ impl Default for ExportSettings {
 }
 
 impl ExportSettings {
+    /// The Google Photos album for a roll called `roll`. Empty when the name needs a roll
+    /// name that there is not.
+    pub fn album_title(&self, roll: &str) -> String {
+        let roll = roll.trim();
+        match self.google_album_name.trim() {
+            "" => roll.to_owned(),
+            name if name.contains("{roll}") && roll.is_empty() => String::new(),
+            name => name.replace("{roll}", roll),
+        }
+    }
+
     /// The settings as they will really be used: a JPEG is 8 bit, depths
     /// are 8 or 16, quality is 1–100.
     pub fn normalised(&self) -> Self {
@@ -310,6 +322,17 @@ mod tests {
         assert_eq!(s.google_album_name, "Family negatives");
         assert_eq!(serde_json::from_str::<ExportSettings>(&serde_json::to_string(&s).unwrap()).unwrap(), s);
         assert!(ExportSettings::default().google_album_name.is_empty(), "empty means named after the roll");
+    }
+
+    #[test]
+    fn the_album_title_takes_the_roll_name() {
+        let named = |n: &str| ExportSettings { google_album_name: n.to_owned(), ..Default::default() };
+        assert_eq!(named("").album_title("Holiday 1994"), "Holiday 1994");
+        assert_eq!(named("Family negatives").album_title("Holiday 1994"), "Family negatives");
+        assert_eq!(named("Film – {roll}").album_title(" Holiday 1994 "), "Film – Holiday 1994");
+        assert_eq!(named("{roll} (scans)").album_title("A"), "A (scans)");
+        assert_eq!(named("Film – {roll}").album_title(""), "", "no roll name, no album");
+        assert_eq!(named("Family negatives").album_title(""), "Family negatives");
     }
 
     #[test]
