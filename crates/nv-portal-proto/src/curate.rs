@@ -118,10 +118,9 @@ fn network_host(dev: &DeviceInfo) -> Option<String> {
         &name[i + 3..]
     } else if let Some(t) = dev.kind.strip_prefix("ip=") {
         t
-    } else if let Some(i) = name.find("://") {
-        &name[i + 3..]
     } else {
-        return None;
+        let i = name.find("://")?;
+        &name[i + 3..]
     };
     let end = start.find(['&', ':', '/', '?', ',', ' ']).unwrap_or(start.len());
     (end > 0).then(|| start[..end].to_owned())

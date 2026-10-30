@@ -245,12 +245,7 @@ impl Scanner {
     async fn list_scanners(&self, _options: HashMap<String, OwnedValue>) -> Result<Vec<(String, Vardict)>, PortalError> {
         let granted = self.0.granted.lock().unwrap().clone();
         let devs = self.0.devices().await?;
-        Ok(devs
-            .iter()
-            .filter_map(|d| {
-                granted.contains_key(&d.id).then(|| (d.id.clone(), convert::device_to_dict(d)))
-            })
-            .collect())
+        Ok(devs.iter().filter(|d| granted.contains_key(&d.id)).map(|d| (d.id.clone(), convert::device_to_dict(d))).collect())
     }
 
     async fn open_scanner(
@@ -457,10 +452,7 @@ async fn open_session(shared: &Arc<Shared>, conn: &Connection, owner: String, de
         return Err(last.unwrap_or_else(|| PortalError::Failed("no driver for the scanner".into())));
     };
     let path = session_path(&owner, token);
-    let rec = SessionRec {
-        owner,
-        scanner: Some(ScannerRec { sid, id: scanner_id.to_owned(), busy: Default::default(), cancel: Default::default(), frames: Default::default() }),
-    };
+    let rec = SessionRec { owner, scanner: Some(ScannerRec { sid, id: scanner_id.to_owned(), busy: Default::default(), cancel: Default::default(), frames: Default::default() }) };
     let registered = conn.object_server().at(path.as_str(), SessionObj { shared: shared.clone(), path: path.clone() }).await;
     if !matches!(registered, Ok(true)) {
         let _ = shared.cmd.send(Cmd::Close { sid });

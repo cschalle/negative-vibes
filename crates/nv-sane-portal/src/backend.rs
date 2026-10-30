@@ -10,7 +10,9 @@ use crate::proxy::{RequestProxy, ScannerProxy, SessionProxy};
 use crate::{PORTAL_PATH, request_path};
 use futures_util::future::{Either, select};
 use futures_util::{FutureExt, Stream, StreamExt};
-use nv_sane::{ButtonPress, DeviceInfo, FrameFormat, OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue, Parameters, SaneError, ScannerBackend, ScannerHandle, SetInfo};
+use nv_sane::{
+    ButtonPress, DeviceInfo, FrameFormat, OptionConstraint, OptionDescriptor, OptionKind, OptionUnit, OptionValue, Parameters, SaneError, ScannerBackend, ScannerHandle, SetInfo,
+};
 use nv_sane_sys as sys;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -133,7 +135,14 @@ impl PortalBackend {
         let me = conn.unique_name().ok_or_else(|| portal_err("no unique bus name"))?.to_string();
         let token = format!("nvopen{}", self.request_counter.fetch_add(1, Ordering::SeqCst));
         // Subscribe at the predicted Request path before calling, so Response cannot be missed.
-        let request = RequestProxy::builder(conn).destination(self.bus_name.clone()).map_err(portal_err)?.path(request_path(&me, &token)).map_err(portal_err)?.build().await.map_err(portal_err)?;
+        let request = RequestProxy::builder(conn)
+            .destination(self.bus_name.clone())
+            .map_err(portal_err)?
+            .path(request_path(&me, &token))
+            .map_err(portal_err)?
+            .build()
+            .await
+            .map_err(portal_err)?;
         let mut responses = request.receive_response().await.map_err(portal_err)?;
 
         let mut opts: HashMap<&str, Value<'_>> = HashMap::new();
@@ -225,6 +234,9 @@ impl ScannerBackend for PortalBackend {
     }
 }
 
+/// A button press, tagged with the session it belongs to.
+type ButtonStream = Pin<Box<dyn Stream<Item = (String, ButtonPress)>>>;
+
 struct Event {
     session: String,
     state: String,
@@ -238,7 +250,7 @@ pub struct PortalHandle {
     session: OwnedObjectPath,
     events: RefCell<Pin<Box<dyn Stream<Item = Event>>>>,
     /// ButtonEvents of every session of this app, as (session, press)
-    buttons: RefCell<Pin<Box<dyn Stream<Item = (String, ButtonPress)>>>>,
+    buttons: RefCell<ButtonStream>,
     /// The values of all options as `GetOptionValues` gave them, until an option changes.
     /// The portal returns every value in one call, and the app reads the options one by one.
     values: RefCell<Option<HashMap<String, OwnedValue>>>,

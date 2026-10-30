@@ -68,11 +68,8 @@ impl Window {
         let embed_meta =
             adw::SwitchRow::builder().title("Embed Metadata").subtitle("The author, caption and film details from Metadata (Ctrl+I)").active(current.embed_metadata).build();
         let after_scan = adw::SwitchRow::builder().title("Export After Each Scan").active(current.after_scan).build();
-        let google_sub = if self.google_signed_in() {
-            "Signed in. Every picture you export is added to your library"
-        } else {
-            "Sign in under Preferences, or when asked, to turn this on"
-        };
+        let google_sub =
+            if self.google_signed_in() { "Signed in. Every picture you export is added to your library" } else { "Sign in under Preferences, or when asked, to turn this on" };
         let google = adw::SwitchRow::builder().title("Send to Google Photos").subtitle(google_sub).active(current.google_photos).build();
         let google_album = adw::SwitchRow::builder().title("Put Pictures in an Album").subtitle("Named after the roll, or as below").active(current.google_album).build();
         let google_album_name = adw::EntryRow::builder().title("Album Name ({roll} is the roll's name)").text(&current.google_album_name).build();
@@ -225,17 +222,8 @@ impl Window {
 
         // A preset fills in the format, depth, compression, quality and colour; the folder and name stay.
         {
-            let (format, depth, compression, quality, space, size, size_value, google, after_scan) = (
-                format.clone(),
-                depth.clone(),
-                compression.clone(),
-                quality.clone(),
-                space.clone(),
-                size.clone(),
-                size_value.clone(),
-                google.clone(),
-                after_scan.clone(),
-            );
+            let (format, depth, compression, quality, space, size, size_value, google, after_scan) =
+                (format.clone(), depth.clone(), compression.clone(), quality.clone(), space.clone(), size.clone(), size_value.clone(), google.clone(), after_scan.clone());
             let refresh = refresh.clone();
             preset.connect_selected_notify(move |row| {
                 let Some((_, p)) = (row.selected() as usize).checked_sub(1).and_then(|i| ExportSettings::presets().into_iter().nth(i)) else { return };
