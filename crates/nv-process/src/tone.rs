@@ -40,15 +40,30 @@ pub fn apply_tone(pixels: &[f32], p: &ToneParams) -> Vec<f32> {
     let luts = (!p.curves.is_identity()).then(|| p.curves.luts(CURVE_LUT));
 
     for i in 0..n {
+        let bal = [pixels[i * 3] * p.balance[0], pixels[i * 3 + 1] * p.balance[1], pixels[i * 3 + 2] * p.balance[2]];
+
+        // The black and white points are luminance: `auto_tone` reads them off
+        // a luminance histogram, and both pipettes compute them with `luma()`.
+        // Applying them to each channel instead kept the absolute gap between
+        // channels while shrinking its magnitude, so whatever cast the
+        // conversion left came out stronger -- on the tulip wall b* went from
+        // -8.2 without this stage to -13.1 with it, and the frame lost to
+        // SilverFast on neutrality it would otherwise have won. Move the
+        // luminance and carry the channels with it: the stage changes how
+        // bright a pixel is, not what colour it is.
+        let l_in = 0.2126 * bal[0] + 0.7152 * bal[1] + 0.0722 * bal[2];
+        // Black/white point normalisation.
+        let t = ((l_in - bp) / range).clamp(0.0, 1.0);
+        // Midtone gamma.
+        let t = t.powf(mid_exp);
+        // Contrast: simple sigmoid-like boost around 0.5.
+        let t = apply_contrast(t, contrast).clamp(0.0, 1.0);
+        // Below this the ratios are noise, and the pixel is black either way.
+        let lit = l_in > 1e-5;
+        let gain = if lit { t / l_in } else { 0.0 };
+
         for c in 0..3 {
-            let v = pixels[i * 3 + c] * p.balance[c];
-            // Black/white point normalisation.
-            let v = ((v - bp) / range).clamp(0.0, 1.0);
-            // Midtone gamma.
-            let v = v.powf(mid_exp);
-            // Contrast: simple sigmoid-like boost around 0.5.
-            let v = apply_contrast(v, contrast);
-            let v = v.clamp(0.0, 1.0);
+            let v = if lit { (bal[c] * gain).clamp(0.0, 1.0) } else { t };
             out[i * 3 + c] = match &luts {
                 Some(l) => {
                     let e = v.powf(1.0 / 2.2) * (CURVE_LUT - 1) as f32;
@@ -177,6 +192,43 @@ pub fn auto_tone(converted: &[f32], w: usize, h: usize, region: Option<[f32; 4]>
 mod tests {
     use super::*;
     use crate::curves::Curves;
+
+    /// Auto levels moves brightness, not colour. It used to apply its black
+    /// and white points to each channel, which holds the gap between channels
+    /// while shrinking its magnitude and so makes any cast stronger: on the
+    /// tulip wall b* went from -8.2 to -13.1 just by running this stage.
+    #[test]
+    fn the_tone_stage_changes_brightness_and_not_hue() {
+        // A picture with a deliberate blue cast, spread over the range so the
+        // stretch has something to do.
+        let (w, h) = (300, 60);
+        let mut px = vec![0.0f32; w * h * 3];
+        for i in 0..w * h {
+            let t = 0.12 + 0.55 * (i % w) as f32 / w as f32;
+            px[i * 3] = t * 0.92;
+            px[i * 3 + 1] = t;
+            px[i * 3 + 2] = t * 1.18;
+        }
+        let tone = auto_tone(&px, w, h, None, 0.02, 0.98, [1.0; 3]);
+        assert!(tone.white_point - tone.black_point < 0.99, "the stretch did nothing to preserve");
+        let out = apply_tone(&px, &tone);
+
+        let mut checked = 0;
+        for i in 0..w * h {
+            let o = [out[i * 3], out[i * 3 + 1], out[i * 3 + 2]];
+            // Only where nothing has hit an end: a clamp cannot keep a ratio.
+            if o.iter().any(|v| *v <= 0.001 || *v >= 0.999) {
+                continue;
+            }
+            checked += 1;
+            for c in [0usize, 2] {
+                let want = px[i * 3 + c] / px[i * 3 + 1];
+                let got = o[c] / o[1];
+                assert!((got - want).abs() < 0.01, "pixel {i} channel {c}: ratio {got:.4} against {want:.4}");
+            }
+        }
+        assert!(checked > w * h / 4, "too few pixels left unclamped to test: {checked}");
+    }
 
     /// The points are chosen on luminance but spent per channel, so a channel
     /// with a tail the luminance histogram barely sees must still not be
