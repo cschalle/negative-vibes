@@ -3,6 +3,23 @@ use crate::params::ToneParams;
 /// Entries in a curve lookup table: finer than one 8-bit step of the encoding.
 const CURVE_LUT: usize = 1024;
 
+/// The most of any one channel auto levels may throw away at each end.
+///
+/// The thresholds are measured on luminance but the stretch runs per channel,
+/// so a channel whose tail reaches past the luminance quantile loses more than
+/// the nominal fraction -- and nothing bounded how much more. Measured against
+/// SilverFast, which discards 0.00-0.01%: on the tulip frame we lost up to 2.7%
+/// of the red highlights, and on `bw-negative-glass-with-light` 12.2% of the
+/// picture was crushed to solid black.
+///
+/// A budget rather than a tighter threshold, because the two cases want
+/// opposite things: that B&W frame needed the black point pulled a long way
+/// back, while the tulip frame's converted picture already fills the range, so
+/// tightening the threshold only costs it contrast and buys nothing. This caps
+/// the damage where there is a tail to lose and leaves the stretch alone where
+/// there is not.
+const CLIP_BUDGET: f32 = 0.005;
+
 /// Stage 5 — tone adjustments (black/white point, midtone gamma, contrast).
 ///
 /// Input/output: linear f32 [0,1] (before gamma-2.2 output encoding).
@@ -93,17 +110,62 @@ pub fn auto_tone(converted: &[f32], w: usize, h: usize, region: Option<[f32; 4]>
     };
 
     let mut hist = vec![0u32; BINS];
+    // Per channel as well as luminance: the points are chosen on luminance but
+    // spent per channel, and only the channel histograms can say what that
+    // costs.
+    let mut chans = [vec![0u32; BINS], vec![0u32; BINS], vec![0u32; BINS]];
     for y in y0..y1 {
         for x in x0..x1 {
             let i = (y * w + x) * 3;
             let l = 0.2126 * converted[i] * balance[0] + 0.7152 * converted[i + 1] * balance[1] + 0.0722 * converted[i + 2] * balance[2];
             hist[bin(l)] += 1;
+            for c in 0..3 {
+                chans[c][bin(converted[i + c] * balance[c])] += 1;
+            }
         }
     }
     let (bp, wp, med) = (quantile(&hist, low), quantile(&hist, high), quantile(&hist, 0.5));
     if wp - bp < 0.02 {
         return ToneParams { balance, ..ToneParams::default() }; // flat image: nothing to stretch
     }
+
+    // What the budget is spent on is the picture that arrived intact. Pixels
+    // already sitting on 0 or 1 were saturated upstream, in the conversion, and
+    // holding the points back cannot bring them back -- it would only cost the
+    // frame its contrast and return nothing. So the end bins are left out of
+    // the count, and the budget bounds what auto levels itself throws away.
+    let budget_point = |hist: &[u32], from_top: bool| -> f32 {
+        let inner = &hist[1..BINS - 1];
+        let total: u32 = inner.iter().sum();
+        if total == 0 {
+            return if from_top { 0.0 } else { 1.0 };
+        }
+        let target = ((total as f32 * CLIP_BUDGET) as u32).max(1);
+        let mut seen = 0;
+        let mut hit = |i: usize, n: u32| -> Option<f32> {
+            seen += n;
+            (seen >= target).then(|| (i + 1) as f32 / (BINS - 1) as f32)
+        };
+        let found = if from_top { inner.iter().enumerate().rev().find_map(|(i, n)| hit(i, *n)) } else { inner.iter().enumerate().find_map(|(i, n)| hit(i, *n)) };
+        found.unwrap_or(if from_top { 0.0 } else { 1.0 })
+    };
+
+    // Pull the points back to whatever the worst channel can afford. Where a
+    // channel has no tail past them this changes nothing and the stretch stands.
+    let (mut bp, mut wp) = (bp, wp);
+    for c in 0..3 {
+        bp = bp.min(budget_point(&chans[c], false));
+        wp = wp.max(budget_point(&chans[c], true));
+    }
+    if wp - bp < 0.02 {
+        return ToneParams { balance, ..ToneParams::default() };
+    }
+
+    // F§5.1 also carries `AutoTargetBlack/White`, which would land the points
+    // a little inside 0 and 1 instead of on them. Left out deliberately: the
+    // budget already bounds what is thrown away, and the headroom on top of it
+    // only costs contrast -- on the tulip frame it turned a stretch into a
+    // compression, taking the interior 2-98 spread below where it started.
 
     // Median after the black/white stretch, moved to 18% linear (middle grey).
     let v = ((med - bp) / (wp - bp)).clamp(0.01, 0.99);
@@ -115,6 +177,41 @@ pub fn auto_tone(converted: &[f32], w: usize, h: usize, region: Option<[f32; 4]>
 mod tests {
     use super::*;
     use crate::curves::Curves;
+
+    /// The points are chosen on luminance but spent per channel, so a channel
+    /// with a tail the luminance histogram barely sees must still not be
+    /// crushed: on real frames this cost up to 3.5% of one channel.
+    #[test]
+    fn auto_levels_never_spend_more_than_the_budget_on_one_channel() {
+        // Green carries the luminance, so a long dark tail in red is nearly
+        // invisible to the luminance histogram that picks the black point.
+        // Wide, so one column of the ramp is a tenth of the budget rather than
+        // a whole step of it: the quantiles are binned and land on a column.
+        let (w, h) = (1000, 60);
+        let mut px = vec![0.0f32; w * h * 3];
+        for i in 0..w * h {
+            let t = (i % w) as f32 / w as f32;
+            px[i * 3] = if i % 250 == 0 { 0.001 } else { 0.35 + 0.4 * t };
+            px[i * 3 + 1] = 0.30 + 0.45 * t;
+            px[i * 3 + 2] = 0.32 + 0.42 * t;
+        }
+        let t = auto_tone(&px, w, h, None, 0.02, 0.98, [1.0; 3]);
+
+        // Over the region auto levels actually measures: it ignores the border,
+        // where the film rebate is.
+        let (x0, x1, y0, y1) = crate::conversion::interior(w, h, None);
+        for c in 0..3 {
+            let vals: Vec<f32> = (y0..y1).flat_map(|y| (x0..x1).map(move |x| (y, x))).map(|(y, x)| px[(y * w + x) * 3 + c]).collect();
+            let below = vals.iter().filter(|v| **v < t.black_point).count();
+            let above = vals.iter().filter(|v| **v > t.white_point).count();
+            let n = vals.len() as f32;
+            // Slack for the binning: a quantile lands on a bin edge and on a
+            // column of the ramp, and both can carry pixels past it.
+            let slack = CLIP_BUDGET + 1.0 / 2048.0 + 1.0 / w as f32;
+            assert!(below as f32 / n <= slack, "channel {c}: {} of {n} below the black point", below);
+            assert!(above as f32 / n <= slack, "channel {c}: {} of {n} above the white point", above);
+        }
+    }
 
     /// A ramp from 0.2 to 0.6 is stretched to the full range.
     #[test]

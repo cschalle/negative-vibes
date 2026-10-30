@@ -193,16 +193,23 @@ fn paint_marks(toned: &mut [f32], mask: &[u8], colour: [f32; 3]) {
     }
 }
 
-/// Auto levels for the frame (F§5.1: thresholds 0.02 / 0.98, 10% border
-/// ignored): black and white points and the midtone that sets the median to
-/// middle grey. Contrast is left as it was.
+/// Where auto levels measure the black and white points (F§5.1
+/// `AutoThresholdBlack/White`), SilverFast's own values. What they cost per
+/// channel is bounded separately, by `tone::CLIP_BUDGET`.
+const AUTO_LEVELS_LOW: f32 = 0.02;
+const AUTO_LEVELS_HIGH: f32 = 0.98;
+
+/// Auto levels for the frame (F§5.1: the thresholds measure the black and white
+/// points, which `tone::auto_tone` then maps to the targets a little inside the
+/// ends, 10% border ignored): black and white points and the midtone that sets
+/// the median to middle grey. Contrast is left as it was.
 pub fn auto_tone(proxy: &Proxy, params: &ProcessParams) -> ToneParams {
     if proxy.is_empty() {
         return params.tone.clone();
     }
     let neutral = ProcessParams { tone: ToneParams::default(), ..params.clone() };
     let converted = convert(proxy, &neutral);
-    let t = tone::auto_tone(&converted, proxy.width, proxy.height, params.conversion.region.or(Some([0.0, 0.0, 1.0, 1.0])), 0.02, 0.98, params.tone.balance);
+    let t = tone::auto_tone(&converted, proxy.width, proxy.height, params.conversion.region.or(Some([0.0, 0.0, 1.0, 1.0])), AUTO_LEVELS_LOW, AUTO_LEVELS_HIGH, params.tone.balance);
     ToneParams { contrast: params.tone.contrast, ..t }
 }
 
