@@ -100,9 +100,12 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
             dust: "off".into(), // a scan from this command has no infrared plane
             film_base: None,
             exposure: 0.0,
-            black_point: 0.0,
-            white_point: 1.0,
-            midtone: 1.0,
+            // Auto levels, as the window applies them, and nothing overriding
+            // them: this preview is meant to look like the opened frame.
+            no_auto_tone: false,
+            black_point: None,
+            white_point: None,
+            midtone: None,
             diagnose: true,
         };
         // Build a FrameBuf from the already-received data so we don't re-read disk.

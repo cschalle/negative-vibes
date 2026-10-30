@@ -41,17 +41,24 @@ pub struct RenderArgs {
     #[arg(long, default_value = "0.0")]
     pub exposure: f32,
 
-    /// Black point [0,1].
-    #[arg(long, default_value = "0.0")]
-    pub black_point: f32,
+    /// Skip auto levels and render with the tone controls as given. Auto
+    /// levels are what the window applies when a frame is opened, so they are
+    /// on here too: without them this command's output is not the picture the
+    /// application would show.
+    #[arg(long)]
+    pub no_auto_tone: bool,
 
-    /// White point [0,1].
-    #[arg(long, default_value = "1.0")]
-    pub white_point: f32,
+    /// Black point [0,1]. Overrides auto levels.
+    #[arg(long)]
+    pub black_point: Option<f32>,
 
-    /// Midtone gamma (1.0 = neutral).
-    #[arg(long, default_value = "1.0")]
-    pub midtone: f32,
+    /// White point [0,1]. Overrides auto levels.
+    #[arg(long)]
+    pub white_point: Option<f32>,
+
+    /// Midtone gamma (1.0 = neutral). Overrides auto levels.
+    #[arg(long)]
+    pub midtone: Option<f32>,
 
     /// Print per-channel statistics, film base estimate and first bytes.
     #[arg(long)]
@@ -176,7 +183,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             region: None,
             positive_range: None,
         },
-        tone: ToneParams { black_point: args.black_point, white_point: args.white_point, midtone: args.midtone, contrast: 0.0, balance: [1.0; 3], curves: Default::default() },
+        tone: ToneParams::default(),
         dust: nv_process::DustParams {
             mode: match args.dust.as_str() {
                 "off" => nv_process::DustMode::Off,
@@ -190,7 +197,28 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         input: None,
     };
 
-    println!("Processing: type={:?} profile='{}' base={:?} exposure={}", params.image_type, profile.name, params.conversion.film_base, args.exposure);
+    // Auto levels first, as the window does, then let any tone option given on
+    // the command line override what they chose.
+    let mut params = params;
+    if !args.no_auto_tone {
+        let proxy = nv_process::Proxy::from_raw(&buf, usize::MAX);
+        params.tone = nv_process::auto_tone(&proxy, &params);
+    }
+    if let Some(v) = args.black_point {
+        params.tone.black_point = v;
+    }
+    if let Some(v) = args.white_point {
+        params.tone.white_point = v;
+    }
+    if let Some(v) = args.midtone {
+        params.tone.midtone = v;
+    }
+    let params = params;
+
+    println!(
+        "Processing: type={:?} profile='{}' base={:?} exposure={} auto-levels={} (black {:.4}, white {:.4}, midtone {:.3})",
+        params.image_type, profile.name, params.conversion.film_base, args.exposure, !args.no_auto_tone, params.tone.black_point, params.tone.white_point, params.tone.midtone
+    );
 
     let rgb8 = process(&buf, &params);
 
