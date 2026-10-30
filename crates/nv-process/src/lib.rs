@@ -218,8 +218,25 @@ pub fn estimate_film_base(raw: &FrameBuf) -> [f32; 3] {
     estimate_film_base_proxy(&Proxy::from_raw(raw, DEFAULT_PROXY_PIXELS))
 }
 
-/// Estimate film base from a proxy: samples the outer twelfth on each side
-/// and returns the per-channel 98th-percentile transmission value.
+/// The share of the picture allowed to be clearer than the film base before
+/// the estimate is treated as too dark. Dust and scratches take emulsion off
+/// and do pass more light than the base, so the constraint cannot be applied
+/// to the single brightest pixel.
+const BASE_PICTURE_TOLERANCE: f32 = 0.001;
+
+/// Estimate film base from a proxy: the 98th-percentile transmission of the
+/// outer twelfth on each side, raised if the picture itself says it must be.
+///
+/// The border is only a guess at where the rebate is, and on a scan framed
+/// tight to the picture most of what it samples is not rebate at all. On
+/// `bw-negative-glass-with-light` its 98th percentile lands on 0.249 while the
+/// clear base is near 0.49 -- the rebate is under 1% of the sampled border, so
+/// the percentile measures the picture's dark surround instead.
+///
+/// Nothing on the film can pass more light than its own unexposed base, so a
+/// picture reaching past the estimate is proof the estimate is too dark. That
+/// is the correction applied here. On a normally framed scan the picture stays
+/// below the border estimate and nothing changes.
 pub fn estimate_film_base_proxy(proxy: &Proxy) -> [f32; 3] {
     let (w, h) = (proxy.width, proxy.height);
     if w == 0 || h == 0 {
@@ -229,30 +246,39 @@ pub fn estimate_film_base_proxy(proxy: &Proxy) -> [f32; 3] {
     let border_w = (w / 12).max(4);
     let border_h = (h / 12).max(4);
 
-    let mut r_vals: Vec<f32> = Vec::new();
-    let mut g_vals: Vec<f32> = Vec::new();
-    let mut b_vals: Vec<f32> = Vec::new();
+    let mut border: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut picture: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
 
     for y in 0..h {
         for x in 0..w {
-            if x < border_w || x >= w.saturating_sub(border_w) || y < border_h || y >= h.saturating_sub(border_h) {
-                let off = (y * w + x) * 3;
-                r_vals.push(pixels[off]);
-                g_vals.push(pixels[off + 1]);
-                b_vals.push(pixels[off + 2]);
+            let off = (y * w + x) * 3;
+            let edge = x < border_w || x >= w.saturating_sub(border_w) || y < border_h || y >= h.saturating_sub(border_h);
+            let into = if edge { &mut border } else { &mut picture };
+            for c in 0..3 {
+                into[c].push(pixels[off + c]);
             }
         }
     }
 
-    [percentile_98(&mut r_vals), percentile_98(&mut g_vals), percentile_98(&mut b_vals)]
+    let mut base = [0.0f32; 3];
+    for c in 0..3 {
+        let from_border = percentile_98(&mut border[c]);
+        let reached = percentile(&mut picture[c], 1.0 - BASE_PICTURE_TOLERANCE);
+        base[c] = from_border.max(reached);
+    }
+    base
 }
 
 fn percentile_98(vals: &mut [f32]) -> f32 {
+    percentile(vals, 0.98)
+}
+
+fn percentile(vals: &mut [f32], frac: f32) -> f32 {
     if vals.is_empty() {
         return 1.0;
     }
     vals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-    let idx = ((vals.len() as f32 * 0.98) as usize).min(vals.len() - 1);
+    let idx = ((vals.len() as f32 * frac) as usize).min(vals.len() - 1);
     vals[idx].max(0.01)
 }
 
@@ -440,6 +466,75 @@ pub mod pipette {
             assert!(black(&t, [0.95, 0.95, 0.95]).black_point < 0.8);
             let w = white(&t, [0.7, 0.7, 0.7]);
             assert!((w.white_point - 0.7).abs() < 1e-3);
+        }
+    }
+}
+
+#[cfg(test)]
+mod film_base_tests {
+    use super::*;
+
+    /// A scan framed tight to the picture, so the border the estimate samples
+    /// is mostly dark surround with only a sliver of clear rebate -- the shape
+    /// of `bw-negative-glass-with-light`, where the 98th percentile of the
+    /// border landed at half the real base and crushed 17.8% of the picture.
+    fn tight_framing(base: f32, bright: f32) -> Proxy {
+        let (w, h) = (120, 90);
+        let mut px = vec![0.0f32; w * h * 3];
+        let (bw, bh) = (w / 12, h / 12);
+        for y in 0..h {
+            for x in 0..w {
+                let edge = x < bw || x >= w - bw || y < bh || y >= h - bh;
+                // Only the top row of the border is rebate; the rest is the
+                // dark surround, so it dominates any percentile taken there.
+                let v = if edge && y == 0 {
+                    base
+                } else if edge {
+                    0.02
+                } else if x % 3 == 0 {
+                    bright
+                } else {
+                    0.05
+                };
+                for c in 0..3 {
+                    px[(y * w + x) * 3 + c] = v;
+                }
+            }
+        }
+        Proxy { pixels: px, width: w, height: h, factor: 1, origin: (0, 0), full: (w, h), ir: None, id: 0 }
+    }
+
+    #[test]
+    fn the_film_base_is_never_darker_than_the_picture_it_came_from() {
+        // The picture reaches 0.40 while the rebate is a sliver, so the border
+        // alone would put the base far below what the film passes.
+        let p = tight_framing(0.45, 0.40);
+        let base = estimate_film_base_proxy(&p);
+        for c in 0..3 {
+            assert!(base[c] >= 0.40, "channel {c}: base {} is darker than the picture", base[c]);
+        }
+    }
+
+    #[test]
+    fn a_normally_framed_scan_keeps_its_border_estimate() {
+        // Rebate all round and a picture well inside it: the correction must
+        // not fire, or every ordinary scan would have its base pulled up.
+        let (w, h) = (120, 90);
+        let mut px = vec![0.0f32; w * h * 3];
+        let (bw, bh) = (w / 12, h / 12);
+        for y in 0..h {
+            for x in 0..w {
+                let edge = x < bw || x >= w - bw || y < bh || y >= h - bh;
+                let v = if edge { 0.50 } else { 0.05 + 0.1 * (x % 4) as f32 / 4.0 };
+                for c in 0..3 {
+                    px[(y * w + x) * 3 + c] = v;
+                }
+            }
+        }
+        let p = Proxy { pixels: px, width: w, height: h, factor: 1, origin: (0, 0), full: (w, h), ir: None, id: 0 };
+        let base = estimate_film_base_proxy(&p);
+        for c in 0..3 {
+            assert!((base[c] - 0.50).abs() < 1e-3, "channel {c}: base moved to {}", base[c]);
         }
     }
 }
