@@ -281,6 +281,30 @@ fn strength(level: NoiseLevel) -> f32 {
     }
 }
 
+/// How much of the grain each level puts back after the filter has run.
+///
+/// Non-local means on flat film grain collapses toward a plain window
+/// average: inside the 7x7 search every 3x3 patch looks like every other
+/// one, so the weights flatten and nothing is left to tell grain from
+/// grain. Measured at 3600 dpi on a flat wall, `Light` alone took 87% of
+/// the high-frequency energy, against 11% for SilverFast's Light GANE and
+/// 17% for its Strong -- our lightest setting was past their heaviest, and
+/// the wall came out waxy with the scratches smeared.
+///
+/// Lowering the strength does not fix that. At 0.025 it is already 0.76x
+/// the grain sigma measured on the same patch, which is conservative for
+/// non-local means; the collapse is in the flatness of the region, not in
+/// the constant. So run the filter and then put a measured share of the
+/// grain back, which is what keeps the picture looking like film.
+fn grain_kept(level: NoiseLevel) -> f32 {
+    match level {
+        NoiseLevel::Off => 1.0,
+        NoiseLevel::Light => 0.92,
+        NoiseLevel::Medium => 0.74,
+        NoiseLevel::Strong => 0.51,
+    }
+}
+
 /// Measure the grid from a toned picture (linear RGB, `w × h × 3`).
 pub fn measure_grid(toned: &[f32], w: usize, h: usize) -> AacoGrid {
     let y: Vec<f32> = toned.chunks_exact(3).map(|p| 0.2126 * encode(p[0]) + 0.7152 * encode(p[1]) + 0.0722 * encode(p[2])).collect();
@@ -314,7 +338,13 @@ pub fn apply(toned: &mut [f32], w: usize, h: usize, detail: &DetailParams, facto
 
     if noise {
         let s = strength(detail.noise);
-        y = non_local_means(&y, w, h, s);
+        let kept = grain_kept(detail.noise);
+        let filtered = non_local_means(&y, w, h, s);
+        for i in 0..n {
+            y[i] = filtered[i] + kept * (original[i] - filtered[i]);
+        }
+        // Colour keeps none of it: chroma speckle is the one kind of noise
+        // the eye does mind, and there is no texture in it worth saving.
         cb = non_local_means(&cb, w, h, 2.0 * s);
         cr = non_local_means(&cr, w, h, 2.0 * s);
     }
@@ -343,7 +373,6 @@ pub fn apply(toned: &mut [f32], w: usize, h: usize, detail: &DetailParams, facto
     if detail.usm.enabled {
         unsharp(&mut y, w, h, &detail.usm, factor);
     }
-    let _ = original;
 
     for i in 0..n {
         let l = y[i];
@@ -443,14 +472,8 @@ mod tests {
     fn noise_reduction_smooths_grain_and_keeps_an_edge() {
         let noisy = |x: usize, y: usize| (if x < 32 { 0.30 } else { 0.60 }) + 0.03 * noise(y * W + x);
         let clean = |x: usize, _| if x < 32 { 0.30 } else { 0.60 };
-        let mut p = grey(noisy);
-        let before = luma(&p);
-        let d = DetailParams { noise: NoiseLevel::Medium, ..Default::default() };
-        apply(&mut p, W, H, &d, 1, Quality::Full, WHOLE);
-        let after = luma(&p);
         let err = |a: &[f32]| {
-            let mut s = 0.0;
-            let mut n = 0.0;
+            let (mut s, mut n) = (0.0, 0.0);
             for y in 4..H - 4 {
                 for x in 4..W - 4 {
                     if (x as isize - 32).abs() > 3 {
@@ -461,9 +484,27 @@ mod tests {
             }
             (s / n).sqrt()
         };
-        assert!(err(&after) < 0.5 * err(&before), "grain {} -> {}", err(&before), err(&after));
+        let run = |level| {
+            let mut p = grey(noisy);
+            apply(&mut p, W, H, &DetailParams { noise: level, ..Default::default() }, 1, Quality::Full, WHOLE);
+            let a = luma(&p);
+            (err(&a), a[24 * W + 33] - a[24 * W + 30])
+        };
+
+        let before = err(&luma(&grey(noisy)));
+        let (light, _) = run(NoiseLevel::Light);
+        let (medium, _) = run(NoiseLevel::Medium);
+        let (strong, jump) = run(NoiseLevel::Strong);
+
+        // A ladder, and each rung does something.
+        assert!(strong < medium && medium < light && light < before, "not a ladder: {before} {light} {medium} {strong}");
+        // Light is light. It used to take 87% of the high-frequency energy off
+        // a flat wall at 3600 dpi -- five times what SilverFast's *Strong* GANE
+        // takes -- and left the grain looking like wax. It keeps most of it now.
+        assert!(light > 0.85 * before, "light is not light: {before} -> {light}");
+        // Strong still earns its name.
+        assert!(strong < 0.7 * before, "strong does too little: {before} -> {strong}");
         // The edge is still an edge: a big jump across two pixels.
-        let jump = after[24 * W + 33] - after[24 * W + 30];
         assert!(jump > 0.2, "edge smeared to {jump}");
     }
 
