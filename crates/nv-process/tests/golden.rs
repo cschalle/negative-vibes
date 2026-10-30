@@ -7,7 +7,9 @@
 use std::path::{Path, PathBuf};
 
 use nv_film::builtin_profiles;
-use nv_process::{Histogram, ProcessParams, Proxy, auto_tone, default_params_for, estimate_film_base_proxy, pipette, render, sample_converted};
+use nv_process::{
+    Histogram, NoiseLevel, ProcessParams, Proxy, auto_tone, default_params_for, encode_srgb8, estimate_film_base_proxy, pipette, render, render_toned, sample_converted,
+};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -164,4 +166,35 @@ fn grey_pipette_on_the_wall_neutralises_it() {
 /// The pipettes sample the conversion before tone and balance.
 fn neutral_tone(params: &ProcessParams) -> ProcessParams {
     ProcessParams { tone: Default::default(), ..params.clone() }
+}
+
+/// The noise reduction runs only at `Quality::Full`, which is the export
+/// path: `render` is `Preview` and leaves it out, so no other golden here
+/// covers it at all.
+#[test]
+fn tulip_light_noise_reduction_keeps_the_grain() {
+    let p = tulip();
+    let mut params = defaults(&p);
+    params.tone = auto_tone(&p, &params);
+
+    let shot = |params: &ProcessParams| encode_srgb8(&render_toned(&p, params));
+    let plain = shot(&params);
+    params.detail.noise = NoiseLevel::Light;
+    let light = shot(&params);
+    params.detail.noise = NoiseLevel::Strong;
+    let strong = shot(&params);
+
+    // Neighbour differences stand in for grain. They count real detail too,
+    // so they understate the filter -- which is what makes them a fair guard
+    // against it running away again.
+    let r = |rgb: &[u8]| roughness(rgb, p.width, p.height);
+    let (off, lo, hi) = (r(&plain), r(&light), r(&strong));
+    assert!(hi < lo && lo < off, "not a ladder: off {off:.3}, light {lo:.3}, strong {hi:.3}");
+    // Light is light. Before the grain went back in, Light took 87% of the
+    // high-frequency energy off a flat wall at 3600 dpi, five times what
+    // SilverFast's *Strong* GANE takes, and the result looked like wax.
+    assert!(lo > 0.85 * off, "light is not light: {off:.3} -> {lo:.3}");
+    // Strong still earns its name.
+    assert!(hi < 0.75 * off, "strong does too little: {off:.3} -> {hi:.3}");
+    check_golden("tulip-noise-light", p.width, p.height, &light);
 }
