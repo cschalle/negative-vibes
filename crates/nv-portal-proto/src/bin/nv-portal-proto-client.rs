@@ -126,7 +126,7 @@ async fn run(name: String, sets: Vec<(String, String)>, output: Option<String>) 
                         pixels: u("pixels_per_line"),
                         bytes_per_line: u("bytes_per_line"),
                         lines: d.get("lines").and_then(|v| i32::try_from(v).ok()).unwrap_or(-1),
-                        last: d.get("last_frame").and_then(|v| bool::try_from(v).ok()).unwrap_or(true),
+                        last: d.get("last_in_image").and_then(|v| bool::try_from(v).ok()).unwrap_or(true),
                         data: Vec::new(),
                     });
                 }

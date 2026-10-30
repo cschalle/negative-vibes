@@ -211,7 +211,7 @@ pub fn parameters_to_dict(p: &nv_sane::Parameters) -> Vardict {
     d.insert("pixels_per_line".into(), ov(p.pixels_per_line as u32));
     d.insert("bytes_per_line".into(), ov(p.bytes_per_line as u32));
     d.insert("lines".into(), ov(p.lines.map_or(-1i32, |l| l as i32)));
-    d.insert("last_frame".into(), ov(p.last_frame));
+    d.insert("last_in_image".into(), ov(p.last_frame));
     d
 }
 

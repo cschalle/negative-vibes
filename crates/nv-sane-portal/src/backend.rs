@@ -445,7 +445,7 @@ fn parameters_of(d: &Vardict) -> Option<Parameters> {
     let lines = d.get("lines").and_then(|v| i32::try_from(v).ok())?;
     Some(Parameters {
         format: format_of(&str_of(d, "format"))?,
-        last_frame: d.get("last_frame").and_then(|v| bool::try_from(v).ok())?,
+        last_frame: d.get("last_in_image").and_then(|v| bool::try_from(v).ok())?,
         bytes_per_line: u("bytes_per_line")? as usize,
         pixels_per_line: u("pixels_per_line")? as usize,
         lines: (lines >= 0).then_some(lines as usize),
