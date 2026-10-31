@@ -195,10 +195,31 @@ against SilverFast that the Lanczos-3 resampler did not explain.
 
 Items 1 and 2 are the only ones that would visibly change an image.
 
-## Caveat
+## The cutoff, confirmed on a second frame
 
-Every measurement here comes from one frame. The 72 cyc/mm cutoff assumes that
-frame carries detail out to the optical limit; if it does not, the true cutoff
-is higher and the conclusions about 7200 dpi and burst super-resolution would
-need revisiting. A second frame with finer detail should confirm it before the
-figure is used to build a deconvolution PSF.
+The first version of this file ended on a caveat: every number came from one
+frame, and a 72 cyc/mm cutoff assumes that frame carries detail out to the
+optical limit. If it did not, the true cutoff would be higher and the
+conclusions about 7200 dpi and burst super-resolution would need revisiting.
+
+A second frame -- a different scene, visibly dusty and scratched -- was
+measured the same way on 2026-10-31. Its 7200 dpi spectrum bottoms out at
+**74 cyc/mm** and rises again toward Nyquist, against 72 on the first:
+
+| cyc/mm | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 100 | 140 |
+|---|---|---|---|---|---|---|---|---|---|
+| frame 1 | 0.144 | 0.059 | 0.037 | 0.022 | 0.014 | 0.010 | 0.009 | 0.018 | 0.098 |
+| frame 2 | 0.451 | 0.049 | 0.029 | 0.018 | 0.012 | 0.009 | 0.008 | 0.016 | 0.138 |
+
+(7200 dpi, each normalised at 5 cyc/mm)
+
+Two independent frames agreeing to 3% is the scanner's limit, not the film's:
+a frame that ran out of detail first would stop somewhere lower and somewhere
+different. 74 cyc/mm is fully sampled by 3734 dpi, so 3600 dpi remains
+essentially critically sampled and 7200 dpi remains empty magnification.
+
+The caveat is therefore discharged for the two conclusions that rested on it:
+de-emphasising 7200 dpi, and dropping burst super-resolution. A PSF for
+deconvolution should still be measured from a rebate edge rather than inferred
+from this figure -- the cutoff says how far there is to go, not what shape the
+blur has.
