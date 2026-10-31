@@ -33,9 +33,23 @@ pub struct RenderArgs {
     #[arg(long)]
     pub film_base: Option<String>,
 
-    /// Infrared dust removal: off | correct | mark (needs an RGB+IR scan).
+    /// Dust removal: off | correct | mark (`correct` and `mark` need an
+    /// RGB+IR scan unless `--dust-method software`).
     #[arg(long, default_value = "correct")]
     pub dust: String,
+
+    /// How to find the defects: infrared (iSRD, needs the IR plane) or
+    /// software (SRDx, looks for specks in the picture itself).
+    #[arg(long, default_value = "infrared")]
+    pub dust_method: String,
+
+    /// Detection sensitivity, 1 to 20; higher finds more.
+    #[arg(long, default_value = "12")]
+    pub dust_detection: u8,
+
+    /// What software detection looks for: dark | bright | both.
+    #[arg(long, default_value = "dark")]
+    pub dust_defect: String,
 
     /// Exposure offset in stops.
     #[arg(long, default_value = "0.0")]
@@ -190,6 +204,16 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
                 "mark" => nv_process::DustMode::Mark,
                 _ => nv_process::DustMode::Correct,
             },
+            method: match args.dust_method.as_str() {
+                "software" | "srdx" => nv_process::DustMethod::Software,
+                _ => nv_process::DustMethod::Infrared,
+            },
+            defect: match args.dust_defect.as_str() {
+                "bright" => nv_process::DefectType::Bright,
+                "both" => nv_process::DefectType::Both,
+                _ => nv_process::DefectType::Dark,
+            },
+            detection: args.dust_detection.clamp(1, 20),
             ..Default::default()
         },
         detail: Default::default(),
@@ -219,6 +243,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         "Processing: type={:?} profile='{}' base={:?} exposure={} auto-levels={} (black {:.4}, white {:.4}, midtone {:.3})",
         params.image_type, profile.name, params.conversion.film_base, args.exposure, !args.no_auto_tone, params.tone.black_point, params.tone.white_point, params.tone.midtone
     );
+    println!("Dust: mode={:?} method={:?} defect={:?} detection={}", params.dust.mode, params.dust.method, params.dust.defect, params.dust.detection);
 
     let rgb8 = process(&buf, &params);
 

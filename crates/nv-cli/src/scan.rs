@@ -98,6 +98,9 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
             image_type: args.image_type.clone(),
             profile: args.profile.clone(),
             dust: "off".into(), // a scan from this command has no infrared plane
+            dust_method: "infrared".into(),
+            dust_detection: 12,
+            dust_defect: "dark".into(),
             film_base: None,
             exposure: 0.0,
             // Auto levels, as the window applies them, and nothing overriding
