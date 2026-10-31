@@ -1121,11 +1121,11 @@ negative-vibes/
 │  ├─ goldens/                   golden images
 │  ├─ sane-config/               private SANE configuration for tests
 │  └─ reports/                   comparison reports (none yet)
-├─ tools/                        scan-check.py, progress-marks.py
+├─ tools/                        scan-check.py, progress-marks.py, screenshots.sh
 ├─ docs/
 │  └─ design-history.md          the original plan and per-slice build notes
 ├─ build-aux/                    Flatpak manifests (release, Devel, PortalTest, flathub/), Meson helper
-└─ screenshots/                  used by the README
+└─ screenshots/                  used by the README, remade by tools/screenshots.sh
 ```
 
 Conventions:

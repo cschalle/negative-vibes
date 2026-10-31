@@ -33,6 +33,12 @@ page), and the Scan a Roll guide sits beside the picture instead of in a window 
 *A colour negative previewed and converted to a positive, with the tools for frame, film base,
 black, grey and white points, dust protection and healing along the bottom.*
 
+![The page shown when no scanner has been allowed yet, leading with Choose Scanner](screenshots/choose-scanner.png)
+
+*With the scanner portal the application sees only the scanners you have allowed, so an empty
+list means "none chosen yet" and the page leads with Choose Scanner… Opening raw scans and rolls
+is offered below it, because neither needs a scanner.*
+
 <p>
   <img src="screenshots/preferences.png" alt="Preferences, General page" width="32%">
   <img src="screenshots/preferences-outputformat1.png" alt="Preferences, Output page with TIFF selected" width="32%">
