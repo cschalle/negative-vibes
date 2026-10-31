@@ -26,24 +26,41 @@ A hand-cut piece of flat plastic was tried first and measured a 7.71 px rise
 where the holder's own mask edge in the same scan measured 2.98 px. Edge
 roughness and height error together, not the scanner.
 
-## Why a double-edge blade
+## What to put in it
 
-43 × 22 mm, **0.1 mm thick**, dead flat, no spine, two ground edges, sold
-everywhere for very little. At 0.1 mm it is thinner than film (0.14 mm), so
-whatever height error remains is smaller than real film's own.
+The pocket takes any opaque strip roughly 20–22 mm wide and 45 mm long. In
+descending order of how good the edge is:
 
-Its central slot sits 11 mm from the cutting edge. Measurement only ever uses
-a window of about ±0.3 mm around the edge, so the slot never enters it.
+| strip | thickness | edge | notes |
+|---|---|---|---|
+| Double-edge razor blade | 0.10 mm | < 1 µm | 43 × 22 mm, flat, no spine. Best, and what the pocket is sized for. |
+| Black developed film | 0.14 mm | ~10 µm | A fogged leader or trailer. Slit to camera tolerance. Cut to ~21 mm wide, keeping one factory edge. |
+| Black silicone tape | ~0.5 mm | soft | Trim to ~21 mm. Slit but compliant, and the edge tends to be rounded rather than square. |
+
+A double-edge blade's central slot sits 11 mm from the cutting edge, and
+measurement only ever uses a window of about ±0.3 mm around the edge, so the
+slot never enters it.
+
+The strip is located by its **optical edge** butting against a fence, not by
+its width against the back wall, so width within that range does not matter.
+The fence exists only outside the aperture; across the open area the edge is
+untouched.
+
+Every scan also contains the holder's own mask edge, which measured 2.98 px
+on this scanner. If the strip's edge comes back much softer than that, the
+strip is the limit and not the scanner — so a bad strip diagnoses itself in
+one scan.
 
 ## Printing
 
 ```
-python3 make_target.py --base 1.0          # both orientations
-python3 make_target.py --base 0.7 --tilt 7 # variants
+python3 make_target.py --base 1.0                  # both orientations
+python3 make_target.py --base 0.7 --tilt 7         # variants
+python3 make_target.py --strip-width 25            # untrimmed 1" tape
 ```
 
-Six STLs are checked in, at blade heights 0.7, 1.0 and 1.3 mm. **Print all
-three heights.** A slide mount holds its film somewhere near mid-depth, but
+Six STLs are checked in, at strip-floor heights 0.7, 1.0 and 1.3 mm. **Print
+all three heights.** A slide mount holds its film somewhere near mid-depth, but
 how the scanner's holder references it is not documented anywhere we can
 check — so scan all three and keep whichever gives the sharpest edge. That
 measurement is itself worth having: it says where the focal plane is.
@@ -59,10 +76,11 @@ nozzle has no trouble with it.
 
 ## Use
 
-1. Drop a double-edge blade into the pocket, cutting edge toward the open
-   half of the aperture. **Handle it by the spine.**
-2. If it rattles, a scrap of tape across the spine end holds it. Keep tape
-   out of the aperture.
+1. Lay the strip in the pocket, edge toward the open half of the aperture,
+   and push it against the fence. **Handle a blade by its back, not its
+   edge.**
+2. If it rattles, a scrap of tape across the back holds it. Keep tape out of
+   the aperture.
 3. Load into the slide holder and scan at 3600 dpi, no infrared:
    `nv-cli scan <device> --dpi 3600 -o target.pnm`
 4. `psf-target-v-*` has the edge near vertical and measures the **sensor

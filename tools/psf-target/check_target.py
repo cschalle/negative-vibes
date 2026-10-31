@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 MOUNT, APER_W, APER_H = 50.8, 36.0, 24.0
-BLADE_L, BLADE_W = 43.0, 22.0
+STRIP_L, STRIP_W = 46.0, 22.0
 
 
 def read_stl(p):
@@ -54,13 +54,13 @@ def plan(path, theta, base, out):
     # aperture
     d.rectangle([px(-APER_W/2, APER_H/2), px(APER_W/2, -APER_H/2)],
                 outline=(200,60,60), width=3)
-    # where the blade lands, and its cutting edge
+    # where the strip lands, and its optical edge
     c, s = math.cos(math.radians(theta)), math.sin(math.radians(theta))
     def tf(u, vv): return (u*c + vv*(-s), u*s + vv*c)
-    corners = [tf(u, vv) for u, vv in ((0,-BLADE_L/2), (0,BLADE_L/2),
-                                       (-BLADE_W,BLADE_L/2), (-BLADE_W,-BLADE_L/2))]
+    corners = [tf(u, vv) for u, vv in ((0,-STRIP_L/2), (0,STRIP_L/2),
+                                       (-STRIP_W,STRIP_L/2), (-STRIP_W,-STRIP_L/2))]
     d.polygon([px(*p) for p in corners], outline=(40,40,40), width=2)
-    e0, e1 = tf(0, -BLADE_L/2), tf(0, BLADE_L/2)
+    e0, e1 = tf(0, -STRIP_L/2), tf(0, STRIP_L/2)
     d.line([px(*e0), px(*e1)], fill=(220,120,0), width=5)
     im.save(out)
     print("  plan view -> %s  (red = aperture, orange = cutting edge)" % out)
