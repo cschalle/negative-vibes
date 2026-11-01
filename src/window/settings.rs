@@ -57,6 +57,14 @@ impl Window {
             None => imp.proc_params.borrow().clone().unwrap_or_else(base_params),
         };
         params.conversion.region = known.and_then(|i| self.frame_region(i));
+        // What the scan was sampled at is a property of the scan, not of the
+        // look: it is not stored with the parameters and is not carried by a
+        // look copied from another frame, so it has to be stamped on here,
+        // every time a frame's parameters are put together. Leaving it to the
+        // inspector's own read-back is not enough -- that only runs when
+        // someone moves a control, so until they did, the stage sat switched
+        // on and doing nothing.
+        params.deconv.px_per_mm = self.scan_px_per_mm();
 
         // No film base from the roll or the frame: read it off the rebate.
         // (Not stored: it follows the picture until someone sets one.)

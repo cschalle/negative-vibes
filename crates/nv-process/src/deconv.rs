@@ -119,15 +119,16 @@ fn stored(axis: &[f32; SAMPLES], f: f32) -> f32 {
 /// everything above the output grid's Nyquist folds back onto the band below
 /// it, because that is what sampling does to a response the optics carry past
 /// it -- and these optics do.
-fn transfer_for(axis: &[f32; SAMPLES], px_per_mm: f32, factor: usize) -> [f32; BANDS] {
-    let mut out = [0f32; BANDS];
+fn transfer_for(axis: &[f32; SAMPLES], px_per_mm: f32, factor: usize) -> ([f32; BANDS], [f32; BANDS]) {
     let scale = px_per_mm / REFERENCE_PX_PER_MM;
     let n = factor as f32;
+    let mut direct = [0f32; BANDS];
+    let mut alias = [0f32; BANDS];
     for i in 0..BANDS {
-        let f = 0.5 * i as f32 / (BANDS - 1) as f32; // cycles per output pixel
-        let mut acc = 0f32;
+        let f = 0.5 * i as f32 / (BANDS - 1) as f32;
+        let mut aliased = 0f32;
         for k in 0..4 {
-            for g in [f + k as f32, (k + 1) as f32 - f] {
+            for (g, is_direct) in [(f + k as f32, k == 0), ((k + 1) as f32 - f, false)] {
                 // The same physical frequency in cycles per reference pixel.
                 let ref_f = g / n / scale;
                 let pi_g = std::f32::consts::PI * g;
@@ -139,23 +140,26 @@ fn transfer_for(axis: &[f32; SAMPLES], px_per_mm: f32, factor: usize) -> [f32; B
                     let den = n * (pi_g / n).sin();
                     if den.abs() < 1e-9 { 0.0 } else { (pi_g.sin() / den).abs() }
                 };
-                acc += stored(axis, ref_f) * box_t;
+                let t = stored(axis, ref_f) * box_t;
+                // Only the k = 0 replica carries the picture at this
+                // frequency. The rest landed here from somewhere else when
+                // the grid was sampled: that energy is in the image, but it
+                // is not this frequency's signal and no filter can put it
+                // back where it came from. Counting it as transfer is what
+                // made a reduced image look sharper than it is -- past a
+                // factor of about five the sum exceeded 1, and the "inverse"
+                // of a blur that reported gain was a blur.
+                if is_direct { direct[i] = t } else { aliased += t * t }
             }
         }
-        out[i] = acc;
+        alias[i] = aliased;
     }
-    let dc = out[0];
-    if dc > 0.0 {
-        for v in out.iter_mut() {
-            *v /= dc;
-        }
-    }
-    out
+    (direct, alias)
 }
 
 /// One axis's kernel: a regularised inverse of `transfer`, as a symmetric FIR
 /// normalised to unit sum so it cannot shift the picture's brightness.
-fn kernel_from(transfer: &[f32; BANDS], strength: f32, px_per_mm: f32) -> [f32; TAPS] {
+fn kernel_from(transfer: &[f32; BANDS], alias: &[f32; BANDS], strength: f32, px_per_mm: f32) -> [f32; TAPS] {
     let lambda_full = LAMBDA_FULL * 100.0 / strength.max(1e-3);
     let mut gain = [0f32; BANDS];
     for i in 0..BANDS {
@@ -163,7 +167,9 @@ fn kernel_from(transfer: &[f32; BANDS], strength: f32, px_per_mm: f32) -> [f32; 
         let f_mm = f_px * px_per_mm;
         let snr = lerp_table(&SNR_F, &SNR_P, f_mm).max(1e-3);
         let t = ((f_mm - CROSSOVER) / HANDOVER).clamp(0.0, 1.0);
-        let lambda = lambda_full + (1.0 / snr - lambda_full) * t;
+        // Aliased energy is noise at this frequency, so it holds the filter
+        // back exactly as the scan's own noise does.
+        let lambda = lambda_full + (1.0 / snr - lambda_full) * t + alias[i];
         let d = transfer[i];
         gain[i] = d / (d * d + lambda);
     }
@@ -225,9 +231,12 @@ pub fn kernels(params: &DeconvParams, factor: usize) -> Option<([f32; TAPS], [f3
         return None;
     }
     let out_px_per_mm = px_per_mm / factor as f32;
-    let feed = transfer_for(&FEED, px_per_mm, factor);
-    let sensor = transfer_for(&SENSOR, px_per_mm, factor);
-    Some((kernel_from(&feed, params.strength, out_px_per_mm), kernel_from(&sensor, params.strength, out_px_per_mm)))
+    let (feed, feed_alias) = transfer_for(&FEED, px_per_mm, factor);
+    let (sensor, sensor_alias) = transfer_for(&SENSOR, px_per_mm, factor);
+    Some((
+        kernel_from(&feed, &feed_alias, params.strength, out_px_per_mm),
+        kernel_from(&sensor, &sensor_alias, params.strength, out_px_per_mm),
+    ))
 }
 
 /// How far beyond a tile's edge the kernel reaches, so a tile can be rendered
@@ -413,8 +422,8 @@ mod tests {
         // Centre and the two neighbours, which carry nearly all of the effect.
         // Pinned so that regenerating the tables from the CSVs cannot quietly
         // change what the default does.
-        let expect_feed = [0.998_62f32, 0.323_57, -0.317_31];
-        let expect_sensor = [0.979_21f32, 0.269_94, -0.289_02];
+        let expect_feed = [0.972_18f32, 0.316_50, -0.309_20];
+        let expect_sensor = [0.970_53f32, 0.289_74, -0.298_41];
         for (i, want) in expect_feed.iter().enumerate() {
             assert!((feed[RADIUS + i] - want).abs() < 2e-3, "feed tap {i}: {} vs {want}", feed[RADIUS + i]);
         }
@@ -433,7 +442,7 @@ mod tests {
         let p = DeconvParams { strength: 100.0, px_per_mm: Some(REF) };
         let (feed, sensor) = kernels(&p, 1).expect("kernels");
         for (name, axis, k, want_before, want_after) in [
-            ("feed", &FEED, feed, 2.895f32, 2.002f32),
+            ("feed", &FEED, feed, 2.895f32, 2.071f32),
             ("sensor", &SENSOR, sensor, 2.653, 1.839),
         ] {
             let mut step = vec![0f32; 120];
@@ -453,6 +462,31 @@ mod tests {
     }
 
     #[test]
+    fn a_reduced_preview_is_corrected_and_never_softened() {
+        // What the window shows is a proxy, and it has to show the same
+        // decision the export will make. Summing the aliased replicas into
+        // the transfer once made a reduced image look sharper than it was:
+        // at a factor of four the kernel came out flat, so the control moved
+        // and nothing happened, and past about five the transfer exceeded 1
+        // and the "inverse" of a blur that reported gain was itself a blur.
+        let p = DeconvParams { strength: 100.0, px_per_mm: Some(REF) };
+        for factor in 1..=8 {
+            let (direct, _) = transfer_for(&FEED, REF, factor);
+            for (i, d) in direct.iter().enumerate() {
+                assert!(*d <= 1.0 + 1e-4, "factor {factor} band {i}: transfer {d} exceeds 1");
+            }
+            let (feed, sensor) = kernels(&p, factor).expect("kernels");
+            for (name, k) in [("feed", feed), ("sensor", sensor)] {
+                // A sharpening kernel lifts its centre above unit gain; a
+                // blur holds it below.
+                assert!(k[RADIUS] >= 0.95, "factor {factor} {name} centre {}", k[RADIUS]);
+                let far: f32 = k.iter().enumerate().filter(|(i, _)| *i != RADIUS).map(|(_, v)| v.abs()).sum();
+                assert!(far > 0.1, "factor {factor} {name} does nothing: off-centre {far}");
+            }
+        }
+    }
+
+    #[test]
     fn more_strength_sharpens_more() {
         let mut last = f32::MAX;
         for strength in [25.0f32, 50.0, 100.0, 200.0] {
@@ -467,3 +501,5 @@ mod tests {
         }
     }
 }
+
+

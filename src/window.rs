@@ -1504,7 +1504,7 @@ impl Window {
     /// What the selected frame was scanned at, in pixels per millimetre, or
     /// `None` when nothing recorded it. An imported file stores `0`, which is
     /// not a resolution and must not be treated as one.
-    fn scan_px_per_mm(&self) -> Option<f32> {
+    pub(super) fn scan_px_per_mm(&self) -> Option<f32> {
         let imp = self.imp();
         let dpi = self.selected().and_then(|i| imp.roll.borrow().as_ref()?.frame(i)?.raw.as_ref().map(|r| r.scan.resolution_dpi)).filter(|d| *d > 0)?;
         Some(dpi as f32 / 25.4)
