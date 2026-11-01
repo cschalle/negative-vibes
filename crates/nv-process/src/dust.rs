@@ -745,47 +745,9 @@ fn dilate(mask: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
 }
 
 // ── Repair ────────────────────────────────────────────────────────────────────
-
-/// Marks larger than this many pixels are filled from matching patches of the
-/// picture instead of being smoothed over: a smooth fill is invisible in a
-/// speck and a smear in a scratch.
-const LARGE_MARK: usize = 30;
-/// Marks larger than this are smoothed over, whatever their size.
+/// Marks larger than this are smoothed over, whatever their size: that
+/// much missing film has nothing near it that could match.
 const PATCH_MAX: usize = 6000;
-
-/// Connected components (four-way) of the mask that are larger than `limit`.
-fn large_marks(mask: &[u8], w: usize, h: usize, limit: usize) -> Vec<bool> {
-    let mut label = vec![false; w * h];
-    let mut large = vec![false; w * h];
-    let mut stack = Vec::new();
-    for start in 0..w * h {
-        if mask[start] == 0 || label[start] {
-            continue;
-        }
-        let mut members = vec![start];
-        label[start] = true;
-        stack.push(start);
-        while let Some(p) = stack.pop() {
-            let (px, py) = (p % w, p / w);
-            for (nx, ny) in [(px.wrapping_sub(1), py), (px + 1, py), (px, py.wrapping_sub(1)), (px, py + 1)] {
-                if nx < w && ny < h {
-                    let q = ny * w + nx;
-                    if mask[q] != 0 && !label[q] {
-                        label[q] = true;
-                        members.push(q);
-                        stack.push(q);
-                    }
-                }
-            }
-        }
-        if members.len() > limit {
-            for q in members {
-                large[q] = true;
-            }
-        }
-    }
-    large
-}
 
 fn touches_known(known: &[bool], p: usize, w: usize, h: usize) -> bool {
     let (px, py) = ((p % w) as isize, (p / w) as isize);
@@ -842,105 +804,301 @@ fn onion(pixels: &mut [f32], known: &mut [bool], fill: &[bool], w: usize, h: usi
     }
 }
 
-/// Fill the pixels in `fill` by copying, for each, the pixel whose
-/// surroundings best match what is already known around it, found within a
-/// window, and brought to this place's brightness and colour. Unlike
-/// [`onion`] this keeps the grain and the lines of the picture.
-fn patch_fill(pixels: &mut [f32], known: &mut [bool], fill: &[bool], w: usize, h: usize) {
-    const SEARCH: isize = 14;
-    const P: isize = 2; // compare 5 × 5 neighbourhoods
-    let ln = |p: &[f32], i: usize, c: usize| (p[i * 3 + c].max(1e-5) as f64).ln();
-    let mut frontier: Vec<usize> = (0..w * h).filter(|p| fill[*p] && !known[*p] && touches_known(known, *p, w, h)).collect();
-    while !frontier.is_empty() {
-        let mut progressed = false;
-        for &p in &frontier {
-            let (px, py) = ((p % w) as isize, (p / w) as isize);
-            // What is known around this pixel, as offsets.
-            let around: Vec<(isize, isize)> = (-P..=P)
-                .flat_map(|dy| (-P..=P).map(move |dx| (dx, dy)))
-                .filter(|(dx, dy)| {
-                    (*dx, *dy) != (0, 0) && {
-                        let (x, y) = (px + dx, py + dy);
-                        x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && known[y as usize * w + x as usize]
+/// Half-width of the patches that are matched and copied: 9 × 9 pixels.
+const PATCH: isize = 4;
+
+/// The connected marks of `mask`, four-way, each as its own pixel list.
+fn components(mask: &[u8], w: usize, h: usize) -> Vec<Vec<usize>> {
+    let mut seen = vec![false; w * h];
+    let mut out = Vec::new();
+    let mut stack = Vec::new();
+    for start in 0..w * h {
+        if mask[start] == 0 || seen[start] {
+            continue;
+        }
+        let mut members = vec![start];
+        seen[start] = true;
+        stack.push(start);
+        while let Some(p) = stack.pop() {
+            let (px, py) = (p % w, p / w);
+            for (nx, ny) in [(px.wrapping_sub(1), py), (px + 1, py), (px, py.wrapping_sub(1)), (px, py + 1)] {
+                if nx < w && ny < h {
+                    let q = ny * w + nx;
+                    if mask[q] != 0 && !seen[q] {
+                        seen[q] = true;
+                        members.push(q);
+                        stack.push(q);
                     }
-                })
-                .collect();
-            if around.len() < 4 {
-                continue; // not enough to match on yet: a later layer
+                }
             }
-            let mut best: Option<(f64, usize)> = None;
-            for sy in (py - SEARCH).max(P)..=(py + SEARCH).min(h as isize - 1 - P) {
-                for sx in (px - SEARCH).max(P)..=(px + SEARCH).min(w as isize - 1 - P) {
-                    let q = sy as usize * w + sx as usize;
-                    if !known[q] || fill[q] && !known[q] {
+        }
+        out.push(members);
+    }
+    out
+}
+
+/// How much picture there is around `p`: the share of its patch that is
+/// known, and how strongly the picture changes there. A place hemmed in by
+/// known film is safe to fill; a place with an edge running into it should be
+/// filled early, while there is still enough of the edge to see which way it
+/// goes.
+fn frontier_priority(pixels: &[f32], known: &[bool], p: usize, w: usize, h: usize) -> f64 {
+    let (px, py) = ((p % w) as isize, (p / w) as isize);
+    let (mut n, mut tot) = (0usize, 0usize);
+    let (mut grad, mut pairs) = (0f64, 0usize);
+    for dy in -PATCH..=PATCH {
+        for dx in -PATCH..=PATCH {
+            let (x, y) = (px + dx, py + dy);
+            if x < 0 || y < 0 || x as usize >= w || y as usize >= h {
+                continue;
+            }
+            tot += 1;
+            let q = y as usize * w + x as usize;
+            if !known[q] {
+                continue;
+            }
+            n += 1;
+            // The change across this pixel, where both of its neighbours are
+            // known, as a stand-in for an edge running through the patch.
+            for (ax, ay) in [(x + 1, y), (x, y + 1)] {
+                if ax as usize >= w || ay as usize >= h {
+                    continue;
+                }
+                let r = ay as usize * w + ax as usize;
+                if known[r] {
+                    let d = (pixels[q * 3 + 1] - pixels[r * 3 + 1]) as f64;
+                    grad += d.abs();
+                    pairs += 1;
+                }
+            }
+        }
+    }
+    if tot == 0 {
+        return 0.0;
+    }
+    let edge = if pairs > 0 { grad / pairs as f64 } else { 0.0 };
+    (n as f64 / tot as f64) * (0.02 + edge)
+}
+
+/// Fill the pixels in `fill` by copying patches from the film around them.
+///
+/// Each step takes the place with the most picture around it and the
+/// strongest edge running in, finds the nearby patch whose known pixels best
+/// match its own, and copies that patch across. The patch is matched and
+/// copied in log density with its mean removed, so what is compared is the
+/// shape of the picture rather than its brightness, and the one offset that
+/// brings it to this place is applied to the whole patch at once. Copying
+/// real film rather than an average is what keeps the grain; shifting a whole
+/// patch at once rather than each pixel on its own is what keeps the repair
+/// free of the banding a per-pixel offset leaves behind.
+///
+/// `win` bounds the work to the mark and the film it may copy from.
+fn exemplar_fill(pixels: &mut [f32], known: &mut [bool], fill: &[bool], w: usize, h: usize, win: (usize, usize, usize, usize), search: isize) {
+    let (wx0, wy0, wx1, wy1) = win;
+    let ln = |v: f32| (v.max(1e-5) as f64).ln();
+    loop {
+        // Everything that can be filled now, most promising first. Working
+        // through the whole frontier in one pass, rather than re-ranking
+        // after every patch, lets a place no patch can serve be passed over
+        // instead of stopping the fill: its neighbours may yet give it the
+        // film it needs.
+        let mut frontier: Vec<(f64, usize)> = Vec::new();
+        for y in wy0..wy1 {
+            for x in wx0..wx1 {
+                let p = y * w + x;
+                if fill[p] && !known[p] && touches_known(known, p, w, h) {
+                    frontier.push((frontier_priority(pixels, known, p, w, h), p));
+                }
+            }
+        }
+        if frontier.is_empty() {
+            break;
+        }
+        frontier.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+        // A running count of what is still missing, so asking whether a patch
+        // is whole film costs one lookup rather than up to eighty-one. It is
+        // built once a pass; a patch filled later in the pass is only ever
+        // rejected by it, never wrongly accepted.
+        let (iw, ih) = (wx1 - wx0 + 1, wy1 - wy0 + 1);
+        let mut gaps = vec![0u32; iw * ih];
+        for y in wy0..wy1 {
+            for x in wx0..wx1 {
+                let v = u32::from(!known[y * w + x]);
+                let i = (y - wy0 + 1) * iw + (x - wx0 + 1);
+                gaps[i] = v + gaps[i - 1] + gaps[i - iw] - gaps[i - iw - 1];
+            }
+        }
+        let whole = |cx: isize, cy: isize| -> bool {
+            let (x0, y0) = (cx - PATCH, cy - PATCH);
+            let (x1, y1) = (cx + PATCH, cy + PATCH);
+            if x0 < wx0 as isize || y0 < wy0 as isize || x1 >= wx1 as isize || y1 >= wy1 as isize {
+                return false;
+            }
+            let (a, b) = ((x0 - wx0 as isize) as usize, (y0 - wy0 as isize) as usize);
+            let (c, d) = ((x1 - wx0 as isize + 1) as usize, (y1 - wy0 as isize + 1) as usize);
+            gaps[d * iw + c] + gaps[b * iw + a] - gaps[b * iw + c] - gaps[d * iw + a] == 0
+        };
+
+        let mut progressed = false;
+        for (_, p) in frontier {
+            if known[p] {
+                continue; // a patch placed earlier in this pass covered it
+            }
+            let (px, py) = ((p % w) as isize, (p / w) as isize);
+
+            // What is known of this patch, as offsets, and its log density.
+            let mut target: Vec<((isize, isize), [f64; 3])> = Vec::new();
+            for dy in -PATCH..=PATCH {
+                for dx in -PATCH..=PATCH {
+                    let (x, y) = (px + dx, py + dy);
+                    if x < 0 || y < 0 || x as usize >= w || y as usize >= h {
                         continue;
                     }
-                    let mut ssd = 0.0;
-                    let mut ok = true;
-                    for (dx, dy) in &around {
-                        let (qx, qy) = (sx + dx, sy + dy);
-                        let qi = qy as usize * w + qx as usize;
-                        if qx < 0 || qy < 0 || qx as usize >= w || qy as usize >= h || !known[qi] {
-                            ok = false;
-                            break;
-                        }
-                        let pi = (py + dy) as usize * w + (px + dx) as usize;
-                        for c in 0..3 {
-                            let d = ln(pixels, pi, c) - ln(pixels, qi, c);
-                            ssd += d * d;
-                        }
-                    }
-                    if ok && best.is_none_or(|(b, _)| ssd < b) {
-                        best = Some((ssd, q));
+                    let q = y as usize * w + x as usize;
+                    if known[q] {
+                        target.push(((dx, dy), [ln(pixels[q * 3]), ln(pixels[q * 3 + 1]), ln(pixels[q * 3 + 2])]));
                     }
                 }
             }
-            let Some((_, q)) = best else { continue };
-            // Brightness and colour of this place: the mean difference over the matched neighbourhood.
+            if target.len() < 6 {
+                continue; // too little to match on yet
+            }
+            let tmean: [f64; 3] = {
+                let mut m = [0f64; 3];
+                for (_, v) in &target {
+                    for c in 0..3 {
+                        m[c] += v[c];
+                    }
+                }
+                m.map(|t| t / target.len() as f64)
+            };
+
+            // The nearby patch of film whose shape best matches this one.
+            let mut pick: Option<(f64, usize)> = None;
+            let (sy0, sy1) = ((py - search).max(PATCH), (py + search).min(h as isize - 1 - PATCH));
+            let (sx0, sx1) = ((px - search).max(PATCH), (px + search).min(w as isize - 1 - PATCH));
+            let consider = |sx: isize, sy: isize, pick: &mut Option<(f64, usize)>| {
+                // Whole patches only, so what is copied is real film and
+                // never a place's own fill finding its way back to it.
+                if !whole(sx, sy) {
+                    return;
+                }
+                let mut cand = [0f64; 3];
+                for ((dx, dy), _) in &target {
+                    let q = (sy + dy) as usize * w + (sx + dx) as usize;
+                    for c in 0..3 {
+                        cand[c] += ln(pixels[q * 3 + c]);
+                    }
+                }
+                let cmean = cand.map(|t| t / target.len() as f64);
+                let cap = pick.map_or(f64::MAX, |(b, _)| b);
+                let mut ssd = 0f64;
+                for ((dx, dy), tv) in &target {
+                    let q = (sy + dy) as usize * w + (sx + dx) as usize;
+                    for c in 0..3 {
+                        let d = (tv[c] - tmean[c]) - (ln(pixels[q * 3 + c]) - cmean[c]);
+                        ssd += d * d;
+                    }
+                    if ssd >= cap {
+                        return; // already worse than what we have
+                    }
+                }
+                *pick = Some((ssd, sy as usize * w + sx as usize));
+            };
+            // Every second place first, then around the winner: film that
+            // matches well does not do so at one pixel and nowhere beside it.
+            let mut sy = sy0;
+            while sy <= sy1 {
+                let mut sx = sx0;
+                while sx <= sx1 {
+                    consider(sx, sy, &mut pick);
+                    sx += 2;
+                }
+                sy += 2;
+            }
+            if let Some((_, q)) = pick {
+                let (qx, qy) = ((q % w) as isize, (q / w) as isize);
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let (nx, ny) = (qx + dx, qy + dy);
+                        if nx >= sx0 && nx <= sx1 && ny >= sy0 && ny <= sy1 {
+                            consider(nx, ny, &mut pick);
+                        }
+                    }
+                }
+            }
+            let Some((_, q)) = pick else { continue };
+
+            // One offset for the whole patch: the mean difference over what
+            // is known of it, which is what makes the join invisible. Shifting
+            // each pixel on its own is what left the old repair banded.
             let (qx, qy) = ((q % w) as isize, (q / w) as isize);
             let mut off = [0f64; 3];
-            for (dx, dy) in &around {
-                let pi = (py + dy) as usize * w + (px + dx) as usize;
-                let qi = (qy + dy) as usize * w + (qx + dx) as usize;
+            for ((dx, dy), tv) in &target {
+                let r = (qy + dy) as usize * w + (qx + dx) as usize;
                 for c in 0..3 {
-                    off[c] += ln(pixels, pi, c) - ln(pixels, qi, c);
+                    off[c] += tv[c] - ln(pixels[r * 3 + c]);
                 }
             }
-            for c in 0..3 {
-                let v = ln(pixels, q, c) + off[c] / around.len() as f64;
-                pixels[p * 3 + c] = v.exp() as f32;
+            let off = off.map(|t| t / target.len() as f64);
+            for dy in -PATCH..=PATCH {
+                for dx in -PATCH..=PATCH {
+                    let (x, y) = (px + dx, py + dy);
+                    if x < 0 || y < 0 || x as usize >= w || y as usize >= h {
+                        continue;
+                    }
+                    let t = y as usize * w + x as usize;
+                    if known[t] || !fill[t] {
+                        continue;
+                    }
+                    let r = (qy + dy) as usize * w + (qx + dx) as usize;
+                    for c in 0..3 {
+                        pixels[t * 3 + c] = (ln(pixels[r * 3 + c]) + off[c]).exp() as f32;
+                    }
+                    known[t] = true;
+                    progressed = true;
+                }
             }
-            known[p] = true;
-            progressed = true;
         }
         if !progressed {
             break;
         }
-        frontier = (0..w * h).filter(|p| fill[*p] && !known[*p] && touches_known(known, *p, w, h)).collect();
     }
-    // Anything the patches could not reach is smoothed over, so nothing is left unfilled.
-    onion(pixels, known, fill, w, h);
 }
 
-/// Fill the masked pixels: small marks by smoothing from their surroundings,
-/// large ones (scratches, hairs) from matching patches, so the grain of the
-/// film runs through the repair.
+/// Fill the masked pixels from the film around them, patch by patch, so the
+/// grain and the lines of the picture run through the repair. Marks too large
+/// to find a match for are smoothed over instead, and the smooth fill also
+/// finishes anything the patches could not reach.
 pub fn repair(pixels: &mut [f32], mask: &[u8], w: usize, h: usize) {
     let mut known: Vec<bool> = mask.iter().map(|m| *m == 0).collect();
     if !known.iter().any(|k| *k) {
         return; // nothing to learn from
     }
-    // Patch search costs about a few hundred thousand operations per pixel
-    // filled: right for a hair or a scratch, far too much for a blotch, which
-    // is smoothed over instead.
-    let large = large_marks(mask, w, h, LARGE_MARK);
-    let huge = large_marks(mask, w, h, PATCH_MAX);
-    let patch: Vec<bool> = (0..w * h).map(|i| large[i] && !huge[i]).collect();
-    let smooth: Vec<bool> = (0..w * h).map(|i| mask[i] != 0 && !patch[i]).collect();
-    onion(pixels, &mut known, &smooth, w, h);
-    if patch.iter().any(|l| *l) {
-        patch_fill(pixels, &mut known, &patch, w, h);
+    let fill: Vec<bool> = mask.iter().map(|m| *m != 0).collect();
+    for part in components(mask, w, h) {
+        if part.len() > PATCH_MAX {
+            continue; // a blotch that big has no match: smoothed below
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0usize, 0usize);
+        for &p in &part {
+            let (x, y) = (p % w, p / w);
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+        // Look as far as the mark is wide, within reason: far enough to find
+        // film that matches, near enough that it is still the same picture.
+        let extent = (x1 - x0).max(y1 - y0) as isize;
+        let search = (extent + 20).clamp(16, 80);
+        let pad = (search + PATCH) as usize;
+        let win = (x0.saturating_sub(pad), y0.saturating_sub(pad), (x1 + pad + 1).min(w), (y1 + pad + 1).min(h));
+        exemplar_fill(pixels, &mut known, &fill, w, h, win, search);
     }
+    // Whatever is left: the blotches, and the edges the patches could not reach.
+    onion(pixels, &mut known, &fill, w, h);
 }
 
 /// Detect and, unless the mode is Off, repair. Returns the (possibly new)
@@ -1187,42 +1345,32 @@ mod tests {
         (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / v.len() as f32).sqrt()
     }
 
-    /// A scratch is repaired with the grain of its surroundings, not smoothed
-    /// into a smear, and the colour still matches.
+    /// A mark of any size is repaired with the grain of the film around it,
+    /// not smoothed into a smear, and the colour still matches. A speck is as
+    /// much a part of this as a scratch: at the size dust actually comes in, a
+    /// smooth fill is exactly what makes a repair visible against grain.
     #[test]
-    fn a_large_mark_is_filled_with_grain_and_a_small_one_with_a_smooth_fill() {
+    fn marks_of_any_size_are_filled_with_the_grain_of_the_film() {
         let (clean_px, _) = clean();
         let grainy: Vec<f32> = clean_px.iter().enumerate().map(|(i, v)| v * (1.0 + 0.06 * noise(i * 7 + 3))).collect();
         let hole = |x0: usize, y0: usize, n: usize| -> Vec<usize> { (y0..y0 + n).flat_map(|y| (x0..x0 + n).map(move |x| y * W + x)).collect() };
 
-        // 14 × 14 = 196 pixels: a large mark.
-        let big = hole(70, 50, 14);
-        let mut mask = vec![0u8; W * H];
-        let mut broken = grainy.clone();
-        for i in &big {
-            mask[*i] = 1;
-            for c in 0..3 {
-                broken[i * 3 + c] = 9.0;
+        for (what, x0, y0, n) in [("a speck", 30usize, 80usize, 4usize), ("a scratch", 70, 50, 14)] {
+            let marked = hole(x0, y0, n);
+            let mut mask = vec![0u8; W * H];
+            let mut broken = grainy.clone();
+            for i in &marked {
+                mask[*i] = 1;
+                for c in 0..3 {
+                    broken[i * 3 + c] = 9.0;
+                }
             }
+            repair(&mut broken, &mask, W, H);
+            let (orig, filled) = (spread(&grainy, marked.iter().copied()), spread(&broken, marked.iter().copied()));
+            assert!(filled > 0.7 * orig, "{what}: grain lost, {filled} against {orig}");
+            let mean = |p: &[f32]| marked.iter().map(|i| p[i * 3]).sum::<f32>() / marked.len() as f32;
+            assert!((mean(&broken) - mean(&grainy)).abs() / mean(&grainy) < 0.08, "{what}: colour off");
         }
-        repair(&mut broken, &mask, W, H);
-        let (orig, filled) = (spread(&grainy, big.iter().copied()), spread(&broken, big.iter().copied()));
-        assert!(filled > 0.5 * orig, "grain lost: {filled} against {orig}");
-        let mean = |p: &[f32]| big.iter().map(|i| p[i * 3]).sum::<f32>() / big.len() as f32;
-        assert!((mean(&broken) - mean(&grainy)).abs() / mean(&grainy) < 0.08, "colour off");
-
-        // 4 × 4 = 16 pixels: small, smoothed (and invisible at that size).
-        let tiny = hole(30, 80, 4);
-        let mut mask = vec![0u8; W * H];
-        let mut broken = grainy.clone();
-        for i in &tiny {
-            mask[*i] = 1;
-            for c in 0..3 {
-                broken[i * 3 + c] = 9.0;
-            }
-        }
-        repair(&mut broken, &mask, W, H);
-        assert!(spread(&broken, tiny.iter().copied()) < 0.5 * spread(&grainy, tiny.iter().copied()) + 0.02, "small marks use the smooth fill");
     }
 
     /// An edge through a large mark is carried across it by the patches.
@@ -1254,6 +1402,8 @@ mod tests {
         let true_step = (left - right).abs();
         assert!((a - b).abs() > 0.45 * true_step, "the edge was smeared flat: {} of a true {true_step}", (a - b).abs());
     }
+
+
 
     #[test]
     fn tiny_or_mismatched_input_is_left_alone() {

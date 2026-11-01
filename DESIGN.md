@@ -614,11 +614,31 @@ their device.
 surface (the lamp's falloff) plus the ghost of the picture's red density (cyan dye absorbs
 infrared). What lies well below the fit, by a margin set from the plane's own noise, is a
 candidate; candidates are joined (eight-way, since a hair is a thin diagonal), kept if
-plausibly small, grown to a disc, and repaired from their surroundings in log transmission,
-working in from each mark's edge. Small marks get a smooth fill; marks over 30 pixels (hairs,
-scratches) are filled by copying the best-matching nearby patch, brought to the local
-brightness and colour, so the grain runs through the repair; blotches over 6000 pixels are
-smoothed rather than searched. Modes are Off, Correct and Mark (magenta, colour is a
+plausibly small, grown to a disc, and repaired by inpainting.
+
+**The repair.** Every mark, of any size, is filled by copying film from around it: the place
+with the most picture around it and the strongest edge running in is filled first, so a line
+entering a mark is carried across rather than closed over; the nearby 9 × 9 patch whose known
+pixels best match is found, matched in log density with its mean removed so what is compared
+is the shape of the picture rather than its brightness, and copied across with a single offset
+for the whole patch. Copying real film is what keeps the grain — a smooth fill is invisible in
+a speck but reads as a smudge at the size dust actually comes in, and against 3600 dpi grain a
+flat patch is exactly what gives a repair away. One offset per patch, rather than one per
+pixel, is what keeps the join free of banding. The search reaches as far as the mark is wide,
+between 16 and 80 pixels; blotches over 6000 pixels have nothing near them that could match and
+are smoothed instead, as is anything the patches could not reach. Candidates are tried on every
+second place and then around the winner, a patch is tested for gaps through a running count
+rather than pixel by pixel, and a score already worse than the best is abandoned: together these
+make the repair about twice as fast as the smooth-and-patch one it replaced (1m13s against
+2m40s for a 3600 dpi frame, of which 5s is the rest of the pipeline).
+
+Measured against SilverFast's iSRD on a dusty frame at 3600 dpi, over 139 defects located from
+the infrared plane and scored against what patches of the same shape do naturally around them:
+our repairs sit 0.63 standard deviations out, the same as iSRD's 0.63; they carry 1.03 times the
+surrounding grain where iSRD carries 0.56, which is to say iSRD smooths and we do not; and 1.4%
+of ours are conspicuous (over three deviations) against 5.8% of iSRD's. Judging a repair by how
+far its mean sits from its surroundings instead would favour a smooth fill, which is the thing
+that makes a repair visible: by that measure iSRD leads, and it is the wrong measure. Modes are Off, Correct and Mark (magenta, colour is a
 preference); **Detection** 1 to 20 sets the margin; **Defect Type** is Dark, Bright or Both
 (an emulsion scratch is bright in the plane). The infrared plane is registered to the colour
 first (§5.6).
