@@ -62,7 +62,7 @@ pub(crate) mod imp {
         pub dust_method_row: RefCell<Option<adw::ComboRow>>,
         pub dust_defect_row: RefCell<Option<adw::ComboRow>>,
         pub usm_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow, adw::SpinRow, adw::SpinRow)>>,
-        pub deconv_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow)>>,
+        pub deconv_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow, adw::PreferencesGroup)>>,
         pub noise_row: RefCell<Option<adw::ComboRow>>,
         pub local_contrast_row: RefCell<Option<adw::SpinRow>>,
         pub selective_rows: RefCell<Option<(adw::ComboRow, [adw::SpinRow; 3])>>,
@@ -1288,7 +1288,7 @@ impl Window {
         *self.imp().dust_method_row.borrow_mut() = Some(dust_method_row.clone());
         *self.imp().dust_defect_row.borrow_mut() = Some(dust_defect_row.clone());
         *self.imp().usm_rows.borrow_mut() = Some((usm_on.clone(), usm_amount.clone(), usm_radius.clone(), usm_threshold.clone()));
-        *self.imp().deconv_rows.borrow_mut() = Some((deconv_on.clone(), deconv_strength.clone()));
+        *self.imp().deconv_rows.borrow_mut() = Some((deconv_on.clone(), deconv_strength.clone(), deconv_group.clone()));
         *self.imp().noise_row.borrow_mut() = Some(noise_row.clone());
         let weak = self.downgrade();
         dust_mode_row.connect_selected_notify(move |_| {
@@ -1588,7 +1588,7 @@ impl Window {
         // `0` for it -- leaves this off rather than guessing.
         let (deconv_on, deconv_strength) = {
             let rows = self.imp().deconv_rows.borrow();
-            let (on, v) = rows.as_ref()?;
+            let (on, v, _) = rows.as_ref()?;
             (on.is_active(), v.value() as f32)
         };
         p.deconv = nv_process::DeconvParams {
@@ -1698,11 +1698,22 @@ impl Window {
                 nv_process::DefectType::Both => 2,
             });
         }
-        if let Some((on, v)) = self.imp().deconv_rows.borrow().as_ref() {
+        if let Some((on, v, group)) = self.imp().deconv_rows.borrow().as_ref() {
             on.set_active(params.deconv.strength > 0.0);
             if params.deconv.strength > 0.0 {
                 v.set_value(params.deconv.strength as f64);
             }
+            // Say so rather than sit there looking willing: an imported file
+            // records no resolution, and a scan at one the blur was never
+            // measured at cannot be corrected from this measurement.
+            let usable = nv_process::DeconvParams { strength: 100.0, px_per_mm: self.scan_px_per_mm() };
+            let ok = !usable.is_off() && nv_process::deconv::kernels(&usable, 1).is_some();
+            group.set_sensitive(ok);
+            group.set_description(Some(if ok {
+                "Undoes the scanner's own measured blur, before the negative is converted."
+            } else {
+                "Needs a scan made at 3600 dpi, the resolution the blur was measured at. An imported file does not record what it was scanned at."
+            }));
         }
         if let Some((on, a, r, t)) = self.imp().usm_rows.borrow().as_ref() {
             on.set_active(params.detail.usm.enabled);
