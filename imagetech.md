@@ -181,6 +181,59 @@ It fits the project: measurable before and after by MTF, bounded, and it
 invents nothing. It is also the only remaining lever on the ~4.5% sharpness gap
 against SilverFast that the Lanczos-3 resampler did not explain.
 
+#### The PSF, measured
+
+Measured on 2026-11-01 with a razor blade held across the scan aperture by a
+printed carrier (`tools/psf-target/`), scanned at 3600 dpi with no infrared.
+The blade's own edge is ground to under a micron, 0.15 px here, so what the
+scan shows is the scanner.
+
+Finding the focal plane was most of the work, because the carrier sets the
+blade's height and nothing documents where that plane is. Per-row 10-90% rise
+over 21 mm of frame, against blade height above the mount's bottom face:
+
+| blade height | 0.20 mm | 0.35 | 0.70 | 1.00 | 1.30 |
+|---|---|---|---|---|---|
+| median rise | **2.74 px** | 4.13 | 5.77 | 6.95 | 7.53 |
+
+At 0.20 mm the carrier's own slight tilt carries the blade through focus
+inside one frame: in twentieths the rise falls to 2.55 px at the fourteenth
+and climbs back to 2.76, monotonically either side. So the plane is straddled,
+not approached, and the response there is the scanner's own.
+
+| cyc/mm | 10 | 20 | 30 | 40 | 50 | 60 | 70 |
+|---|---|---|---|---|---|---|---|
+| MTF | 0.842 | 0.658 | 0.474 | 0.318 | 0.204 | 0.115 | 0.065 |
+
+MTF50 is **28.6 cyc/mm**; 10-90% rise 2.64 px; the core fits a gaussian of
+sigma 0.90 px. The line spread function itself is in
+`tools/psf-target/psf-feed-3600.csv`, at 1/8 px, from 2950 columns.
+
+Two things follow that the SNR table above could not say.
+
+The MTF is down to 0.065 by 70 cyc/mm, which is the same cutoff the power
+spectra of two film frames gave at 72-74 -- a different measurement on
+different material, agreeing. The cutoff is now confirmed three ways.
+
+And **the PSF is not a gaussian**. Energy inside a radius, against a gaussian
+of the same MTF50:
+
+| within | ±1 px | ±2 | ±3 | ±5 | ±10 |
+|---|---|---|---|---|---|
+| measured | 59.6% | 85.1% | 90.9% | 94.6% | 97.4% |
+| gaussian | 73.2% | 97.3% | 99.9% | 100% | 100% |
+
+A sharp core with about 5% of the energy beyond ±3 px and 2.6% still beyond
+±10: scattered light, the same halo that measures 0.48% of the open level
+110 px from a blade edge against 0.02% at a film edge. Deconvolving against a
+fitted gaussian would sharpen the core and leave that halo alone, which is
+the flat-looking result usually blamed on the scanner's contrast. The kernel
+has to come from the measured LSF, tails included.
+
+Still open: this is the **feed axis** only. The sensor axis needs the `-v`
+carrier, and the two were within 8% of each other at 1.30 mm, but a kernel
+built on that assumption is not a measurement.
+
 ## Priorities
 
 1. **Film profiles.** The largest measured error. Decide how to obtain

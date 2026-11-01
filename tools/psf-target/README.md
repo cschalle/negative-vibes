@@ -104,6 +104,36 @@ Every part carries its own height engraved into the top face with the
 orientation letter under it, because a 0.15 mm difference in a printed part
 is not something anyone can judge by eye.
 
+### What the framed carriers measured
+
+Printed and scanned on 2026-11-01, the four `-h` heights at 3600 dpi, same
+field and same metric as the table above:
+
+| blade height | 0.20 | 0.35 | 0.70 | 1.00 | 1.30 |
+|---|---|---|---|---|---|
+| per-row median rise | **2.74 px** | 4.13 | 5.77 | 6.95 | 7.53 |
+| best tenth | **2.57** | 3.75 | 4.25 | 6.36 | 7.06 |
+| edge waviness | 10 µm | 12 | 21 | 11 | 8 |
+| edge roughness | 0.69 µm | 0.79 | 0.43 | 0.83 | 0.97 |
+
+0.20 mm is the focal plane, and the proof is inside that one scan rather
+than across the series. In twentieths across the field the rise falls to
+2.55 px at the fourteenth and climbs back to 2.76, monotonically either
+side: the carrier's own slight tilt carries the blade through focus and out
+again, so the plane is straddled rather than approached.
+
+Fitting blur² = b₀² + k²(h − h_focus)² across all five heights does **not**
+work — it returns a negative curvature and a focal plane at +2.28 mm — so no
+focal-plane figure is quoted from the series. The within-scan minimum needs
+no model.
+
+The frame did its job too. These parts wander 8–12 µm along the edge where
+the old 0.7 mm carrier wandered 21 µm, and nothing here shows the
+part-to-part reversal of field gradient that the first generation did.
+
+The resulting line spread function is `psf-feed-3600.csv` and what it means
+for the pipeline is in `../../imagetech.md`.
+
 ### Without a blade
 
 `--printed` makes a target with no pocket: the occluder is printed, lying on
@@ -156,6 +186,14 @@ whatever the printer does best: a clean bed, no brim crossing the aperture,
 and no elephant's-foot compensation set so high that it eats the edge. A
 uniform bulge there only shifts the edge, which the fit absorbs; what cannot
 be absorbed is roughness along it.
+
+**Check the first layer height before printing `psf-printed-h-0.20`.** Many
+slicers default to a thicker first layer than the rest, 0.3 mm being common,
+and a 0.2 mm occluder is then below one layer and is dropped without a
+warning. The part still prints, and it prints an empty window: the scan
+comes back as clear as open air, with no step in it anywhere. Set the first
+layer to 0.2 mm for that one, or print `psf-printed-h-0.40` instead, which
+survives a 0.3 mm first layer.
 
 ## Use
 
