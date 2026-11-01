@@ -131,8 +131,16 @@ The frame did its job too. These parts wander 8–12 µm along the edge where
 the old 0.7 mm carrier wandered 21 µm, and nothing here shows the
 part-to-part reversal of field gradient that the first generation did.
 
-The resulting line spread function is `psf-feed-3600.csv` and what it means
-for the pipeline is in `../../imagetech.md`.
+`psf-framed-v-base0.20`, scanned the same way, gives the sensor axis:
+per-row median 3.344 px, best tenth 2.64, waviness 6 um, roughness 0.67 um.
+Its field gradient runs the other way from the `-h` part's, 2.64 rising to
+4.03, which is each part sitting at its own tilt rather than anything
+optical -- on the sharpest fifth of each the two axes agree to 5% out to
+30 cyc/mm.
+
+The resulting line spread functions are `psf-feed-3600.csv` and
+`psf-sensor-3600.csv`, and what they mean for the pipeline is in
+`../../imagetech.md`.
 
 ### Without a blade
 

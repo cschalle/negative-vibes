@@ -230,9 +230,33 @@ fitted gaussian would sharpen the core and leave that halo alone, which is
 the flat-looking result usually blamed on the scanner's contrast. The kernel
 has to come from the measured LSF, tails included.
 
-Still open: this is the **feed axis** only. The sensor axis needs the `-v`
-carrier, and the two were within 8% of each other at 1.30 mm, but a kernel
-built on that assumption is not a measurement.
+#### Both axes
+
+The `-v` carrier gives the sensor axis. Measured the same way, on the
+sharpest fifth of each part so that both are at the focal plane rather than
+at whatever tilt their mounting happened to give them:
+
+| | rise | MTF50 | 10 | 20 | 30 | 40 | 50 | 60 | 70 cyc/mm |
+|---|---|---|---|---|---|---|---|---|---|
+| feed | 2.563 px | 29.4 | 0.834 | 0.647 | 0.472 | 0.303 | 0.184 | 0.092 | 0.043 |
+| sensor | 2.511 px | 30.6 | 0.849 | 0.664 | 0.494 | 0.351 | 0.240 | 0.158 | 0.100 |
+
+Agreement is within 5% to 30 cyc/mm and then goes: the sensor axis keeps
+1.30x as much at 50 and 2.34x at 70. The sign is what feed-axis motion during
+integration would give, but neither a box nor an extra gaussian fits the ratio
+across the band, and above 40 both MTFs are under 0.35 where a ratio is worth
+little. No mechanism is claimed.
+
+What it settles is the kernel: **separable, one kernel per axis**, each from
+its own measured LSF (`psf-feed-3600.csv`, `psf-sensor-3600.csv`). That needs
+no isotropy assumption, and since a separable filter is one 1-D pass per axis
+it costs nothing over assuming one.
+
+Field dependence is the open question now, not axis dependence. Each part's
+own tilt moves the rise from 2.57 to 3.61 px along one direction and 2.64 to
+4.03 along the other -- a factor of 1.5 within one frame, which is larger than
+the difference between the axes. A single kernel for the whole frame is
+therefore an average, and how much that costs is unmeasured.
 
 ## Priorities
 
