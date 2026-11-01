@@ -109,6 +109,10 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
             black_point: None,
             white_point: None,
             midtone: None,
+            // This command knows what it scanned at, so the measured spread
+            // function can actually be matched to it.
+            deconvolve: 100.0,
+            dpi: Some(args.dpi as f32),
             diagnose: true,
         };
         // Build a FrameBuf from the already-received data so we don't re-read disk.

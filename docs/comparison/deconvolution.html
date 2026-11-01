@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Deconvolution options — Negative Vibes</title>
+<style>
+:root { --bg:#14161a; --fg:#e6e8ec; --dim:#9aa3af; --line:#2a2f38; --hi:#7dd3fc; }
+* { box-sizing:border-box }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.65 -apple-system,
+       "Cantarell","Segoe UI",system-ui,sans-serif; }
+.wrap { max-width:1120px; margin:0 auto; padding:40px 24px 80px }
+h1 { font-size:27px; margin:0 0 6px; letter-spacing:-.01em }
+h2 { font-size:19px; margin:48px 0 10px; letter-spacing:-.01em }
+h3 { font-size:15px; margin:28px 0 6px; color:var(--hi); font-weight:600 }
+p { max-width:72ch; color:#cdd3db }
+.lede { color:var(--dim); margin-top:0 }
+table { border-collapse:collapse; margin:14px 0; font-variant-numeric:tabular-nums;
+        font-size:13.5px }
+th,td { padding:5px 11px; border-bottom:1px solid var(--line); text-align:right }
+th:first-child,td:first-child { text-align:left }
+thead th { color:var(--dim); font-weight:600 }
+tr.pick td { color:var(--hi) }
+code { background:#1e222a; padding:1px 5px; border-radius:3px; font-size:13px }
+.bar { position:sticky; top:0; z-index:9; background:rgba(20,22,26,.96);
+       border-bottom:1px solid var(--line); padding:11px 0; margin:30px 0 0;
+       backdrop-filter:blur(8px) }
+.bar .inner { max-width:1120px; margin:0 auto; padding:0 24px; display:flex;
+              gap:10px; align-items:center; flex-wrap:wrap }
+button { font:inherit; font-size:13.5px; color:var(--fg); background:#1e222a;
+         border:1px solid var(--line); border-radius:6px; padding:6px 13px; cursor:pointer }
+button:hover { border-color:#3d4452 }
+button[aria-pressed="true"] { background:var(--hi); color:#0b1016; border-color:var(--hi);
+                              font-weight:600 }
+.hint { color:var(--dim); font-size:13px; margin-left:4px }
+.scene { margin:30px 0 }
+.scene .cap { color:var(--dim); font-size:13.5px; margin:0 0 9px }
+.stage { display:flex; gap:14px; flex-wrap:wrap }
+.pane { width:400px }
+.pane img { width:400px; height:400px; display:block; border-radius:5px;
+            image-rendering:pixelated; background:#0b0d10 }
+.pane .lbl { font-size:12.5px; color:var(--dim); padding:5px 2px 0;
+             display:flex; justify-content:space-between }
+.single .pane:not(.active) { display:none }
+.single .pane img { width:800px; height:800px }
+.single .pane { width:800px }
+.note { border-left:2px solid var(--line); padding:2px 0 2px 16px; color:var(--dim);
+        max-width:72ch; margin:18px 0 }
+</style>
+<div class="wrap">
+<h1>Deconvolution: three ways to spend one measurement</h1>
+<p class="lede">OpticFilm 8200i at 3600 dpi · PSF measured 2026-11-01 from a razor
+blade · crops from the same dusty frame, green-weighted, inverted with one shared
+stretch so only the filter differs</p>
+
+<p>The scanner's point spread function is now measured on both axes, so its
+transfer function can be inverted. What the measurement does <em>not</em> decide is
+how hard to invert it. A linear filter multiplies signal and noise by the same
+amount at every frequency, so deconvolution cannot improve signal-to-noise — it
+corrects rendition, and it makes grain louder in exactly the proportion it makes
+detail louder. The choice below is how much of that trade to take.</p>
+
+<h2>What was measured</h2>
+<p>Modulation transfer, feed axis, as scanned and under each candidate filter.
+<code>noise ×</code> is how much the filter multiplies a white noise floor in
+amplitude; <code>MTF50</code> is measured by re-running the slanted edge through
+the filtered image, not predicted.</p>
+<table>
+<thead><tr><th>filter</th><th>10</th><th>20</th><th>30</th><th>40</th><th>50</th>
+<th>60</th><th>70 cyc/mm</th><th>noise ×</th><th>MTF50</th></tr></thead>
+<tbody>
+<tr><td>as scanned</td><td>0.810</td><td>0.629</td><td>0.462</td><td>0.303</td>
+<td>0.225</td><td>0.146</td><td>0.131</td><td>1.00</td><td>29.6</td></tr>
+<tr><td>constant λ 0.08</td><td>0.963</td><td>0.898</td><td>0.786</td><td>0.577</td>
+<td>0.419</td><td>0.228</td><td>0.191</td><td>1.57</td><td>44.2</td></tr>
+<tr><td>true Wiener</td><td>0.957</td><td>0.771</td><td>0.494</td><td>0.183</td>
+<td>0.052</td><td>0.008</td><td>0.004</td><td>0.84</td><td>30.2</td></tr>
+<tr class="pick"><td>hybrid</td><td>0.963</td><td>0.898</td><td>0.786</td><td>0.577</td>
+<td>0.099</td><td>0.009</td><td>0.004</td><td>1.19</td><td>40.8</td></tr>
+</tbody></table>
+
+<p>And the reason the three differ at all — how much of what is up there is real:</p>
+<table>
+<thead><tr><th>cyc/mm</th><th>20</th><th>30</th><th>40</th><th>50</th><th>60</th>
+<th>70</th></tr></thead>
+<tbody><tr><td>film content over its own noise floor</td><td>8.5×</td><td>4.6×</td>
+<td>2.4×</td><td>1.1×</td><td>0.4×</td><td>0.2×</td></tr></tbody></table>
+
+<p>Below about 40 cyc/mm the frame carries several times more picture than noise,
+so restoring that band restores mostly picture. By 50 it is a coin toss and by 60
+it is mostly grain. Every difference you can see further down comes from what each
+filter does on either side of that crossover.</p>
+
+<div class="bar"><div class="inner">
+  <strong style="font-size:13.5px">Show</strong>
+  <button data-k="scanned" aria-pressed="false">As scanned</button>
+  <button data-k="constant" aria-pressed="false">Constant λ 0.08</button>
+  <button data-k="wiener" aria-pressed="false">True Wiener</button>
+  <button data-k="hybrid" aria-pressed="true">Hybrid</button>
+  <button data-k="all" aria-pressed="false">All four</button>
+  <span class="hint">press 1–4 to flip in place · A for all four</span>
+</div></div>
+
+<div id="scenes"></div>
+
+<h2>What each one is doing</h2>
+
+<h3>Constant λ 0.08 — restore everywhere, equally</h3>
+<p>One regularisation constant across the whole band. It pulls the MTF closest to
+flat and gives the highest MTF50, 44.2 against 29.6 as scanned. It also amplifies
+50–70 cyc/mm by 1.9×, and up there the frame is 1.1× to 0.2× over its noise floor,
+so most of what gets amplified is grain. In the <em>flat</em> scene below this is
+the one that looks like it has been through a sharpening filter.</p>
+
+<h3>True Wiener — the MSE-optimal answer</h3>
+<p>Regularise by the measured signal-to-noise at each frequency, which is the
+textbook Wiener filter and the one that minimises mean squared error. It judges
+everything above 40 cyc/mm to be mostly noise and suppresses it, ending up
+<em>smoother</em> than the unfiltered scan and barely sharper: MTF50 30.2 against
+29.6. Mathematically correct, and it gives up almost all the value of having
+measured the PSF.</p>
+
+<h3>Hybrid — restore to the crossover, then stop</h3>
+<p>Constant λ 0.08 up to 40 cyc/mm, then blend into the SNR-weighted rolloff over
+the next 20. Identical to the constant filter everywhere the film has real content
+to recover, and identical to Wiener where it does not. MTF50 40.8 — 92% of the
+constant filter's gain — for a noise amplification of 1.19× instead of 1.57×.</p>
+
+<div class="note">All three are points on one curve: where you put the crossover
+between "restore" and "suppress". That is a single number, which is what a strength
+control in the UI would expose. The three buttons above are that control at three
+settings.</div>
+
+<h2>Caveats worth knowing before choosing</h2>
+<p>These crops are a plain inversion with one shared stretch, not the full
+pipeline, so colour and tone are not what the application would show. Sharpness and
+grain are what they will be, because deconvolution runs on the linear raw before
+conversion.</p>
+<p>Filtering pushes 4.7% of samples below zero, the most negative being −0.035.
+That is ringing around edges and it gets clipped. In a negative the near-zero end is
+the densest part of the film, which is the <em>highlights</em> of the positive, so
+clipping there is not free and is not yet measured.</p>
+<p>One kernel is used for the whole frame. Within a single frame each carrier's own
+tilt moved the measured rise from 2.57 to 3.61 px one way and 2.64 to 4.03 the
+other — a factor of 1.5, larger than the difference between the two axes. Field
+dependence is the next thing to measure, and it may matter more than this choice.</p>
+
+</div>
+<script>
+const SCENES = [
+  ["detail","Fine detail — the busiest tile in the frame"],
+  ["contrast","High contrast — the widest tonal spread"],
+  ["grain","Flat — almost all grain, the 5th-percentile tile"],
+  ["typical","Typical — the median tile"]];
+const KINDS = [["scanned","As scanned"],["constant","Constant λ 0.08"],
+               ["wiener","True Wiener"],["hybrid","Hybrid"]];
+const MTF50 = {scanned:"29.6",constant:"44.2",wiener:"30.2",hybrid:"40.8"};
+const host = document.getElementById("scenes");
+for (const [id,cap] of SCENES) {
+  const d = document.createElement("div");
+  d.className = "scene"; d.dataset.scene = id;
+  d.innerHTML = `<p class="cap">${cap}</p><div class="stage">` + KINDS.map(([k,n]) =>
+    `<div class="pane" data-k="${k}"><img src="deconv/${id}-${k}.png" alt="${n}" loading="eager">
+     <div class="lbl"><span>${n}</span><span>MTF50 ${MTF50[k]}</span></div></div>`).join("") + `</div>`;
+  host.appendChild(d);
+}
+let mode = "hybrid";
+function apply() {
+  for (const b of document.querySelectorAll(".bar button"))
+    b.setAttribute("aria-pressed", String(b.dataset.k === mode));
+  for (const s of document.querySelectorAll(".scene")) {
+    s.classList.toggle("single", mode !== "all");
+    for (const p of s.querySelectorAll(".pane"))
+      p.classList.toggle("active", p.dataset.k === mode);
+  }
+}
+for (const b of document.querySelectorAll(".bar button"))
+  b.onclick = () => { mode = b.dataset.k; apply(); };
+addEventListener("keydown", e => {
+  const i = "1234".indexOf(e.key);
+  if (i >= 0) { mode = KINDS[i][0]; apply(); }
+  else if (e.key === "a" || e.key === "A") { mode = "all"; apply(); }
+});
+apply();
+</script>

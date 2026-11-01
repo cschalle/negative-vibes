@@ -2,6 +2,7 @@ use nv_film::FilmProfile;
 use serde::{Deserialize, Serialize};
 
 pub use crate::curves::{Curve, Curves};
+pub use crate::deconv::DeconvParams;
 pub use crate::detail::DetailParams;
 pub use crate::dust::DustParams;
 
@@ -86,6 +87,10 @@ pub struct ProcessParams {
     /// Infrared dust removal (stage 2).
     #[serde(default)]
     pub dust: DustParams,
+    /// Deconvolution against the scanner's measured spread function (stage 3b),
+    /// before conversion because that is where the blur happened.
+    #[serde(default)]
+    pub deconv: crate::deconv::DeconvParams,
     /// Sharpening and noise reduction (stage 7).
     #[serde(default)]
     pub detail: DetailParams,

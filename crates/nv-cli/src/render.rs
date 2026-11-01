@@ -74,6 +74,18 @@ pub struct RenderArgs {
     #[arg(long)]
     pub midtone: Option<f32>,
 
+    /// Undo the scanner's measured blur, in percent: 0 off, 100 the measured
+    /// default. Needs `--dpi` to say what the scan was, since a raw PNM does
+    /// not record it.
+    #[arg(long, default_value = "100")]
+    pub deconvolve: f32,
+
+    /// What the scan was made at, in dots per inch. Only 3600 has a measured
+    /// spread function; anything else leaves `--deconvolve` with nothing to
+    /// apply.
+    #[arg(long)]
+    pub dpi: Option<f32>,
+
     /// Print per-channel statistics, film base estimate and first bytes.
     #[arg(long)]
     pub diagnose: bool,
@@ -198,6 +210,10 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             positive_range: None,
         },
         tone: ToneParams::default(),
+        deconv: nv_process::DeconvParams {
+            strength: args.deconvolve,
+            px_per_mm: args.dpi.map(|d| d / 25.4),
+        },
         dust: nv_process::DustParams {
             mode: match args.dust.as_str() {
                 "off" => nv_process::DustMode::Off,
@@ -244,6 +260,12 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         params.image_type, profile.name, params.conversion.film_base, args.exposure, !args.no_auto_tone, params.tone.black_point, params.tone.white_point, params.tone.midtone
     );
     println!("Dust: mode={:?} method={:?} defect={:?} detection={}", params.dust.mode, params.dust.method, params.dust.defect, params.dust.detection);
+    match (args.dpi, params.deconv.is_off()) {
+        (_, false) => println!("Deconvolution: {}% of the measured blur", params.deconv.strength),
+        (None, true) if args.deconvolve > 0.0 => println!("Deconvolution: off (pass --dpi to say what the scan was)"),
+        (Some(d), true) if args.deconvolve > 0.0 => println!("Deconvolution: off ({d} dpi has no measured spread function; 3600 does)"),
+        _ => println!("Deconvolution: off"),
+    }
 
     let rgb8 = process(&buf, &params);
 

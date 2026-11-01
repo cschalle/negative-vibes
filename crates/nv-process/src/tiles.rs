@@ -78,11 +78,13 @@ pub fn render_block(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize
 /// The toned picture of one block of the scan. With dust removal on (and an
 /// infrared plane in the scan), sharpening or noise reduction, the block is
 /// rendered with a margin around it and trimmed, so what works on
-/// neighbourhoods sees what lies beyond the block's edge.
+/// neighbourhoods sees what lies beyond the block's edge. Deconvolution is
+/// the same case and is counted here too, since its kernel reaches ten pixels
+/// either side.
 fn tile_toned(raw: &FrameBuf, frozen: &ProcessParams, x0: usize, y0: usize, w: usize, h: usize) -> Vec<f32> {
     let dust_possible = raw.channels == 4 || frozen.dust.method == crate::dust::DustMethod::Software || !frozen.dust.include.is_empty();
     let dust = if frozen.dust.mode != DustMode::Off && dust_possible { TILE_MARGIN } else { 0 };
-    let margin = dust.max(crate::detail::margin(&frozen.detail, 1));
+    let margin = dust.max(crate::detail::margin(&frozen.detail, 1)).max(crate::deconv::margin(&frozen.deconv));
     if margin == 0 {
         return render_toned(&Proxy::from_raw_region(raw, x0, y0, w, h), frozen);
     }

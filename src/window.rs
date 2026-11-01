@@ -62,6 +62,7 @@ pub(crate) mod imp {
         pub dust_method_row: RefCell<Option<adw::ComboRow>>,
         pub dust_defect_row: RefCell<Option<adw::ComboRow>>,
         pub usm_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow, adw::SpinRow, adw::SpinRow)>>,
+        pub deconv_rows: RefCell<Option<(adw::SwitchRow, adw::SpinRow)>>,
         pub noise_row: RefCell<Option<adw::ComboRow>>,
         pub local_contrast_row: RefCell<Option<adw::SpinRow>>,
         pub selective_rows: RefCell<Option<(adw::ComboRow, [adw::SpinRow; 3])>>,
@@ -1128,6 +1129,20 @@ impl Window {
         detail_page.add(&mask_group);
         *self.imp().brush_row.borrow_mut() = Some(brush_row);
 
+        let deconv_group = adw::PreferencesGroup::builder()
+            .title("Scanner Blur")
+            .description("Undoes the scanner's own measured blur, before the negative is converted. Needs a 3600 dpi scan: that is the resolution the blur was measured at.")
+            .build();
+        let deconv_on = adw::SwitchRow::builder().title("Undo Scanner Blur").active(true).build();
+        let deconv_strength = adw::SpinRow::builder()
+            .title("Strength")
+            .subtitle("Percent; 100 is the measured amount. More also makes grain louder.")
+            .adjustment(&gtk::Adjustment::new(100.0, 0.0, 200.0, 5.0, 25.0, 0.0))
+            .build();
+        deconv_group.add(&deconv_on);
+        deconv_group.add(&deconv_strength);
+        detail_page.add(&deconv_group);
+
         let sharp_group = adw::PreferencesGroup::builder().title("Sharpening").description("Unsharp mask, on brightness only").build();
         let usm_on = adw::SwitchRow::builder().title("Unsharp Mask").build();
         let usm_amount = adw::SpinRow::builder().title("Amount").subtitle("Percent").adjustment(&gtk::Adjustment::new(150.0, 0.0, 500.0, 10.0, 50.0, 0.0)).build();
@@ -1273,6 +1288,7 @@ impl Window {
         *self.imp().dust_method_row.borrow_mut() = Some(dust_method_row.clone());
         *self.imp().dust_defect_row.borrow_mut() = Some(dust_defect_row.clone());
         *self.imp().usm_rows.borrow_mut() = Some((usm_on.clone(), usm_amount.clone(), usm_radius.clone(), usm_threshold.clone()));
+        *self.imp().deconv_rows.borrow_mut() = Some((deconv_on.clone(), deconv_strength.clone()));
         *self.imp().noise_row.borrow_mut() = Some(noise_row.clone());
         let weak = self.downgrade();
         dust_mode_row.connect_selected_notify(move |_| {
@@ -1296,6 +1312,20 @@ impl Window {
             });
         }
         let weak = self.downgrade();
+        {
+            let weak = self.downgrade();
+            deconv_on.connect_active_notify(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.on_params_changed();
+                }
+            });
+            let weak = self.downgrade();
+            deconv_strength.connect_value_notify(move |_| {
+                if let Some(win) = weak.upgrade() {
+                    win.on_params_changed();
+                }
+            });
+        }
         usm_on.connect_active_notify(move |_| {
             if let Some(win) = weak.upgrade() {
                 win.on_params_changed();
@@ -1471,6 +1501,15 @@ impl Window {
         self.refresh_canvas();
     }
 
+    /// What the selected frame was scanned at, in pixels per millimetre, or
+    /// `None` when nothing recorded it. An imported file stores `0`, which is
+    /// not a resolution and must not be treated as one.
+    fn scan_px_per_mm(&self) -> Option<f32> {
+        let imp = self.imp();
+        let dpi = self.selected().and_then(|i| imp.roll.borrow().as_ref()?.frame(i)?.raw.as_ref().map(|r| r.scan.resolution_dpi)).filter(|d| *d > 0)?;
+        Some(dpi as f32 / 25.4)
+    }
+
     fn read_params_from_inspector(&self) -> Option<ProcessParams> {
         let profiles = self.film_profile_list();
 
@@ -1544,6 +1583,18 @@ impl Window {
         p.dust.detection = dust_detection;
         p.dust.method = dust_method;
         p.dust.defect = dust_defect;
+        // The spread function is only meaningful at the pitch it was measured
+        // at, so an imported file -- which records no resolution, and stores
+        // `0` for it -- leaves this off rather than guessing.
+        let (deconv_on, deconv_strength) = {
+            let rows = self.imp().deconv_rows.borrow();
+            let (on, v) = rows.as_ref()?;
+            (on.is_active(), v.value() as f32)
+        };
+        p.deconv = nv_process::DeconvParams {
+            strength: if deconv_on { deconv_strength } else { 0.0 },
+            px_per_mm: self.scan_px_per_mm(),
+        };
         p.detail.usm = nv_process::UsmParams { enabled: usm_enabled, amount: usm_amount, radius: usm_radius, threshold: usm_threshold };
         p.detail.noise = noise;
         p.detail.local_contrast = self.imp().local_contrast_row.borrow().as_ref()?.value() as f32;
@@ -1646,6 +1697,12 @@ impl Window {
                 nv_process::DefectType::Bright => 1,
                 nv_process::DefectType::Both => 2,
             });
+        }
+        if let Some((on, v)) = self.imp().deconv_rows.borrow().as_ref() {
+            on.set_active(params.deconv.strength > 0.0);
+            if params.deconv.strength > 0.0 {
+                v.set_value(params.deconv.strength as f64);
+            }
         }
         if let Some((on, a, r, t)) = self.imp().usm_rows.borrow().as_ref() {
             on.set_active(params.detail.usm.enabled);

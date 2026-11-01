@@ -506,8 +506,8 @@ inactive stages are skipped.
 
 ```mermaid
 flowchart LR
-  RAW[Raw u16 RGB+IR] --> G[1 Geometry] --> D[2 Dust] --> IN[3 Input colour]
-  IN --> NEG{Image type}
+  RAW[Raw u16 RGB+IR] --> G[1 Geometry] --> D[2 Dust] --> DC[3b Deconvolution]
+  DC --> IN[3 Input colour] --> NEG{Image type}
   NEG -->|Negative / B&W| CV[4 Conversion]
   NEG -->|Positive / Kodachrome| PV[4 Positive normalise]
   CV --> T[5 Tone] --> CO[6 Colour] --> DE[7 Detail] --> OUT[8 Output]
@@ -519,6 +519,7 @@ flowchart LR
 | 1 | Geometry | Crop to the frame, rotation and flip in 90° steps, fine straighten (−15° to +15°, enlarged by the least amount that fills the frame) |
 | 2 | Dust | Infrared or software detection, repair, masks; Off / Correct / Mark |
 | 3 | Input colour | The scanner (IT8) profile, applied to slides before normalising. Negatives ignore it: their colour comes from the film profile |
+| 3b | Deconvolution | Undo the scanner's measured blur, separably, one kernel per axis; strength in percent (§7.8) |
 | 4 | Conversion | Film base, density inversion, range, dye gamma alignment, crosstalk, colour cast removal, exposure and print curve; or positive normalisation |
 | 5 | Tone | Auto levels, levels on a histogram, master and per-channel curves, midtone, pipettes (film base, black, grey, white) |
 | 6 | Colour | Saturation, shadows/midtones/highlights colour wheel, restore faded colour, selective colour (six ranges), colour-to-grey |
@@ -668,6 +669,53 @@ when it is rotated. Strokes belong to the frame whatever scope is selected, are 
 | Navigator | A "Map" popover shows the oriented picture with the visible part outlined |
 
 ---
+
+### 7.8 Deconvolution
+
+The scanner's own blur is measured, not guessed: a razor blade held across the aperture by a
+printed carrier, scanned at 3600 dpi, with the carrier's height swept 0.20 to 1.30 mm until the
+blade sat on the focal plane (`tools/psf-target/`). At that plane the 10–90% edge rise is
+2.5–2.6 px on both axes and MTF50 is 28–31 cyc/mm. The measurement is in
+`tools/psf-target/psf-feed-3600.csv` and `psf-sensor-3600.csv`; `gen_transfer.py` turns it into
+the table `nv-process` embeds, and `--check` fails if the two have drifted apart.
+
+Three things follow from the measurement and shape the stage.
+
+**It runs before conversion, on linear light.** The blur happened in the optics, in linear light,
+so that is the only place it can be removed rather than imitated. Unsharp mask (§7.7) is the
+opposite case and works on the finished picture, because "sharper" is a statement about what the
+eye sees.
+
+**It is separable with a different kernel per axis.** The two axes agree within 5% to 30 cyc/mm
+and then diverge — the sensor axis keeps 1.30× as much contrast at 50 cyc/mm and 2.34× at 70. A
+separable filter is one pass per axis either way, so per-axis kernels cost nothing over assuming
+the spread function is round, and nothing has to be assumed.
+
+**How hard to invert is not a measurement.** A linear filter multiplies signal and noise by the
+same amount at every frequency, so this cannot improve signal-to-noise; it corrects rendition and
+makes grain louder in the same proportion it makes detail louder. What decides the shape is how
+much of what is up there is real. Measured against the scan's own noise floor, picture power runs
+8.5× at 20 cyc/mm, 4.6× at 30, 2.4× at 40, 1.1× at 50 and 0.4× at 60. So the filter restores hard
+below 40 cyc/mm and hands over to the signal-to-noise estimate above it. That handover is one
+fixed curve: derived per frame it would make the sharpening depend on which way a subject happens
+to carry its detail, and derived per axis it would sharpen one direction more than the other.
+
+At full strength this takes MTF50 from 29.6 to 44.2 cyc/mm on the feed axis and 27.0 to 42.5 on
+the sensor axis — each within 5% of what the model predicted, confirmed by re-measuring a
+slanted edge through the filtered image rather than by trusting the arithmetic. On a frame of
+film it measures 1.44× the mean gradient for 1.20× the grain.
+
+Two limits are deliberate. The stage does nothing unless it is told what the scan was sampled at,
+because a raw PNM does not record it and a spread function applied at the wrong pitch is a
+different filter rather than a correction; and it only engages within 0.7–1.4× of 3600 dpi,
+because that is the only resolution measured. A proxy's reduction is understood rather than
+guessed — it averages `factor` neighbouring pixels, whose transfer is a Dirichlet kernel — so the
+preview is corrected too and the strength control shows its effect while being dragged.
+
+Inverting a low pass rings. On an edge first blurred by the spread function itself, which is the
+only edge the scanner can deliver, the overshoot is 3.9% of the step on the feed axis and 5.3% on
+the sensor axis. Against an ideal step the same filter overshoots 32%, which is why the test uses
+a blurred one.
 
 ## 8. User interface
 

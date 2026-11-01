@@ -5,6 +5,8 @@ pub mod analysis;
 pub mod colour;
 mod conversion;
 pub mod curves;
+pub mod deconv;
+mod deconv_psf;
 pub mod densitometer;
 pub mod detail;
 pub mod dust;
@@ -21,6 +23,7 @@ mod tone;
 pub use analysis::{FrameAnalysis, analyse_frame, analysis_fields, roll_analysis};
 pub use colour::{ColourParams, GREY_PRESETS, GreyMix};
 pub use curves::{Curve, Curves};
+pub use deconv::DeconvParams;
 pub use detail::{AacoGrid, DetailParams, NoiseLevel, Placement, Quality, UsmParams};
 pub use dust::{DefectType, DustMethod, DustMode, DustParams, Stroke};
 pub use histogram::Histogram;
@@ -69,6 +72,7 @@ struct ConvKey {
     profile: FilmProfile,
     conversion: params::ConversionParams,
     dust: dust::DustParams,
+    deconv: deconv::DeconvParams,
 }
 
 /// Remembers the last converted picture, so a change that only touches tone
@@ -93,7 +97,7 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
     if proxy.is_empty() {
         return Rendered { rgb: Vec::new(), levels: [0; 256] };
     }
-    let key = ConvKey { proxy: proxy.id, image_type: params.image_type, profile: params.profile.clone(), conversion: params.conversion.clone(), dust: params.dust.clone() };
+    let key = ConvKey { proxy: proxy.id, image_type: params.image_type, profile: params.profile.clone(), conversion: params.conversion.clone(), dust: params.dust.clone(), deconv: params.deconv };
     let converted = {
         let mut last = cache.last.lock().unwrap_or_else(|e| e.into_inner());
         match last.as_ref() {
@@ -162,6 +166,17 @@ fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec
         (None, None)
     };
     let src = repaired.as_deref().unwrap_or(&proxy.pixels);
+    // Stage 3b: undo the scanner's own blur while the picture is still linear
+    // light, which is the only place it can be undone rather than imitated.
+    let deconvolved;
+    let src = if params.deconv.is_off() {
+        src
+    } else {
+        let mut px = src.to_vec();
+        deconv::apply(&mut px, proxy.width, proxy.height, &params.deconv, proxy.factor);
+        deconvolved = px;
+        &deconvolved[..]
+    };
     let out = match params.image_type {
         ImageType::ColourNegative | ImageType::BwNegative => conversion::convert_negative(src, proxy.width, proxy.height, params),
         ImageType::Positive | ImageType::Kodachrome => match &params.input {
@@ -375,6 +390,7 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
             positive_range: None,
         },
         tone: ToneParams::default(),
+        deconv: deconv::DeconvParams::default(),
         // Silver black and white film blocks infrared: no dust removal by default.
         detail: DetailParams::default(),
         colour: ColourParams::default(),

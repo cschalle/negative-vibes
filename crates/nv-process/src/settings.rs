@@ -32,6 +32,11 @@ pub struct Settings {
     /// own, whatever scope an edit was made in.
     pub dust_exclude: Option<Vec<crate::dust::Stroke>>,
     pub dust_include: Option<Vec<crate::dust::Stroke>>,
+    /// How much of the scanner's measured blur to undo, in percent. The
+    /// resolution it is matched against is not here: that belongs to the
+    /// scan, not to a look, and a look copied onto a frame scanned at some
+    /// other resolution must not carry the wrong one with it.
+    pub deconv_strength: Option<f32>,
     pub usm_enabled: Option<bool>,
     pub usm_amount: Option<f32>,
     pub usm_radius: Option<f32>,
@@ -69,6 +74,7 @@ macro_rules! each_field {
             dust_defect,
             dust_exclude,
             dust_include,
+            deconv_strength,
             usm_enabled,
             usm_amount,
             usm_radius,
@@ -152,6 +158,9 @@ impl Settings {
         if let Some(v) = &self.dust_include {
             p.dust.include = v.clone();
         }
+        if let Some(v) = self.deconv_strength {
+            p.deconv.strength = v;
+        }
         if let Some(v) = self.usm_enabled {
             p.detail.usm.enabled = v;
         }
@@ -233,6 +242,7 @@ impl Settings {
             dust_defect: ch(old.dust.defect, new.dust.defect),
             dust_exclude: (old.dust.exclude != new.dust.exclude).then(|| new.dust.exclude.clone()),
             dust_include: (old.dust.include != new.dust.include).then(|| new.dust.include.clone()),
+            deconv_strength: chf(old.deconv.strength, new.deconv.strength),
             usm_enabled: ch(old.detail.usm.enabled, new.detail.usm.enabled),
             usm_amount: chf(old.detail.usm.amount, new.detail.usm.amount),
             usm_radius: chf(old.detail.usm.radius, new.detail.usm.radius),
