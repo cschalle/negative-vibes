@@ -51,6 +51,82 @@ on this scanner. If the strip's edge comes back much softer than that, the
 strip is the limit and not the scanner — so a bad strip diagnoses itself in
 one scan.
 
+## Second generation: a frame that the holder can hold
+
+The six `psf-target-*` STLs above are the first design: a `base` mm plate
+with the pocket ridges standing on it, so the part is `base + 1.0` mm
+overall. Three of them were printed and scanned at 3600 dpi. Measured over
+the field they share, 10-90% rise in tenths across the frame:
+
+| base | left to right | best | mean |
+|---|---|---|---|
+| 0.7 | 7.34 6.75 6.21 5.87 5.58 5.00 4.65 4.32 3.98 3.78 | **3.78** | 5.43 |
+| 1.0 | 7.22 6.90 6.64 6.57 6.53 6.40 6.15 6.02 5.91 5.83 | 5.83 | 6.48 |
+| 1.3 | 6.43 6.50 6.53 6.60 6.87 7.13 7.50 7.57 7.72 8.05 | 6.43 | 7.08 |
+
+Film's own in-focus edge on this scanner is 1.9-2.9 px, so none of them is
+there yet, and two things come out of the table.
+
+Blur falls as the blade goes down, and falls faster at 0.7 than at 1.0
+(3.49 px/mm against 2.02): the focal plane is below 0.7 mm and the sweep has
+to continue. But the plate cannot simply be made thinner, because at
+`base 0.25` the whole part would be 1.25 mm, under the 1.3 mm a slide holder
+will take.
+
+And the gradient across the field is different for every part -- the 0.7
+falls 3.56 px, the 1.0 falls 1.39, the 1.3 *rises* 1.62 -- on one holder,
+one scanner, one pair of blades. Each part is sitting at its own tilt, which
+is what a 1.7 to 2.3 mm part does in a slot that takes 1.3 to 3.2.
+
+`make_framed_target.py` answers both. The part is a solid 2.6 mm block with
+the pocket sunk into it as a trench, so the blade's height and the outline's
+thickness stop being the same number. The trench is an island, not a
+channel: a 43 mm blade in a 50.8 mm mount leaves at least 2.3 mm of
+full-thickness frame all the way round. Above the blade's plane the aperture
+opens outward at 45 degrees, so a 2.6 mm block is not also a 2.6 mm deep
+light tunnel; a hole that widens upward is additive and needs no support.
+
+![Plan view of the framed carrier](plan-framed.png)
+![Plan view of the printed-edge target](plan-printed.png)
+
+*Left, the carrier: red is open, dark is the trench the blade lies in, the
+grey halo is the flare, and the engraving is at the top right. Right, the
+printed-edge variant, where the dark half is the occluder itself.*
+
+```
+python3 make_framed_target.py                      # 0.20 0.35 0.50 0.65
+python3 make_framed_target.py --base 0.3 --only h  # one height, one axis
+python3 make_framed_target.py --printed 0.4        # no blade at all
+python3 check_framed_target.py part.stl plan.pnm   # read the STL back
+```
+
+Every part carries its own height engraved into the top face with the
+orientation letter under it, because a 0.15 mm difference in a printed part
+is not something anyone can judge by eye.
+
+### Without a blade
+
+`--printed` makes a target with no pocket: the occluder is printed, lying on
+the build plate, and its own outline is the optical edge. Whether that is
+good enough is for the scan to say, not this file. The first targets' own
+aperture walls measured a median 10-90% rise of 3.99 px with a p10-p90 of
+3.74 to 16.62 px -- the typical row fine, the rough ones very rough -- but
+that wall is 0.7 mm of stacked layers, while this is one or two layers laid
+against the build plate, which is the flattest surface an FDM printer makes.
+
+Two consequences follow from where it has to go. It cannot float over the
+aperture, so it lies on the plate and its edge sits at 0 to `--printed` mm,
+below every height the carriers reach -- useful, given where the table above
+points. And it is a wall rather than a sheet, so each depth through its
+thickness lays its own defocused edge in the same place and the measurement
+broadens. That, not roughness, is what sets its floor, which is why
+`--printed` defaults to 0.4 mm and 0.2 mm is worth printing too.
+
+The scan says immediately which it is. A rough edge shows up as scatter in
+the per-row rise and in the straightness residual; a thick one shows up as a
+rise that is too long everywhere, evenly.
+
+
 ## Printing
 
 ```
@@ -59,20 +135,27 @@ python3 make_target.py --base 0.7 --tilt 7         # variants
 python3 make_target.py --strip-width 25            # untrimmed 1" tape
 ```
 
-Six STLs are checked in, at strip-floor heights 0.7, 1.0 and 1.3 mm. **Print
-all three heights.** A slide mount holds its film somewhere near mid-depth, but
-how the scanner's holder references it is not documented anywhere we can
-check — so scan all three and keep whichever gives the sharpest edge. That
-measurement is itself worth having: it says where the focal plane is.
+Those six STLs have served their purpose: printing and scanning three of
+them is what produced the table above. **Print the `psf-framed-*` and
+`psf-printed-*` parts now**, starting with the four `psf-framed-h-*`
+heights, which sweep 0.20 to 0.65 mm along the axis the measurements so far
+have been on. The two `psf-printed-h-*` are the blade-free variants and cost
+nothing extra to try. The `-v` parts repeat both on the sensor axis.
 
 - **Black** PLA or PETG. Not translucent, not white.
-- 0.2 mm layers. The base is 5 layers, the ridges 5 more.
-- No supports. Every feature is additive from a flat bottom face.
-- 4 perimeters, or just set 100% infill — the part is thin anyway.
-- Overall 50.8 × 50.8 × 2.0 mm, within the 1.3–3.2 mm a slide mount may be.
+- 0.2 mm layers, which is also what the aperture flare is stepped at.
+- No supports. Every feature is additive from a flat bottom face, the flare
+  included: it opens upward, so each layer rests on one that reaches
+  further in.
+- 4 perimeters, or 100% infill.
+- Overall 50.8 × 50.8 × 2.6 mm, inside the 1.3–3.2 mm a slide mount may be,
+  and with at least 2.3 mm of that thickness unbroken around the outline.
 
-Nothing is thinner than 1.0 mm except the pocket clearance, so a 0.4 mm
-nozzle has no trouble with it.
+For a `psf-printed-*` part the first layer is the measurement, so give it
+whatever the printer does best: a clean bed, no brim crossing the aperture,
+and no elephant's-foot compensation set so high that it eats the edge. A
+uniform bulge there only shifts the edge, which the fit absorbs; what cannot
+be absorbed is roughness along it.
 
 ## Use
 
@@ -83,9 +166,10 @@ nozzle has no trouble with it.
    the aperture.
 3. Load into the slide holder and scan at 3600 dpi, no infrared:
    `nv-cli scan <device> --dpi 3600 -o target.pnm`
-4. `psf-target-v-*` has the edge near vertical and measures the **sensor
-   axis**. `psf-target-h-*` has it near horizontal and measures the **feed
-   axis**.
+4. `*-v-*` has the edge near vertical and measures the **sensor axis**;
+   `*-h-*` has it near horizontal and measures the **feed axis**.
+
+A `psf-printed-*` part skips steps 1 and 2 — there is nothing to put in it.
 
 The tilt matters and is not cosmetic. A rigid edge aligned with the pixel
 grid gives every scan line the same sub-pixel phase, so there is nothing to
@@ -101,3 +185,14 @@ python3 check_target.py psf-target-v-base1.stl 5 1.0 plan-v.png
 Prints the bounding box and whether the part stays inside the slide outline,
 and draws a plan view with the aperture in red and the blade's cutting edge
 in orange. `plan-v.png` and `plan-h.png` are the two committed views.
+
+For the second-generation parts:
+
+```
+python3 check_framed_target.py psf-framed-h-base0.20.stl plan.pnm
+```
+
+That one reads the STL back rather than re-running the generator's own
+arithmetic, so it measures the solid that will actually print: bounding box,
+the area at each height, how far material reaches into the aperture, and the
+narrowest place where the outline is not at full thickness.
