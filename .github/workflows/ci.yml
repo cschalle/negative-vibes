@@ -19,6 +19,13 @@ jobs:
       - name: Install libsane
         run: dnf install -y sane-backends-devel
 
+      # argyllcms is scanin and colprof; argyllcms-data carries it8.cht, which
+      # is a separate package and is what the chart lookup needs. Without both
+      # the IT8 calibration test reports ok while skipping itself, which is no
+      # coverage at all.
+      - name: Install ArgyllCMS
+        run: dnf install -y argyllcms argyllcms-data
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
