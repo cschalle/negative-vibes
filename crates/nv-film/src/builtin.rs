@@ -2,7 +2,15 @@ use crate::profile::{FilmKind, FilmProfile};
 
 /// Built-in film profiles shipped with the application.
 pub fn builtin_profiles() -> Vec<FilmProfile> {
-    vec![FilmProfile::identity(), FilmProfile::generic_bw(), FilmProfile::generic_positive(), kodak_portra_400(), kodak_gold_200(), fuji_superia_400(), kodak_tmax_400()]
+    vec![
+        FilmProfile::generic_colour_negative(),
+        FilmProfile::generic_bw(),
+        FilmProfile::generic_positive(),
+        kodak_portra_400(),
+        kodak_gold_200(),
+        fuji_superia_400(),
+        kodak_tmax_400(),
+    ]
 }
 
 fn kodak_portra_400() -> FilmProfile {

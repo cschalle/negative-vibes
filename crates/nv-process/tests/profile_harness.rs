@@ -3,6 +3,8 @@
 //!
 //! `NV_P_IN` (absolute), `NV_P_OUT`, `NV_P_PROFILE` (index into
 //! `builtin_profiles`), `NV_P_CAST` (0..1), `NV_P_AUTO` (1 = auto tone).
+//! `NV_P_GAMMA` ("r,g,b") and `NV_P_XTALK` (nine, row-major) override the
+//! chosen profile's, so candidate values can be measured without a rebuild.
 
 use nv_film::builtin_profiles;
 use nv_process::{Proxy, auto_tone, default_params_for, estimate_film_base_proxy, render};
@@ -18,7 +20,19 @@ fn profile_harness() {
     let raw = nv_store::raw_io::RawReader::read(std::path::Path::new(&input)).expect("raw");
     let proxy = Proxy::from_raw(&raw, usize::MAX);
     let profiles = builtin_profiles();
-    let profile = &profiles[idx];
+    let mut profile = profiles[idx].clone();
+    let nums = |v: String| -> Vec<f32> { v.split(',').filter_map(|x| x.trim().parse().ok()).collect() };
+    if let Ok(g) = std::env::var("NV_P_GAMMA")
+        && let [r, g2, b] = nums(g)[..]
+    {
+        profile.gamma = [r, g2, b];
+    }
+    if let Ok(x) = std::env::var("NV_P_XTALK")
+        && let [a, b, c, d, e, f, g2, h, i] = nums(x)[..]
+    {
+        profile.crosstalk = [[a, b, c], [d, e, f], [g2, h, i]];
+    }
+    let profile = &profile;
     let mut params = default_params_for(profile);
     params.conversion.film_base = Some(estimate_film_base_proxy(&proxy));
     params.conversion.cast_removal = cast;
@@ -30,5 +44,5 @@ fn profile_harness() {
     let mut out = format!("P6\n{} {}\n255\n", proxy.width, proxy.height).into_bytes();
     out.extend_from_slice(&rgb);
     std::fs::write(&output, out).expect("write");
-    eprintln!("profile[{idx}] {} / {}  cast={cast}  -> {output}", profile.vendor, profile.name);
+    eprintln!("profile[{idx}] {} / {}  cast={cast} gamma={:?} -> {output}", profile.vendor, profile.name, profile.gamma);
 }

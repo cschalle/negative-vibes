@@ -608,6 +608,31 @@ imported, exported and deleted; shipped ones can be neither replaced nor deleted
 measured on one scanner is valid on another only through the scanner profile, so profiles record
 their device.
 
+**The generic colour negative models a film.** It used to be `FilmProfile::identity` -- unit
+gamma and an identity crosstalk matrix -- so the default render, which is what a frame gets until
+someone picks a stock, applied no film modelling at all while the named stocks did. It now
+carries the consensus dye crosstalk of the three consumer stocks above. On the tulip frame that
+is worth about 9% chroma on the red tulip and moves the foliage from a\* -3.5 to -4.2, while the
+concrete wall beside it stays where it was (b\* -5.14 to -5.94). `identity` is still there and
+still an identity, because several tests want a clean base; the B&W and positive generics are
+built on it and a test pins that neither picks up dye crosstalk, since silver has no dyes and a
+slide was never negative-converted.
+
+**Gamma is deliberately left at unity there**, which is not obvious: the named stocks all carry a
+spread, and averaging theirs in looks like the natural thing to do. It does not do what the field
+name suggests at this point in the pipeline. Cast removal (step 2b) fits R and B to G with a
+straight line, and a straight line cannot undo a power, so what survives a per-channel gamma is a
+warm or cool shift over the whole frame rather than any gain in separation -- at [0.6, 1.0, 1.4]
+the wall's b\* runs from -5.14 to +13.89. Measured against the one external reference available,
+SilverFast's own conversion of the same scan of the dusty frame: the crosstalk leaves our hue
+error where it was, 9.9 degrees to 9.8, while the stocks' average gamma rotated it to 13.7, away
+from the reference. A profile that moves hue has to be measured on *that* stock.
+
+That leaves a hue error of about 10 degrees against SilverFast that none of these levers touch,
+on a frame where neither of us has ground truth. It is not the profile: it survives every
+combination of gamma and crosstalk tried. The remaining suspects are the film-base estimate and
+the cast-removal fit, and settling it needs a target rather than another scan of a photograph.
+
 ### 7.5 Dust removal
 
 **Infrared (stage 2).** The infrared plane is fitted, robustly and jointly, to a degree-4
