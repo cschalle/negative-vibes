@@ -55,6 +55,10 @@ pub struct RenderArgs {
     #[arg(long, default_value = "0.0")]
     pub exposure: f32,
 
+    /// Keep the holder: do not cut the opaque mount off the edges of the scan.
+    #[arg(long)]
+    pub no_auto_crop: bool,
+
     /// Skip auto levels and render with the tone controls as given. Auto
     /// levels are what the window applies when a frame is opened, so they are
     /// on here too: without them this command's output is not the picture the
@@ -93,6 +97,21 @@ pub struct RenderArgs {
 
 pub fn run(args: RenderArgs) -> anyhow::Result<()> {
     let buf = RawReader::read(&args.input).map_err(|e| anyhow::anyhow!("Failed to read {}: {e}", args.input.display()))?;
+
+    // The scanner's window is wider than the hole in the holder, so a scan
+    // carries a band of the opaque mount on each side. Cut it before anything
+    // measures the frame.
+    let buf = match (args.no_auto_crop, nv_process::aperture::picture_window(&buf)) {
+        (false, Some([x0, y0, x1, y1])) if (x1 - x0 + 1, y1 - y0 + 1) != (buf.width, buf.effective_height()) => {
+            println!("Aperture: picture at x {x0}..{x1}, y {y0}..{y1}; cropped from {}×{}", buf.width, buf.effective_height());
+            buf.crop(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+        }
+        (false, _) => {
+            println!("Aperture: no holder or rebate found; nothing cropped");
+            buf
+        }
+        (true, _) => buf,
+    };
 
     let w = buf.width;
     let h = buf.effective_height();

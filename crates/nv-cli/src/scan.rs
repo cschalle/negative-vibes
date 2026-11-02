@@ -106,6 +106,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
             // Auto levels, as the window applies them, and nothing overriding
             // them: this preview is meant to look like the opened frame.
             no_auto_tone: false,
+            no_auto_crop: false,
             black_point: None,
             white_point: None,
             midtone: None,

@@ -2,6 +2,7 @@
 #![allow(unknown_lints, clippy::needless_range_loop, clippy::too_many_arguments, clippy::manual_memcpy, clippy::chunks_exact_to_as_chunks)]
 
 pub mod analysis;
+pub mod aperture;
 pub mod colour;
 mod conversion;
 pub mod curves;

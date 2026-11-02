@@ -770,6 +770,44 @@ only edge the scanner can deliver, the overshoot is 3.9% of the step on the feed
 the sensor axis. Against an ideal step the same filter overshoots 32%, which is why the test uses
 a blurred one.
 
+### 7.9 The holder's aperture
+
+The scanner's window is larger than the hole in the film holder, and the frame inside that hole
+is rarely centred, so a scan carries two borders that are not picture: the **holder**, an opaque
+mount that inverts to a blown white band, and the **rebate**, the clear film between frames,
+which inverts to a solid black one. `nv-process::aperture::picture_window` finds the picture
+without any guess about where the frame ought to be.
+
+Measured on a 3600 dpi scan of a colour negative: holder lines pass 0.2-0.5% of what the film
+base does, while the rebate sits at 97-98% of the base and is flat, a spread of 0.025 where the
+picture's lines run 0.070 to 0.099. So a line is *not* picture when it is nearly opaque
+(`OPAQUE`, 3% of the base) or when it is both clear and flat (`CLEAR` 85%, `FLAT` half the
+median line's spread). The picture is the longest run of the rest, and a short bounded walk in
+from each end clears the mount's soft edge, which took eleven rows to climb at 3600 dpi.
+
+**Flatness alone is not evidence, and assuming it was cost the tulip fixture its sky.** A sky or
+a white wall is a big even area of the scene, which on a negative is dense and featureless and
+reads very much like a mount; a first version that tested for "dark or flat" cropped the
+building and the sky off the top of the frame. Darkness is therefore judged only against the
+holder's near-total opacity, and flatness only ever helps identify the rebate, which has to be
+clear as well.
+
+Each axis is measured over what the other kept, because a column crossing the holder bands above
+and below the film carries their darkness into its own statistics and stops looking like the
+bare film it is. Measured, with `--dust off`:
+
+| scan | before | after | cut |
+|---|---|---|---|
+| dusty frame, 3600 dpi | 5184 × 3877 | 4919 × 3411 | holder and the rebate down the right |
+| `tulip-600` | 864 × 645 | 837 × 575 | holder only; the sky kept |
+| `bw-negative-glass-with-light` | 2508 × 1680 | 2505 × 1680 | nothing to speak of: no holder in it |
+
+On the dusty frame this takes the right-hand edge from 49.2% of its pixels pure black to 1.7%,
+against SilverFast's 39.5% -- SilverFast keeps that rebate, so here the crop is tighter than
+theirs. **`nv-cli render` applies it** (`--no-auto-crop` turns it off). The window is *not* yet
+applied in the application: its canvas and loupe address the scan by raw pixel coordinates, so
+cropping underneath them would move the picture out from under the overlay.
+
 ## 8. User interface
 
 ### 8.1 How SilverFast's model maps to GNOME
