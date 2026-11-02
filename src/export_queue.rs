@@ -268,7 +268,9 @@ fn run(job: &ExportJob, events: &Sender<ExportEvent>, cancel: &AtomicBool) -> Re
     // inside it is rarely centred, so the scan carries the opaque mount and the
     // clear rebate around the picture (DESIGN.md §7.9). Neither is picture, and
     // on a negative they come out as a blown white band and a solid black one.
-    let raw = match nv_process::aperture::picture_window(&raw) {
+    // Measured on a proxy at the editor's own budget, so the file written here
+    // is cut exactly where the canvas showed it cut.
+    let raw = match nv_process::aperture::picture_window_of(&Proxy::from_raw(&raw, DEFAULT_PROXY_PIXELS)) {
         Some([x0, y0, x1, y1]) => raw.crop(x0, y0, x1 - x0 + 1, y1 - y0 + 1),
         None => raw,
     };
@@ -367,7 +369,7 @@ mod tests {
 
     /// The scanner's window is larger than the hole in the holder, so what it
     /// hands back is not the picture: the tulip fixture is 864 x 645 and
-    /// carries the opaque mount around three sides of a 837 x 575 frame. An
+    /// carries the opaque mount around three sides of a 838 x 575 frame. An
     /// export used to be the whole thing, blown white border and all, on the
     /// assumption -- written into the comment this replaced -- that the scan
     /// was already the frame's rectangle.
@@ -388,7 +390,7 @@ mod tests {
             })
             .expect("the export finished");
 
-        assert_eq!((report.width, report.height), (837, 575), "the export is not the picture: {} x {}", report.width, report.height);
+        assert_eq!((report.width, report.height), (838, 575), "the export is not the picture: {} x {}", report.width, report.height);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

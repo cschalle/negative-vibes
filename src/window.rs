@@ -167,6 +167,13 @@ pub(crate) mod imp {
         /// of a few hundred megabytes is rendered from its proxy, and holding
         /// the whole raw beside the proxy only costs memory.
         pub scan_dims: Cell<Option<(u32, u32)>>,
+        /// Where the picture sits inside the scan on disk: the holder's
+        /// aperture, as `[x0, y0, x1, y1]` scan pixels, ends inclusive
+        /// (DESIGN.md §7.9). The canvas, the proxy and `scan_dims` are all the
+        /// picture alone, so this is what the loupe adds back when it seeks
+        /// into the file for a block. `None` for a preview, which holds
+        /// several frames and whose own crop is stored per frame.
+        pub aperture: Cell<Option<[u32; 4]>>,
         pub scan_state: RefCell<ScanUiState>,
         pub selected_frame: RefCell<Option<u32>>,
 
@@ -2806,9 +2813,40 @@ impl Window {
         self.load_frame_buf_with_proxy(buf, proxy);
     }
 
+    /// Cut the holder and the rebate off what the canvas will show, and
+    /// remember where the picture sat so the loupe can seek to it
+    /// (DESIGN.md §7.9).
+    ///
+    /// Measured on the proxy rather than the scan: the canvas already has the
+    /// proxy, so it costs nothing, and the export measures the proxy it builds
+    /// at the same budget and so cuts in the same place. A preview is left
+    /// alone -- it holds several frames, and each frame's own crop is stored
+    /// against it in preview coordinates.
+    fn cut_to_picture(&self, proxy: nv_process::Proxy, size: (u32, u32)) -> (nv_process::Proxy, (u32, u32)) {
+        self.imp().aperture.set(None);
+        if self.imp().preview_ready.get() {
+            return (proxy, size);
+        }
+        let Some([x0, y0, x1, y1]) = nv_process::aperture::picture_window_of(&proxy) else {
+            return (proxy, size);
+        };
+        let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
+        if (w, h) == size {
+            return (proxy, size);
+        }
+        let f = proxy.factor.max(1);
+        let cut = proxy.cropped(x0 as usize / f, y0 as usize / f, w as usize / f, h as usize / f);
+        if cut.width == 0 || cut.height == 0 {
+            return (proxy, size);
+        }
+        self.imp().aperture.set(Some([x0, y0, x1, y1]));
+        (cut, (w, h))
+    }
+
     /// Show a big scan from its working-size copy alone: the frame is not held
     /// in memory, only its size.
     fn load_proxy_only(&self, proxy: nv_process::Proxy, size: (u32, u32)) {
+        let (proxy, size) = self.cut_to_picture(proxy, size);
         *self.imp().scan_buf.borrow_mut() = None;
         self.imp().scan_dims.set(Some(size));
         *self.imp().proxy.borrow_mut() = Some(std::sync::Arc::new(proxy));
@@ -2823,7 +2861,14 @@ impl Window {
         // needs the pixels again (detection, saving the preview) is about
         // previews, and a big raw is read from its file when exported.
         const KEEP_WHOLE_BYTES: usize = 96 << 20;
-        self.imp().scan_dims.set(Some((buf.width, buf.effective_height())));
+        let (proxy, size) = self.cut_to_picture(proxy, (buf.width, buf.effective_height()));
+        // The buffer has to be cut the same way: the loupe reads its blocks
+        // straight out of it, in the coordinates the canvas is using.
+        let buf = match self.imp().aperture.get() {
+            Some([x0, y0, x1, y1]) => buf.crop(x0, y0, x1 - x0 + 1, y1 - y0 + 1),
+            None => buf,
+        };
+        self.imp().scan_dims.set(Some(size));
         *self.imp().scan_buf.borrow_mut() = (buf.bytes_received() <= KEEP_WHOLE_BYTES).then_some(buf);
         *self.imp().proxy.borrow_mut() = Some(std::sync::Arc::new(proxy));
         self.set_page("canvas");

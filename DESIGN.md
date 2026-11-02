@@ -809,12 +809,27 @@ theirs. **`nv-cli render` applies it** (`--no-auto-crop` turns it off), and so d
 rather than 864 x 645, pinned by a test. The film base is read off the whole scan before the
 crop, because the base *is* the rebate that is about to go.
 
-The **canvas and loupe still show the whole scan**. They address it by raw pixel coordinates --
-`scan_image_size`, the proxy, and the loupe's seeked `RawReader::region` reads -- so cropping
-underneath them means moving all three together, and a mistake there puts the loupe over the
-wrong part of the picture. That is worth doing, and worth doing with the application running in
-front of a real scan rather than on inference; until then the editor shows a little more than
-the export will contain.
+**The editor shows the picture too.** Loading a scan measures the window on the proxy it has
+just built (`Window::cut_to_picture`), cuts the proxy to it with `Proxy::cropped`, and keeps the
+window in `imp.aperture`. The proxy's `origin` and `full` are rebased on the cut, so everything
+stored as a fraction of the scan is a fraction of the picture and agrees with an export of the
+cropped scan.
+
+The measurement runs on the **proxy**, not the raw scan, so the canvas and the export -- which
+measures the proxy it builds at the same budget -- cut in exactly the same place. A reduced
+proxy is looser than the scan, never tighter: a proxy pixel on the boundary mixes mount with
+picture and reads brighter than the mount, so it is kept. That direction is the safe one and a
+test pins it.
+
+The one thing that does *not* move with the crop is the file on disk, which still has the holder
+in it. The loupe seeks into that file for its blocks, so it adds the window's origin back before
+reading (`render_block`'s last argument); the in-memory buffer was cut when it was loaded and so
+does not. Getting this wrong puts the loupe over the wrong part of the picture, and a test reads
+one block through the file and the same block through memory and requires them to match -- it
+fails by 97 levels without the offset.
+
+A preview is left alone. It holds several frames, and each frame's own crop is stored against it
+in preview coordinates.
 
 ## 8. User interface
 

@@ -24,6 +24,8 @@
 
 use nv_image::{FrameBuf, read_sample};
 
+use crate::Proxy;
+
 /// A line passing less than this share of the film base is the holder.
 /// The measured margin is a factor of ten either side of it.
 const OPAQUE: f32 = 0.03;
@@ -70,21 +72,54 @@ fn quantile(hist: &[u32], frac: f32) -> f32 {
     (BINS - 1) as f32
 }
 
-/// A histogram of the brightest colour for every line along `axis`, over the
-/// rectangle `x0..x1`, `y0..y1`.
-fn line_hists(raw: &FrameBuf, (x0, x1): (usize, usize), (y0, y1): (usize, usize), axis: Axis) -> Vec<u32> {
-    let (bps, ch) = (raw.depth as usize / 8, raw.channels as usize);
-    let colours = ch.min(3);
-    let data = raw.as_bytes();
-    let shift = if bps == 1 { 0 } else { 8 };
+/// Somewhere to read the brightest colour of a scan pixel, in `[0, 1]`.
+///
+/// The same measurement runs on a raw buffer and on the reduced proxy the
+/// canvas already holds, so that the editor, the loupe and the export all cut
+/// at exactly the same place rather than each measuring for itself.
+trait Field {
+    fn size(&self) -> (usize, usize);
+    fn at(&self, x: usize, y: usize) -> f32;
+}
+
+struct Raw<'a> {
+    buf: &'a FrameBuf,
+    bps: usize,
+    ch: usize,
+    colours: usize,
+    h: usize,
+    scale: f32,
+}
+
+impl Field for Raw<'_> {
+    fn size(&self) -> (usize, usize) {
+        (self.buf.width as usize, self.h)
+    }
+    fn at(&self, x: usize, y: usize) -> f32 {
+        let o = y * self.buf.bytes_per_row + x * self.ch * self.bps;
+        let data = self.buf.as_bytes();
+        (0..self.colours).map(|c| read_sample(data, o + c * self.bps, self.bps)).max().unwrap_or(0) as f32 / self.scale
+    }
+}
+
+impl Field for Proxy {
+    fn size(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+    fn at(&self, x: usize, y: usize) -> f32 {
+        let p = &self.pixels[(y * self.width + x) * 3..][..3];
+        p[0].max(p[1]).max(p[2])
+    }
+}
+
+/// A histogram of every line along `axis`, over the rectangle `x0..x1`,
+/// `y0..y1` of `f`.
+fn line_hists(f: &impl Field, (x0, x1): (usize, usize), (y0, y1): (usize, usize), axis: Axis) -> Vec<u32> {
     let n = if axis == Axis::Rows { y1 - y0 } else { x1 - x0 };
     let mut hists = vec![0u32; n * BINS];
     for y in y0..y1 {
-        let row = y * raw.bytes_per_row;
         for x in x0..x1 {
-            let o = row + x * ch * bps;
-            let v = (0..colours).map(|c| read_sample(data, o + c * bps, bps)).max().unwrap_or(0);
-            let b = ((v >> shift) as usize).min(BINS - 1);
+            let b = ((f.at(x, y).clamp(0.0, 1.0) * (BINS - 1) as f32) as usize).min(BINS - 1);
             let line = if axis == Axis::Rows { y - y0 } else { x - x0 };
             hists[line * BINS + b] += 1;
         }
@@ -141,20 +176,20 @@ fn span(hists: &[u32], n: usize, base: f32) -> (usize, usize) {
     (if a >= i + lim { i } else { a }, if b <= j - lim { j } else { b })
 }
 
-/// The picture in `raw`, as pixels `[x0, y0, x1, y1]`, both ends inclusive.
+/// The picture in `f`, as pixels `[x0, y0, x1, y1]`, both ends inclusive.
 ///
 /// Each axis is measured over what the other one kept, because a column that
 /// runs through the holder bands above and below the film carries their
 /// darkness into its own statistics and stops looking like the bare film it
-/// is. `None` when the scan is too small to judge.
-pub fn picture_window(raw: &FrameBuf) -> Option<[u32; 4]> {
-    let (w, h) = (raw.width as usize, raw.rows_available().min(raw.effective_height()) as usize);
+/// is.
+fn window(f: &impl Field) -> Option<[u32; 4]> {
+    let (w, h) = f.size();
     if w < 64 || h < 64 {
         return None;
     }
 
     // The film base is the clearest film in the scan: the rebate is made of it.
-    let whole = line_hists(raw, (0, w), (0, h), Axis::Rows);
+    let whole = line_hists(f, (0, w), (0, h), Axis::Rows);
     let mut all = [0u32; BINS];
     for y in 0..h {
         for (b, n) in all.iter_mut().zip(&whole[y * BINS..][..BINS]) {
@@ -167,9 +202,30 @@ pub fn picture_window(raw: &FrameBuf) -> Option<[u32; 4]> {
     }
 
     let (y0, y1) = span(&whole, h, base);
-    let (cx0, cx1) = span(&line_hists(raw, (0, w), (y0, y1 + 1), Axis::Cols), w, base);
-    let (ry0, ry1) = span(&line_hists(raw, (cx0, cx1 + 1), (0, h), Axis::Rows), h, base);
+    let (cx0, cx1) = span(&line_hists(f, (0, w), (y0, y1 + 1), Axis::Cols), w, base);
+    let (ry0, ry1) = span(&line_hists(f, (cx0, cx1 + 1), (0, h), Axis::Rows), h, base);
     (cx1 > cx0 && ry1 > ry0).then_some([cx0 as u32, ry0 as u32, cx1 as u32, ry1 as u32])
+}
+
+/// The picture in a raw scan, as pixels `[x0, y0, x1, y1]`, ends inclusive.
+pub fn picture_window(raw: &FrameBuf) -> Option<[u32; 4]> {
+    let (bps, ch) = (raw.depth as usize / 8, raw.channels as usize);
+    let h = raw.rows_available().min(raw.effective_height()) as usize;
+    let scale = if bps == 1 { 255.0 } else { 65535.0 };
+    window(&Raw { buf: raw, bps, ch, colours: ch.min(3), h, scale })
+}
+
+/// The picture in the scan `p` was reduced from, in that scan's own pixels.
+///
+/// The canvas already holds this proxy, so the editor pays nothing to ask, and
+/// an export that asks the same proxy gets the same answer to the pixel.
+pub fn picture_window_of(p: &Proxy) -> Option<[u32; 4]> {
+    let [x0, y0, x1, y1] = window(p)?;
+    let (fw, fh) = p.full;
+    let (ox, oy) = (p.origin.0 as u32, p.origin.1 as u32);
+    let f = p.factor as u32;
+    let scale = |v: u32, o: u32, end: bool, lim: usize| -> u32 { (o + if end { (v + 1) * f - 1 } else { v * f }).min(lim as u32 - 1) };
+    Some([scale(x0, ox, false, fw), scale(y0, oy, false, fh), scale(x1, ox, true, fw), scale(y1, oy, true, fh)])
 }
 
 #[cfg(test)]

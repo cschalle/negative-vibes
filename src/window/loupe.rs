@@ -115,6 +115,7 @@ impl Window {
         // A preview is in memory; a big scan is read from disk, just this block.
         let in_memory = imp.scan_buf.borrow().as_ref().map(|b| b.crop(rx0, ry0, rw, rh));
         let path = imp.displayed_file.borrow().clone();
+        let aperture = imp.aperture.get().map_or((0, 0), |[x, y, _, _]| (x, y));
         let cached = imp.loupe_frozen.borrow().clone();
 
         let gen_cell = if hq { &imp.hq_gen } else { &imp.loupe_gen };
@@ -122,7 +123,7 @@ impl Window {
         let generation = gen_cell.get();
         let weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
-            let result = gio::spawn_blocking(move || render_block(&proxy, &params, cached, in_memory, path, (rx0, ry0, rw, rh), (x0, y0, bw, bh), o)).await;
+            let result = gio::spawn_blocking(move || render_block(&proxy, &params, cached, in_memory, path, (rx0, ry0, rw, rh), (x0, y0, bw, bh), o, aperture)).await;
             let Some(win) = weak.upgrade() else { return };
             let current = if hq { win.imp().hq_gen.get() } else { win.imp().loupe_gen.get() };
             if current != generation {
@@ -294,10 +295,16 @@ fn render_block(
     (rx0, ry0, rw, rh): (u32, u32, u32, u32),
     (x0, y0, bw, bh): (u32, u32, u32, u32),
     orientation: nv_process::Orientation,
+    // Where the picture starts in the file. The canvas, and so every
+    // coordinate here, is the picture alone (DESIGN.md §7.9); the file still
+    // has the holder around it, so a seek into it has to add that back. The
+    // in-memory buffer was cut to the picture when it was loaded, so it does
+    // not.
+    (ax, ay): (u32, u32),
 ) -> Option<((u64, ProcessParams, ProcessParams), usize, usize, Vec<u8>)> {
     let region = match in_memory {
         Some(r) => r,
-        None => RawReader::region(&path?, rx0, ry0, rw, rh).ok()?,
+        None => RawReader::region(&path?, rx0 + ax, ry0 + ay, rw, rh).ok()?,
     };
     if region.width == 0 {
         return None;
@@ -351,7 +358,7 @@ mod tests {
         let (rx0, ry0) = (x0 - MARGIN, y0 - MARGIN);
         let (rw, rh) = (bw + 2 * MARGIN, bh + 2 * MARGIN);
         for o in [Orientation::IDENTITY, Orientation { rotation: 1, flip_h: true, flip_v: false }] {
-            let (_, w, h, got) = render_block(&proxy, &params, None, Some(raw.crop(rx0, ry0, rw, rh)), None, (rx0, ry0, rw, rh), (x0, y0, bw, bh), o).expect("a block");
+            let (_, w, h, got) = render_block(&proxy, &params, None, Some(raw.crop(rx0, ry0, rw, rh)), None, (rx0, ry0, rw, rh), (x0, y0, bw, bh), o, (0, 0)).expect("a block");
             assert_eq!(o.output_size(bw as usize, bh as usize), (w, h), "{o:?}");
 
             // The same block, cut from the whole picture rendered at once.
@@ -366,11 +373,53 @@ mod tests {
         }
     }
 
+    /// The canvas shows the picture with the holder cut off (DESIGN.md §7.9),
+    /// so every coordinate the loupe is given counts from the picture's corner
+    /// -- but the file on disk still has the holder around it. A seek into it
+    /// has to add that back, or the loupe lands somewhere else entirely: on
+    /// this fixture the picture starts 37 rows down, so a block would come
+    /// back 37 rows high in the wrong place.
+    #[test]
+    fn the_loupe_seeks_past_the_holder_to_reach_the_picture() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/plustek8200i/tulip-600.pnm");
+        let raw = tulip();
+        let whole = Proxy::from_raw(&raw, nv_process::DEFAULT_PROXY_PIXELS);
+        let [ax, ay, x1, y1] = nv_process::aperture::picture_window_of(&whole).expect("an aperture");
+        assert!(ay > 0, "the fixture no longer has a holder to seek past");
+
+        // What the window does when it loads this scan.
+        let (pw, ph) = (x1 - ax + 1, y1 - ay + 1);
+        let f = whole.factor.max(1);
+        let picture = Arc::new(whole.cropped(ax as usize / f, ay as usize / f, pw as usize / f, ph as usize / f));
+        let cut = raw.crop(ax, ay, pw, ph);
+
+        let mut params = default_params_for(&builtin_profiles()[0]);
+        params.dust.mode = DustMode::Off;
+        let (x0, y0, bw, bh) = (200u32, 150u32, 160u32, 110u32);
+        let (rx0, ry0) = (x0 - MARGIN, y0 - MARGIN);
+        let (rw, rh) = (bw + 2 * MARGIN, bh + 2 * MARGIN);
+        let o = Orientation::IDENTITY;
+
+        // Read from the file, which still holds the holder: the offset is the
+        // only thing that puts the block in the right place.
+        let (_, w, h, from_disk) = render_block(&picture, &params, None, None, Some(path), (rx0, ry0, rw, rh), (x0, y0, bw, bh), o, (ax, ay)).expect("a block from the file");
+        // The same block from the buffer the window keeps, already cut.
+        let (_, _, _, from_memory) =
+            render_block(&picture, &params, None, Some(cut.crop(rx0, ry0, rw, rh)), None, (rx0, ry0, rw, rh), (x0, y0, bw, bh), o, (ax, ay)).expect("a block from memory");
+
+        assert_eq!((w, h), (bw as usize, bh as usize));
+        let worst = from_disk.iter().zip(&from_memory).map(|(a, b)| (*a as i32 - *b as i32).abs()).max().unwrap();
+        assert!(worst <= 1, "the loupe reads {worst} levels away from where the canvas is looking");
+    }
+
     #[test]
     fn a_block_outside_the_scan_gives_nothing() {
         let raw = tulip();
         let proxy = Arc::new(Proxy::from_raw(&raw, nv_process::DEFAULT_PROXY_PIXELS));
         let params = default_params_for(&builtin_profiles()[0]);
-        assert!(render_block(&proxy, &params, None, Some(raw.crop(5000, 5000, 100, 100)), None, (5000, 5000, 100, 100), (5000, 5000, 100, 100), Orientation::IDENTITY).is_none());
+        assert!(
+            render_block(&proxy, &params, None, Some(raw.crop(5000, 5000, 100, 100)), None, (5000, 5000, 100, 100), (5000, 5000, 100, 100), Orientation::IDENTITY, (0, 0))
+                .is_none()
+        );
     }
 }

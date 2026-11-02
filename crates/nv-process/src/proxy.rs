@@ -179,6 +179,33 @@ impl Proxy {
 
     /// Decode the `w × h` block of `raw` at `(x0, y0)` at full resolution.
     /// The block is clipped to the scan.
+    /// The part of this proxy inside `x0..x0 + w`, `y0..y0 + h`, in proxy
+    /// pixels, as a proxy of that part of the scan standing on its own.
+    ///
+    /// Used to cut the holder off what the canvas shows (DESIGN.md §7.9).
+    /// `origin` and `full` are rebased on the cut, so everything stored as a
+    /// fraction of the scan -- tiles, loupe blocks -- is a fraction of the
+    /// picture instead, and agrees with an export of the cropped scan.
+    pub fn cropped(&self, x0: usize, y0: usize, w: usize, h: usize) -> Self {
+        let (x1, y1) = ((x0 + w).min(self.width), (y0 + h).min(self.height));
+        if x0 >= x1 || y0 >= y1 {
+            return Self::new(0, 0, self.factor.max(1), Vec::new());
+        }
+        let (w, h) = (x1 - x0, y1 - y0);
+        let take = |src: &[f32], n: usize| -> Vec<f32> {
+            let mut out = Vec::with_capacity(w * h * n);
+            for y in y0..y1 {
+                out.extend_from_slice(&src[(y * self.width + x0) * n..][..w * n]);
+            }
+            out
+        };
+        let mut p = Self::new(w, h, self.factor, take(&self.pixels, 3));
+        p.ir = self.ir.as_ref().map(|ir| take(ir, 1));
+        p.origin = (0, 0);
+        p.full = (w * self.factor, h * self.factor);
+        p
+    }
+
     pub fn from_raw_region(raw: &FrameBuf, x0: usize, y0: usize, w: usize, h: usize) -> Self {
         let (rw, rh) = (raw.width as usize, raw.effective_height() as usize);
         let (x1, y1) = ((x0 + w).min(rw), (y0 + h).min(rh));
