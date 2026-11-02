@@ -53,6 +53,20 @@ jobs:
             echo "::warning::NV_GOOGLE_CLIENT_SECRET is not set; this build cannot sign in to Google Photos"
           fi
 
+      # The version in the repository is the release (0.1.0); a CI build adds which build it is,
+      # as semver build metadata (0.1.0+57.4c9ed76), so an installed copy can be told from the
+      # one before it. It shows in About and as the Flatpak's version, and the checkout is
+      # only the build's, so nothing is committed.
+      - name: Stamp the build number into the version
+        run: |
+          base=$(sed -n 's/^version = "\([0-9][0-9.]*\)"$/\1/p' Cargo.toml | head -1)
+          version="${base}+${GITHUB_RUN_NUMBER}.${GITHUB_SHA::7}"
+          sed -i "0,/^version = \"${base}\"$/s//version = \"${version}\"/" Cargo.toml
+          sed -i "0,/version: '${base}',/s//version: '${version}',/" meson.build
+          sed -i "0,/<release version=\"${base}\"/s//<release version=\"${version}\"/" data/io.github.cschalle.NegativeVibes.metainfo.xml.in
+          grep -n "${version}" Cargo.toml meson.build data/io.github.cschalle.NegativeVibes.metainfo.xml.in
+          echo "Version is now ${version}"
+
       - name: Build the Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
