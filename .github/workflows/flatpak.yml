@@ -39,6 +39,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Google asks for the secret of an installed app all the same, and the git-ignored
+      # build-aux/google-client.env that carries it locally is not in a checkout. The
+      # build reads it from there. Pull requests from forks get no secrets: their build
+      # has no Google sign-in.
+      - name: Give the build the Google client secret
+        env:
+          NV_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE }}
+        run: |
+          if [ -n "$NV_GOOGLE_CLIENT_SECRET" ]; then
+            printf 'NV_GOOGLE_CLIENT_SECRET=%s\n' "$NV_GOOGLE_CLIENT_SECRET" > build-aux/google-client.env
+          else
+            echo "::warning::NV_GOOGLE_CLIENT_SECRET is not set; this build cannot sign in to Google Photos"
+          fi
+
       - name: Build the Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
