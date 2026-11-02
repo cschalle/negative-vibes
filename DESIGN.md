@@ -804,9 +804,17 @@ bare film it is. Measured, with `--dust off`:
 
 On the dusty frame this takes the right-hand edge from 49.2% of its pixels pure black to 1.7%,
 against SilverFast's 39.5% -- SilverFast keeps that rebate, so here the crop is tighter than
-theirs. **`nv-cli render` applies it** (`--no-auto-crop` turns it off). The window is *not* yet
-applied in the application: its canvas and loupe address the scan by raw pixel coordinates, so
-cropping underneath them would move the picture out from under the overlay.
+theirs. **`nv-cli render` applies it** (`--no-auto-crop` turns it off), and so does **export**
+(`export_queue::run`), which is the file anyone keeps: the tulip fixture exports as 837 x 575
+rather than 864 x 645, pinned by a test. The film base is read off the whole scan before the
+crop, because the base *is* the rebate that is about to go.
+
+The **canvas and loupe still show the whole scan**. They address it by raw pixel coordinates --
+`scan_image_size`, the proxy, and the loupe's seeked `RawReader::region` reads -- so cropping
+underneath them means moving all three together, and a mistake there puts the loupe over the
+wrong part of the picture. That is worth doing, and worth doing with the application running in
+front of a real scan rather than on inference; until then the editor shows a little more than
+the export will contain.
 
 ## 8. User interface
 

@@ -255,11 +255,26 @@ fn run(job: &ExportJob, events: &Sender<ExportEvent>, cancel: &AtomicBool) -> Re
     std::fs::create_dir_all(&job.dir)?;
     let raw = nv_store::RawReader::read(&job.raw).map_err(|e| io(format!("could not read the scan: {e}")))?;
 
-    // The scan is already the frame's rectangle, so nothing is left to crop;
-    // the measured values are fixed from a reduced copy, as in the editor.
-    let proxy = Proxy::from_raw(&raw, DEFAULT_PROXY_PIXELS);
     let mut params = job.params.clone();
     params.conversion.region = None;
+    // The film base is the bare film between the frames, which is about to be
+    // cut off, so read it from the whole scan first. The editor has usually
+    // settled it already and then this changes nothing.
+    if params.conversion.film_base.is_none() {
+        params.conversion.film_base = Some(nv_process::estimate_film_base(&raw));
+    }
+
+    // The scanner's window is larger than the hole in the holder and the frame
+    // inside it is rarely centred, so the scan carries the opaque mount and the
+    // clear rebate around the picture (DESIGN.md §7.9). Neither is picture, and
+    // on a negative they come out as a blown white band and a solid black one.
+    let raw = match nv_process::aperture::picture_window(&raw) {
+        Some([x0, y0, x1, y1]) => raw.crop(x0, y0, x1 - x0 + 1, y1 - y0 + 1),
+        None => raw,
+    };
+
+    // The measured values are fixed from a reduced copy, as in the editor.
+    let proxy = Proxy::from_raw(&raw, DEFAULT_PROXY_PIXELS);
     let frozen = freeze(&proxy, &params);
 
     let dest = unique_path(&job.dir, &job.stem, job.settings.format.extension());
@@ -347,6 +362,33 @@ mod tests {
         assert_eq!(order, ["start1", "done1", "start2", "done2"]);
         assert!(events.iter().any(|e| matches!(e, ExportEvent::Progress { id: 1, .. })));
         assert!(dir.join("roll-01.tif").exists() && dir.join("roll-01 (2).tif").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The scanner's window is larger than the hole in the holder, so what it
+    /// hands back is not the picture: the tulip fixture is 864 x 645 and
+    /// carries the opaque mount around three sides of a 837 x 575 frame. An
+    /// export used to be the whole thing, blown white border and all, on the
+    /// assumption -- written into the comment this replaced -- that the scan
+    /// was already the frame's rectangle.
+    #[test]
+    fn an_export_is_the_picture_and_not_the_holder_around_it() {
+        let dir = scratch("aperture");
+        let raw = nv_store::RawReader::read(&fixture()).expect("the fixture");
+        assert_eq!((raw.width, raw.effective_height()), (864, 645), "the fixture changed");
+
+        let q = ExportQueue::spawn();
+        q.enqueue(job(1, &dir, fixture()));
+        let events = collect(&q, |e| matches!(e, ExportEvent::Done { id: 1, .. }));
+        let report = events
+            .iter()
+            .find_map(|e| match e {
+                ExportEvent::Done { report, .. } => Some(report.clone()),
+                _ => None,
+            })
+            .expect("the export finished");
+
+        assert_eq!((report.width, report.height), (837, 575), "the export is not the picture: {} x {}", report.width, report.height);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
