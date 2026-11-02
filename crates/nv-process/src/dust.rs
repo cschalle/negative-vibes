@@ -1403,8 +1403,6 @@ mod tests {
         assert!((a - b).abs() > 0.45 * true_step, "the edge was smeared flat: {} of a true {true_step}", (a - b).abs());
     }
 
-
-
     #[test]
     fn tiny_or_mismatched_input_is_left_alone() {
         let r = detect(&[0.5; 12], &[0.5; 4], 2, 2, &DustParams::default(), 1);

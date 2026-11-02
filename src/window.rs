@@ -1591,10 +1591,7 @@ impl Window {
             let (on, v, _) = rows.as_ref()?;
             (on.is_active(), v.value() as f32)
         };
-        p.deconv = nv_process::DeconvParams {
-            strength: if deconv_on { deconv_strength } else { 0.0 },
-            px_per_mm: self.scan_px_per_mm(),
-        };
+        p.deconv = nv_process::DeconvParams { strength: if deconv_on { deconv_strength } else { 0.0 }, px_per_mm: self.scan_px_per_mm() };
         p.detail.usm = nv_process::UsmParams { enabled: usm_enabled, amount: usm_amount, radius: usm_radius, threshold: usm_threshold };
         p.detail.noise = noise;
         p.detail.local_contrast = self.imp().local_contrast_row.borrow().as_ref()?.value() as f32;

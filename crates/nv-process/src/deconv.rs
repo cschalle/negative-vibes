@@ -233,10 +233,7 @@ pub fn kernels(params: &DeconvParams, factor: usize) -> Option<([f32; TAPS], [f3
     let out_px_per_mm = px_per_mm / factor as f32;
     let (feed, feed_alias) = transfer_for(&FEED, px_per_mm, factor);
     let (sensor, sensor_alias) = transfer_for(&SENSOR, px_per_mm, factor);
-    Some((
-        kernel_from(&feed, &feed_alias, params.strength, out_px_per_mm),
-        kernel_from(&sensor, &sensor_alias, params.strength, out_px_per_mm),
-    ))
+    Some((kernel_from(&feed, &feed_alias, params.strength, out_px_per_mm), kernel_from(&sensor, &sensor_alias, params.strength, out_px_per_mm)))
 }
 
 /// How far beyond a tile's edge the kernel reaches, so a tile can be rendered
@@ -441,10 +438,7 @@ mod tests {
     fn undoes_the_blur_it_was_measured_from() {
         let p = DeconvParams { strength: 100.0, px_per_mm: Some(REF) };
         let (feed, sensor) = kernels(&p, 1).expect("kernels");
-        for (name, axis, k, want_before, want_after) in [
-            ("feed", &FEED, feed, 2.895f32, 2.071f32),
-            ("sensor", &SENSOR, sensor, 2.653, 1.839),
-        ] {
+        for (name, axis, k, want_before, want_after) in [("feed", &FEED, feed, 2.895f32, 2.071f32), ("sensor", &SENSOR, sensor, 2.653, 1.839)] {
             let mut step = vec![0f32; 120];
             step[60..].fill(1.0);
             let blurred = convolve(&step, &blur_kernel(axis));
@@ -501,5 +495,3 @@ mod tests {
         }
     }
 }
-
-

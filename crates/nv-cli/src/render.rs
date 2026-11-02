@@ -229,10 +229,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             positive_range: None,
         },
         tone: ToneParams::default(),
-        deconv: nv_process::DeconvParams {
-            strength: args.deconvolve,
-            px_per_mm: args.dpi.map(|d| d / 25.4),
-        },
+        deconv: nv_process::DeconvParams { strength: args.deconvolve, px_per_mm: args.dpi.map(|d| d / 25.4) },
         dust: nv_process::DustParams {
             mode: match args.dust.as_str() {
                 "off" => nv_process::DustMode::Off,

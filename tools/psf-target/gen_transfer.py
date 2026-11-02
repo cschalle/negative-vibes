@@ -27,12 +27,14 @@ fifths are both on the focal plane, which is the plane a correction is for.
 """
 import argparse
 import pathlib
+import subprocess
 import sys
 
 import numpy as np
 
 HERE = pathlib.Path(__file__).resolve().parent
-OUT = HERE.parent.parent / "crates" / "nv-process" / "src" / "deconv_psf.rs"
+ROOT = HERE.parent.parent
+OUT = ROOT / "crates" / "nv-process" / "src" / "deconv_psf.rs"
 SAMPLES = 161
 F_MAX = 2.0
 REFERENCE_PX_PER_MM = 3600.0 / 25.4
@@ -102,7 +104,29 @@ def render():
             out.append("    " + " ".join(f"{v:.6}," for v in t[i:i + 6]))
         out.append("];")
         out.append("")
-    return "\n".join(out), tables
+    return rustfmt("\n".join(out)), tables
+
+
+def rustfmt(text):
+    """The module as rustfmt would leave it.
+
+    The tables are wrapped here six values to a line, which is not how rustfmt
+    wraps them at the project's `max_width`. Emitting the unformatted version
+    put `cargo fmt --all -- --check` -- and so CI -- in the red for three
+    pushes, so the generator hands its output to rustfmt rather than inviting
+    whoever regenerates it to remember.
+    """
+    try:
+        r = subprocess.run(
+            ["rustfmt", "--edition", "2024", "--config-path", str(ROOT)],
+            input=text, capture_output=True, text=True, check=True)
+        return r.stdout
+    except FileNotFoundError:
+        print("rustfmt not found: run `cargo fmt` after this", file=sys.stderr)
+        return text
+    except subprocess.CalledProcessError as e:
+        print(f"rustfmt refused the generated module: {e.stderr}", file=sys.stderr)
+        raise SystemExit(1) from e
 
 
 def main():

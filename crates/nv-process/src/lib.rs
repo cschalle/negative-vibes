@@ -98,7 +98,14 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
     if proxy.is_empty() {
         return Rendered { rgb: Vec::new(), levels: [0; 256] };
     }
-    let key = ConvKey { proxy: proxy.id, image_type: params.image_type, profile: params.profile.clone(), conversion: params.conversion.clone(), dust: params.dust.clone(), deconv: params.deconv };
+    let key = ConvKey {
+        proxy: proxy.id,
+        image_type: params.image_type,
+        profile: params.profile.clone(),
+        conversion: params.conversion.clone(),
+        dust: params.dust.clone(),
+        deconv: params.deconv,
+    };
     let converted = {
         let mut last = cache.last.lock().unwrap_or_else(|e| e.into_inner());
         match last.as_ref() {
