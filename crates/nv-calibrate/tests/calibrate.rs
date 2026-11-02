@@ -48,11 +48,20 @@ fn device(xyz: [f64; 3]) -> [f64; 3] {
 
 #[test]
 fn an_it8_scan_becomes_a_profile_that_gives_the_target_colours_back() {
+    // Skipping is for a contributor without Argyll, never for CI: a test that
+    // quietly returns still reports ok, and its notice goes to stderr, which
+    // cargo captures. That is how this one came to cover nothing at all for as
+    // long as it did. CI installs argyllcms and argyllcms-data, so there it
+    // has to run or fail.
+    let required = std::env::var_os("CI").is_some();
     if !nv_calibrate::available() {
+        assert!(!required, "CI must have ArgyllCMS (scanin, colprof) installed for this test");
         eprintln!("ArgyllCMS not installed: skipped");
         return;
     }
-    let Some(cht_path) = nv_calibrate::default_chart() else { return eprintln!("no it8.cht: skipped") };
+    let chart_found = nv_calibrate::default_chart();
+    assert!(chart_found.is_some() || !required, "CI must have argyllcms-data installed: no it8.cht in {:?}", nv_calibrate::chart_dirs());
+    let Some(cht_path) = chart_found else { return eprintln!("no it8.cht: skipped") };
     let cht = std::fs::read_to_string(&cht_path).unwrap();
     let ch = chart(&cht);
     assert_eq!(ch.patches.len(), 264);
