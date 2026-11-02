@@ -376,6 +376,21 @@ pub(crate) fn encode_output(pixels: &[f32], greyscale: bool) -> Vec<u8> {
 }
 
 /// Build default ProcessParams for a given film profile.
+/// The vibrance ([`ColourParams::acr`]) a frame starts with, by image type.
+///
+/// Colour negative stock loses chroma as its dyes age, and the conversion
+/// cannot tell a faded dye from a dull subject: both arrive as a small spread
+/// between the channels. This lifts the dull colours and leaves the vivid ones
+/// alone (DESIGN.md §7.10). Slide film was never negative-converted and black
+/// and white has no chroma to lift, so neither gets any.
+///
+/// Shared so that the application and `nv-cli render` cannot drift: the
+/// command exists to show what the window would show, and it builds its
+/// parameters by hand.
+pub fn default_vibrance(image_type: ImageType) -> f32 {
+    if image_type == ImageType::ColourNegative { 40.0 } else { 0.0 }
+}
+
 pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
     use params::{ConversionParams, ToneParams};
     let image_type = match profile.kind {
@@ -401,7 +416,7 @@ pub fn default_params_for(profile: &FilmProfile) -> ProcessParams {
         deconv: deconv::DeconvParams::default(),
         // Silver black and white film blocks infrared: no dust removal by default.
         detail: DetailParams::default(),
-        colour: ColourParams::default(),
+        colour: ColourParams { acr: default_vibrance(image_type), ..ColourParams::default() },
         input: None,
         dust: params::DustParams { mode: if image_type == ImageType::BwNegative { dust::DustMode::Off } else { dust::DustMode::Correct }, ..Default::default() },
     }

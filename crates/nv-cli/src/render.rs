@@ -55,6 +55,12 @@ pub struct RenderArgs {
     #[arg(long, default_value = "0.0")]
     pub exposure: f32,
 
+    /// How much the dull colours of a faded picture are brought back, 0 to
+    /// 100, leaving vivid ones alone. Defaults to what the window starts a
+    /// frame of this image type with.
+    #[arg(long)]
+    pub vibrance: Option<f32>,
+
     /// Keep the holder: do not cut the opaque mount off the edges of the scan.
     #[arg(long)]
     pub no_auto_crop: bool,
@@ -249,7 +255,9 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
             ..Default::default()
         },
         detail: Default::default(),
-        colour: Default::default(),
+        // Not Default: the window starts a colour negative with vibrance, and
+        // this command exists to show what the window would show.
+        colour: nv_process::ColourParams { acr: args.vibrance.unwrap_or_else(|| nv_process::default_vibrance(image_type)), ..Default::default() },
         input: None,
     };
 

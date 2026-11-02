@@ -831,6 +831,51 @@ fails by 97 levels without the offset.
 A preview is left alone. It holds several frames, and each frame's own crop is stored against it
 in preview coordinates.
 
+### 7.10 Where the median goes, and the vibrance a negative starts with
+
+Auto levels used to move the median of the picture to 0.18 linear, middle grey. That is where a
+grey *card* goes. It is the wrong place for the median of a photograph: a card reflects 18% by
+definition, while a scene carries sky and highlights above its median and so sits well below one.
+Aiming at 0.18 brightened every frame by about a stop, and that is what read as a white haze.
+
+It was not haze, and it was not the black point. Measured on the tulip frame, our bottom
+percentile was already 0.0 against 5.8 for the reference -- our shadows were *deeper* than what
+we were being compared against, which is why a dehazing pass would have had nothing to take hold
+of. The whole defect was above the shadows:
+
+| central 60%, same scan   | p25  | p50   | p75   |
+| ------------------------ | ---- | ----- | ----- |
+| ours, aiming at 0.18     | 47.1 | 118.3 | 174.8 |
+| SilverFast               | 52.5 | 84.6  | 113.9 |
+
+`MEDIAN_TARGET` is now 0.12. SilverFast puts the median of that scan at 9.0% linear and an AI
+reinterpretation of the same frame put it at 9.4%; we were at 18.2%, which is exactly what we
+asked for. 0.12 sits between the references and where we were, so a frame whose content really
+is dark does not go muddy. The straight toe above is what makes the darkening safe: a *full* stop
+moved the pure-black share only from 2.083% to 2.109%.
+
+Colour negatives also start with vibrance (`ColourParams::acr`, 40 of 100), which lifts dull
+colours and leaves vivid ones alone. Film dyes lose chroma as they age and the conversion cannot
+tell a faded dye from a dull subject: both arrive as a small spread between the channels. Slide
+film was never negative-converted and black and white has no chroma to lift, so `default_vibrance`
+gives neither any.
+
+The default is deliberately well short of the maximum, because the control's own shape works
+against neutrals. It weights by how dull a pixel is, and a near-neutral carrying a slight cast is
+the dullest thing in a frame -- so it is amplified hardest. On the tulip frame, between vibrance 0
+and 100 the red tulip gained 42% chroma while the concrete wall gained 82%, its b\* going from
+-8.2 to -14.9. At 40 the gain is real and the drift is bounded. Raising it further is the user's
+call, not a default.
+
+**What cannot be fixed here.** The foliage on that frame renders near-neutral (C\* 6, against 9.7
+for the wall beside it), and no amount of chroma scaling makes it green: scaling cannot change the
+*sign* of b\*, so vibrance drove the leaves from -3.7 to -5.9, further from green. A per-channel
+gamma does turn them green (-2.8 to +9.3) but rotates every other hue with them and tints the
+concrete. Hue-selective correction cannot separate leaves from wall when both are that close to
+neutral. The separation is in the negative -- the foliage transmits 0.08 (normalised) less green
+than the tulip patch -- but recovering it means per-channel density curves at conversion, before
+the colour collapses toward neutral. That is a film-profile job, not a look applied afterwards.
+
 ## 8. User interface
 
 ### 8.1 How SilverFast's model maps to GNOME

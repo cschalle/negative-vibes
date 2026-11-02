@@ -103,6 +103,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
             dust_defect: "dark".into(),
             film_base: None,
             exposure: 0.0,
+            vibrance: None,
             // Auto levels, as the window applies them, and nothing overriding
             // them: this preview is meant to look like the opened frame.
             no_auto_tone: false,

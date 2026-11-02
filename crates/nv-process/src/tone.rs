@@ -36,6 +36,30 @@ const CLIP_BUDGET: f32 = 0.005;
 /// is built. The value is what it takes for a pixel 1% into the range to
 /// survive 8-bit quantisation: one level is 3.03e-4 in linear light, so the
 /// toe must be at least 0.0303 steep.
+/// Where auto levels puts the median of the picture, in linear light.
+///
+/// This used to be 0.18, middle grey. That is the right place for a grey
+/// card, and the wrong place for the median of a photograph: a grey card
+/// reflects 18% by definition, while a scene holds sky and highlights above
+/// its median and so sits well below one. Targeting 0.18 brightened every
+/// frame about a stop, which is what read as a white haze -- not a lifted
+/// black point. The blacks were never the problem: on the tulip frame the
+/// bottom percentile was already 0.0 against 5.8 for the reference.
+///
+/// 0.12 is measured, not chosen. On the dusty frame SilverFast puts the
+/// median of the same scan at 9.0% linear and the interior median at 84.6 of
+/// 255; we were at 18.2% and 118.3. 0.12 lands between the two references and
+/// the rendering we had, which keeps a frame from going muddy when its
+/// content really is dark. The straight toe below is what makes the
+/// darkening safe: a full stop moved the pure-black share from 2.083% only to
+/// 2.109%.
+const MEDIAN_TARGET: f32 = 0.12;
+
+/// Middle grey is where a grey *card* goes, not the median of a photograph,
+/// and the reference renders this median at 0.09. Going back outside that
+/// range is a mistake, so it does not compile.
+const _: () = assert!(MEDIAN_TARGET < 0.18 && MEDIAN_TARGET >= 0.09);
+
 const TOE_SLOPE: f32 = 0.04;
 
 /// Where the midtone curve `t^e` becomes shallower than [`TOE_SLOPE`], and so
@@ -211,9 +235,9 @@ pub fn auto_tone(converted: &[f32], w: usize, h: usize, region: Option<[f32; 4]>
     // only costs contrast -- on the tulip frame it turned a stretch into a
     // compression, taking the interior 2-98 spread below where it started.
 
-    // Median after the black/white stretch, moved to 18% linear (middle grey).
+    // Median after the black/white stretch, moved to [`MEDIAN_TARGET`].
     let v = ((med - bp) / (wp - bp)).clamp(0.01, 0.99);
-    let midtone = (v.ln() / 0.18f32.ln()).clamp(0.4, 2.5);
+    let midtone = (v.ln() / MEDIAN_TARGET.ln()).clamp(0.4, 2.5);
     ToneParams { black_point: bp, white_point: wp, midtone, contrast: 0.0, balance, curves: Default::default() }
 }
 
@@ -367,9 +391,9 @@ mod tests {
         assert_eq!((t.black_point, t.white_point, t.midtone), (0.0, 1.0, 1.0));
     }
 
-    /// The median lands on middle grey (18% linear).
+    /// The median lands on [`MEDIAN_TARGET`].
     #[test]
-    fn auto_midtone_puts_the_median_at_middle_grey() {
+    fn auto_midtone_puts_the_median_where_it_is_aimed() {
         let w = 400;
         let px: Vec<f32> = (0..w * 40)
             .flat_map(|i| {
@@ -382,7 +406,7 @@ mod tests {
         let mut luma: Vec<f32> = out.chunks(3).map(|p| p[1]).collect();
         luma.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let med = luma[luma.len() / 2];
-        assert!((med - 0.18).abs() < 0.03, "median {med}, {t:?}");
+        assert!((med - MEDIAN_TARGET).abs() < 0.03, "median {med}, {t:?}");
     }
 
     #[test]
