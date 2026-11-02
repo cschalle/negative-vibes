@@ -20,6 +20,31 @@ const CURVE_LUT: usize = 1024;
 /// there is not.
 const CLIP_BUDGET: f32 = 0.005;
 
+/// The least steep the midtone curve's toe may be.
+///
+/// A power curve's slope falls to zero at the bottom, so a strong midtone
+/// gamma collapses the darkest part of the picture into a single output level
+/// wherever the black point sits. Measured on the dusty frame: auto levels
+/// chose midtone 0.400 -- the rail, a gamma of 2.5 -- and 1.70% of the picture
+/// encoded as pure black against SilverFast's 0.02%, while the conversion
+/// feeding it clipped 0.000%. Everything inside the bottom 3% of the stretched
+/// range was lost, because `t^2.5` has a slope of 0.013 at `t = 0.03` and
+/// lands below half an 8-bit level.
+///
+/// Below the point where the power curve is this shallow the curve runs
+/// straight to the origin instead, which is how sRGB's own transfer function
+/// is built. The value is what it takes for a pixel 1% into the range to
+/// survive 8-bit quantisation: one level is 3.03e-4 in linear light, so the
+/// toe must be at least 0.0303 steep.
+const TOE_SLOPE: f32 = 0.04;
+
+/// Where the midtone curve `t^e` becomes shallower than [`TOE_SLOPE`], and so
+/// where the straight toe takes over. Zero when `e <= 1`: a curve that
+/// brightens is already steepest at the bottom and needs no toe.
+fn toe_knee(e: f32) -> f32 {
+    if e <= 1.0 { 0.0 } else { TOE_SLOPE.powf(1.0 / (e - 1.0)) }
+}
+
 /// Stage 5 — tone adjustments (black/white point, midtone gamma, contrast).
 ///
 /// Input/output: linear f32 [0,1] (before gamma-2.2 output encoding).
@@ -32,6 +57,9 @@ pub fn apply_tone(pixels: &[f32], p: &ToneParams) -> Vec<f32> {
     let range = wp - bp;
     // Midtone gamma: x^(1/midtone) — applied in [0,1] after black/white remapping.
     let mid_exp = if p.midtone <= 0.0 { 1.0 } else { 1.0 / p.midtone };
+    // Where the power curve gives way to the straight toe. Computed once: it
+    // costs a `powf` and the loop below runs over every pixel.
+    let knee = toe_knee(mid_exp);
     // Contrast: S-curve steepness around 0.5. contrast in [-1,1].
     let contrast = p.contrast.clamp(-1.0, 1.0);
 
@@ -54,8 +82,9 @@ pub fn apply_tone(pixels: &[f32], p: &ToneParams) -> Vec<f32> {
         let l_in = 0.2126 * bal[0] + 0.7152 * bal[1] + 0.0722 * bal[2];
         // Black/white point normalisation.
         let t = ((l_in - bp) / range).clamp(0.0, 1.0);
-        // Midtone gamma.
-        let t = t.powf(mid_exp);
+        // Midtone gamma, with a straight toe so the shadows keep their
+        // separation instead of collapsing onto black.
+        let t = if t < knee { TOE_SLOPE * t } else { t.powf(mid_exp) };
         // Contrast: simple sigmoid-like boost around 0.5.
         let t = apply_contrast(t, contrast).clamp(0.0, 1.0);
         // Below this the ratios are noise, and the pixel is black either way.
@@ -282,6 +311,53 @@ mod tests {
         let lo = out.iter().cloned().fold(1.0f32, f32::min);
         let hi = out.iter().cloned().fold(0.0f32, f32::max);
         assert!(lo < 0.02 && hi > 0.98, "{lo} {hi}");
+    }
+
+    /// A strong midtone gamma used to collapse the darkest part of the picture
+    /// onto black wherever the black point sat, because a power curve's slope
+    /// falls to zero at the bottom: `t^2.5` has a slope of 0.013 at `t = 0.03`,
+    /// so everything inside the bottom 3% of the range landed below half an
+    /// 8-bit level. On the dusty frame that was 1.70% of the picture against
+    /// SilverFast's 0.02%, while the conversion feeding it clipped 0.000%.
+    #[test]
+    fn a_strong_midtone_no_longer_crushes_the_shadows() {
+        const N: usize = 2000;
+        // The whole range, so the midtones can be checked along with the toe.
+        let px: Vec<f32> = (0..N)
+            .flat_map(|i| {
+                let v = i as f32 / (N - 1) as f32;
+                [v, v, v]
+            })
+            .collect();
+        // 0.4 is the rail `auto_tone` clamps to, and what it chose on the
+        // dusty frame: a gamma of 2.5.
+        let out = apply_tone(&px, &ToneParams { midtone: 0.4, ..ToneParams::default() });
+        let e = 1.0f32 / 0.4;
+        let code = |v: f32| (crate::srgb_oetf(v) * 255.0).round() as u32;
+
+        let with_toe = (1..N).filter(|i| code(out[*i * 3 + 1]) == 0).count();
+        let pure_power = (1..N).filter(|i| code((*i as f32 / (N - 1) as f32).powf(e)) == 0).count();
+        assert!(with_toe * 4 < pure_power, "the toe saved too little: {with_toe} against {pure_power} of {N}");
+
+        // Above the knee nothing changed: the midtones and highlights are the
+        // same power curve they always were.
+        for i in [N / 2, N * 3 / 4, N - 1] {
+            let t = i as f32 / (N - 1) as f32;
+            assert!((out[i * 3 + 1] - t.powf(e)).abs() < 1e-6, "the curve moved at t={t}");
+        }
+    }
+
+    /// The toe is only for curves that darken, and it meets the power curve
+    /// without a step.
+    #[test]
+    fn the_toe_only_appears_where_the_curve_darkens() {
+        assert_eq!(toe_knee(1.0), 0.0, "a neutral curve needs no toe");
+        assert_eq!(toe_knee(0.5), 0.0, "a curve that brightens is already steepest at the bottom");
+        assert!(toe_knee(2.5) > 0.0);
+        for e in [1.2f32, 1.8, 2.5, 4.0] {
+            let k = toe_knee(e);
+            assert!((TOE_SLOPE * k - k.powf(e)).abs() < 1e-6, "e={e}: the toe does not meet the curve at {k}");
+        }
     }
 
     #[test]

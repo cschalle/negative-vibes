@@ -688,6 +688,39 @@ when it is rotated. Strokes belong to the frame whatever scope is selected, are 
 | Densitometer | The 3 × 3 mean under the pointer: the scan's own values as percent transmission, then the rendered 8-bit values |
 | Navigator | A "Map" popover shows the oriented picture with the visible part outlined |
 
+**Auto levels and the toe.** The black and white points are percentiles of the converted
+picture's luminance, bounded by a clip budget (`tone::CLIP_BUDGET`, 0.5% per channel), and the
+midtone is the gamma that puts the median at 18% linear. That gamma is clamped to [0.4, 2.5],
+and on a dense frame it sits on the 0.4 rail -- a gamma of 2.5.
+
+A pure power curve applied at that strength destroys the shadows, because its slope falls to
+zero at the bottom: `t^2.5` has a slope of 0.013 at `t = 0.03`, so everything inside the bottom
+3% of the stretched range lands below half an 8-bit level and encodes as the same pure black.
+The black point is not what does this, and neither is the conversion. Measured on the dusty
+frame at 3600 dpi, picture area only:
+
+| stage | pure black |
+|---|---|
+| conversion, before tone | 0.000% |
+| after auto levels, pure power curve | 1.699% |
+| after auto levels, with the toe | **0.216%** |
+| SilverFast, for reference | 0.003% |
+
+So below the point where the power curve becomes shallower than `TOE_SLOPE` the curve runs
+straight to the origin instead, which is how sRGB's own transfer function is built. The slope is
+set by 8-bit quantisation: one level is 3.03e-4 in linear light, so a pixel 1% into the range
+needs a toe of at least 0.0303, and the constant is 0.04.
+
+The toe is confined to curves that genuinely darken -- the knee is 0.0016 of the range at gamma
+1.5, 0.04 at gamma 2.0 and 0.117 at gamma 2.5, and zero at or below gamma 1. The tulip fixture
+(gamma 1.01) and the B&W fixture (gamma 1.25) are untouched by it, so **no golden covers this**;
+the unit tests in `tone.rs` carry it. Median and 95th percentile are unchanged by the toe on the
+dusty frame (0.4635 and 0.9272 before and after): it opens the bottom without moving the
+picture. In the frame's darkest region pure black fell from 24.75% to 2.20% while the standard
+deviation held at 22.7 against 21.9, so the shadows gained separation rather than haze.
+
+The 0.216% that remains is the black point itself, spent within the clip budget.
+
 ---
 
 ### 7.8 Deconvolution
