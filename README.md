@@ -81,7 +81,7 @@ The easiest way is the Flatpak, built automatically from the latest code on `mai
 flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
 # Download and install the latest build
-curl -LO https://github.com/cschalle/negative-vibes/releases/download/latest/negative-vibes.flatpak
+curl -LO https://github.com/cschalle/negative-vibes/releases/latest/download/negative-vibes.flatpak
 flatpak install --user negative-vibes.flatpak
 
 flatpak run io.github.cschalle.NegativeVibes
