@@ -76,20 +76,10 @@ jobs:
           restore-cache: true
           upload-artifact: false
 
-      # The same build as an OCI image, for GitHub Packages (ghcr.io).
-      - name: Make the OCI image
-        run: flatpak build-bundle repo --oci negative-vibes.oci "$APP_ID" master
-
       - uses: actions/upload-artifact@v4
         with:
           name: negative-vibes-flatpak
           path: negative-vibes.flatpak
-          if-no-files-found: error
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: negative-vibes-oci
-          path: negative-vibes.oci
           if-no-files-found: error
 
   publish:
@@ -100,16 +90,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: negative-vibes-flatpak
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: negative-vibes-oci
-          path: negative-vibes.oci
 
       # A rolling "latest" release holds the installable bundle.
       - name: Update the latest release
@@ -121,26 +105,3 @@ jobs:
             --target "$GITHUB_SHA" --prerelease \
             --title "Latest build" \
             --notes "Built from ${GITHUB_SHA::7}. Install with: flatpak install --user negative-vibes.flatpak"
-
-      # GitHub Packages has no Flatpak format, so the package is the OCI image.
-      - name: Push to GitHub Packages
-        run: |
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/negative-vibes"
-          ref="app/${APP_ID}/x86_64/master"
-          for tag in latest "${GITHUB_SHA::7}"; do
-            skopeo copy --dest-creds "${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}" \
-              "oci:negative-vibes.oci:${ref}" "docker://${image}:${tag}"
-          done
-
-      # The source label ties the package to this repository, so GitHub lists it in the sidebar.
-      - uses: imjasonh/setup-crane@v0.4
-
-      - name: Link the package to the repository
-        run: |
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/negative-vibes"
-          echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          crane mutate "${image}:latest" \
-            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
-            --label "org.opencontainers.image.description=Negative Vibes, a film scanning application (Flatpak)" \
-            --label "org.opencontainers.image.licenses=GPL-3.0-or-later" \
-            --tag "${image}:latest"

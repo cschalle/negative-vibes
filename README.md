@@ -89,8 +89,8 @@ flatpak run io.github.cschalle.NegativeVibes
 
 To update, download the bundle again and run the same `flatpak install` command. The Flatpak
 is rebuilt whenever the program changes (not for edits to the documentation or screenshots), and
-each build is also published as an OCI image on
-[GitHub Packages](https://github.com/cschalle/negative-vibes/pkgs/container/negative-vibes).
+every build of `main` replaces the bundle on the
+[latest release](https://github.com/cschalle/negative-vibes/releases/tag/latest).
 Builds from other branches and pull requests are available as workflow artifacts on the
 [Actions](https://github.com/cschalle/negative-vibes/actions/workflows/flatpak.yml) page.
 

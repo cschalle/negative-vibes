@@ -1315,8 +1315,10 @@ capability model detected for a device, for bug reports from users with other sc
 - **GitHub Actions** (`.github/workflows/`): `ci.yml` runs `cargo fmt --check`, `cargo clippy
   --all-targets --all-features -- -D warnings` and `cargo test --all` in a Fedora container, then
   a Meson configure, build and test. `flatpak.yml` builds the Flatpak and publishes it as the
-  `latest` release bundle and as an OCI image; builds from other branches and pull requests are
-  workflow artifacts.
+  `latest` release bundle, which is the only thing we distribute; builds from other branches and
+  pull requests are workflow artifacts. The bundle was also pushed to GitHub Packages as an OCI
+  image until 2026-11-05: nothing installs a Flatpak that way, so the package only confused
+  people looking for the download, and it is gone.
 - **Manual UI review** (HIG): header bar contents, capitalisation, toasts versus dialogs,
   keyboard access, adaptive widths (the dialogs have been opened at 360, 480, 800, 1280 and 1920
   px without GTK warnings), dark and light styles, high contrast, large text, a screen reader
