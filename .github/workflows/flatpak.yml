@@ -95,13 +95,21 @@ jobs:
         with:
           name: negative-vibes-flatpak
 
-      # A rolling "latest" release holds the installable bundle.
+      # A rolling "latest" release holds the installable bundle. It is not marked a
+      # prerelease, so GitHub calls it the repository's Latest release: it takes the green
+      # badge, /releases/latest resolves to it and the sidebar on the front page shows it.
+      # The cost of that is the tag moving on every push, which the notes say outright.
       - name: Update the latest release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
           gh release create latest negative-vibes.flatpak --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --prerelease \
+            --target "$GITHUB_SHA" \
             --title "Latest build" \
-            --notes "Built from ${GITHUB_SHA::7}. Install with: flatpak install --user negative-vibes.flatpak"
+            --notes "Built from ${GITHUB_SHA::7} on $(date -u +%Y-%m-%d). This release rolls: every build of \`main\` replaces it, so the download is always the newest code and is not a fixed version.
+
+          \`\`\`sh
+          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user negative-vibes.flatpak
+          \`\`\`"
