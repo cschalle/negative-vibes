@@ -242,7 +242,9 @@ mod pipeline_tests {
     use nv_film::builtin_profiles;
 
     /// A slide scan run through a profile comes out different, and a profile that
-    /// does nothing changes nothing.
+    /// does nothing leaves the values as they were. Without a profile the scan is
+    /// stretched channel by channel to fill the range; with one it is not, because
+    /// the stretch would undo the calibration.
     #[test]
     fn a_slide_uses_the_scanner_profile() {
         let (w, h) = (16usize, 16usize);
@@ -259,7 +261,9 @@ mod pipeline_tests {
 
         let identity = InputProfile { name: "id".into(), matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], trc: Default::default() };
         p.input = Some(identity);
-        assert_eq!(crate::convert(&proxy, &p), plain);
+        let kept = crate::convert(&proxy, &p);
+        assert_eq!(kept, proxy.pixels, "an identity profile changed the values");
+        assert_ne!(kept, plain, "the uncalibrated scan should have been stretched");
 
         let warm = InputProfile { name: "warm".into(), matrix: [[1.0, 0.0, 0.0], [0.0, 0.7, 0.0], [0.0, 0.0, 0.5]], trc: Default::default() };
         p.input = Some(warm);

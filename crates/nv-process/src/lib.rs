@@ -74,6 +74,9 @@ struct ConvKey {
     conversion: params::ConversionParams,
     dust: dust::DustParams,
     deconv: deconv::DeconvParams,
+    /// The scanner profile changes every value of a slide, so a different one
+    /// is a different conversion.
+    input: Option<input::InputProfile>,
 }
 
 /// Remembers the last converted picture, so a change that only touches tone
@@ -105,6 +108,7 @@ pub fn render_cached(proxy: &Proxy, params: &ProcessParams, cache: &RenderCache)
         conversion: params.conversion.clone(),
         dust: params.dust.clone(),
         deconv: params.deconv,
+        input: params.input.clone(),
     };
     let converted = {
         let mut last = cache.last.lock().unwrap_or_else(|e| e.into_inner());
@@ -192,7 +196,7 @@ fn convert_stage(proxy: &Proxy, params: &ProcessParams) -> (Vec<f32>, Option<Vec
             Some(profile) => {
                 let mut matched = src.to_vec();
                 profile.apply(&mut matched);
-                conversion::normalise_positive(&matched, params)
+                conversion::calibrated_positive(&matched, params)
             }
             None => conversion::normalise_positive(src, params),
         },

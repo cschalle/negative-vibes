@@ -92,6 +92,44 @@ fn tone_changes_reuse_the_conversion_and_conversion_changes_do_not() {
     assert_eq!(cache.conversions(), 3);
 }
 
+/// A scanner profile that changes nothing: identity matrix, linear curves.
+fn neutral_profile(name: &str) -> nv_process::InputProfile {
+    let line: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
+    nv_process::InputProfile { name: name.into(), matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], trc: [line.clone(), line.clone(), line] }
+}
+
+#[test]
+fn a_calibrated_slide_is_not_stretched_to_fill_the_range() {
+    let (w, h) = (200, 100);
+    let p = ramp(w, h, 0.05, 0.3);
+    let mut params = params_for(2);
+    assert_eq!(params.image_type, ImageType::Positive);
+    let top = |rgb: &[u8]| *middle_row_grey(rgb, w, h).last().unwrap();
+    let uncalibrated = top(&render(&p, &params));
+    params.input = Some(neutral_profile("neutral"));
+    let calibrated = top(&render(&p, &params));
+    // Uncalibrated, the brightest value is taken to white, as an automatic
+    // white balance would. With a profile the values are what the profile says:
+    // 0.3 of full scale, about 149 once encoded.
+    assert!(uncalibrated > 200, "{uncalibrated}");
+    assert!((140..=160).contains(&calibrated), "{calibrated}");
+}
+
+#[test]
+fn a_different_scanner_profile_is_a_different_conversion() {
+    let p = ramp(120, 80, 0.05, 0.5);
+    let mut params = params_for(2);
+    let cache = RenderCache::default();
+    render_cached(&p, &params, &cache);
+    params.input = Some(neutral_profile("one"));
+    render_cached(&p, &params, &cache);
+    assert_eq!(cache.conversions(), 2, "choosing a profile did not convert again");
+    params.input = Some(neutral_profile("two"));
+    params.input.as_mut().unwrap().matrix[0][0] = 0.5;
+    render_cached(&p, &params, &cache);
+    assert_eq!(cache.conversions(), 3, "changing the profile did not convert again");
+}
+
 /// A 7200 dpi frame is 10368 × 7755 px, 482 MB as 16-bit RGB (DESIGN.md §1).
 /// Run with `cargo test -p nv-process --release -- --ignored --nocapture`.
 #[test]

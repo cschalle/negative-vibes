@@ -169,6 +169,19 @@ pub fn normalise_positive(pixels: &[f32], params: &ProcessParams) -> Vec<f32> {
     out
 }
 
+/// Stage 4 for a positive that has been through the scanner's IT8 profile.
+///
+/// The profile already says what colour and how much light each value is, so
+/// nothing is stretched to fit: stretching each channel to its own range, as
+/// `normalise_positive` does for an uncalibrated scan, is an automatic white
+/// balance and contrast change, and it undoes the calibration (a real IT8
+/// scan came back at an average error of 17 through that stretch against
+/// 2.8 for the profile alone). Only the exposure offset applies.
+pub fn calibrated_positive(pixels: &[f32], params: &ProcessParams) -> Vec<f32> {
+    let scale = 2.0f32.powf(params.conversion.exposure);
+    pixels.iter().map(|v| (v * scale).clamp(0.0, 1.0)).collect()
+}
+
 /// S-curve with configurable toe and shoulder fractions.
 /// toe/shoulder in [0, 0.5]; sharpens the midtones, compresses extremes.
 fn scurve(t: f32, toe: f32, shoulder: f32) -> f32 {
