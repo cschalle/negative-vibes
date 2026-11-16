@@ -23,8 +23,32 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+impl Error {
+    /// What to try, for the failures a person can do something about.
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            Error::NoArgyll => Some("Install ArgyllCMS (scanin and colprof) to calibrate."),
+            Error::Tool { tool: "scanin", .. } => Some(
+                "The patches could not be found. Scan the whole target, with its frame and the numbered edges in view, \
+                 and check the chart layout is the one for this target (the standard IT8 layout suits most slides).",
+            ),
+            Error::Tool { tool: "colprof", .. } => Some("The patch values could not be fitted. Check the target data file is the one for this slide's batch."),
+            _ => None,
+        }
+    }
+}
+
+/// How well a profile reproduces its target, in words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quality {
+    Good,
+    Fair,
+    Poor,
+    Unknown,
+}
+
 /// Directories searched after `PATH` for the Argyll tools.
-const EXTRA_DIRS: [&str; 3] = ["/usr/bin", "/usr/local/bin", "/opt/argyll/bin"];
+const EXTRA_DIRS: [&str; 4] = ["/app/bin", "/usr/bin", "/usr/local/bin", "/opt/argyll/bin"];
 
 /// Where a tool lives, if installed.
 pub fn find_tool(name: &str) -> Option<PathBuf> {
@@ -39,7 +63,12 @@ pub fn available() -> bool {
 
 /// Where Argyll keeps its chart recognition files, for the user to pick from.
 pub fn chart_dirs() -> Vec<PathBuf> {
-    ["/usr/share/color/argyll/ref", "/usr/local/share/color/argyll/ref", "/usr/share/argyllcms/ref"].iter().map(PathBuf::from).filter(|p| p.is_dir()).collect()
+    // /app is where the Flatpak build puts the copy it bundles.
+    ["/app/share/color/argyll/ref", "/usr/share/color/argyll/ref", "/usr/local/share/color/argyll/ref", "/usr/share/argyllcms/ref"]
+        .iter()
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .collect()
 }
 
 /// The standard IT8.7 chart layout, if Argyll's data is installed.
@@ -129,7 +158,8 @@ pub fn parse_report(text: &str) -> (Option<f64>, Option<f64>, Option<usize>) {
             peak = after(line, "peak err =");
             avg = after(line, "avg err =");
         }
-        if let Some(i) = line.find("Number of patches") {
+        // colprof says "No of test patches = 288"; the older wording is kept.
+        if let Some(i) = line.find("No of test patches").or_else(|| line.find("Number of patches")) {
             n = line[i..].split(|c: char| !c.is_ascii_digit()).find(|s| !s.is_empty()).and_then(|s| s.parse().ok());
         }
     }
@@ -175,6 +205,21 @@ pub fn calibrate(job: &Job) -> Result<Outcome> {
     Ok(Outcome { profile, input, average_error, peak_error, patches })
 }
 
+impl Outcome {
+    /// A rough grade from the average error. colprof's figures are CIE76 ΔE:
+    /// a matrix profile on a real Ektachrome IT8 slide reached 2.8 (CIEDE2000
+    /// 1.5), which is about as good as a matrix profile gets; above 6 the
+    /// profile is more likely wrong than limited.
+    pub fn quality(&self) -> Quality {
+        match self.average_error {
+            None => Quality::Unknown,
+            Some(e) if e <= 3.0 => Quality::Good,
+            Some(e) if e <= 6.0 => Quality::Fair,
+            Some(_) => Quality::Poor,
+        }
+    }
+}
+
 /// Where profiles are kept: `$XDG_DATA_HOME/negative-vibes/profiles`.
 pub fn profiles_dir() -> PathBuf {
     let base = std::env::var_os("XDG_DATA_HOME")
@@ -218,6 +263,36 @@ mod tests {
         let text = "Number of patches = 264\nProfile check complete, peak err = 4.5, avg err = 1.25, RMS = 1.6\n";
         assert_eq!(parse_report(text), (Some(1.25), Some(4.5), Some(264)));
         assert_eq!(parse_report("nothing"), (None, None, None));
+        // What colprof 3.x prints on a real run.
+        let real =
+            "No of test patches = 288\nProfile check complete, errors(CIEDE2000): max. = 5.6\n[2.1] A01: x\nProfile check complete, peak err = 13.08, avg err = 2.77, RMS = 3.1\n";
+        assert_eq!(parse_report(real), (Some(2.77), Some(13.08), Some(288)));
+    }
+
+    fn outcome(avg: Option<f64>) -> Outcome {
+        Outcome {
+            profile: "p.icc".into(),
+            input: InputProfile { name: "p".into(), matrix: [[0.0; 3]; 3], trc: Default::default() },
+            average_error: avg,
+            peak_error: None,
+            patches: None,
+        }
+    }
+
+    #[test]
+    fn the_average_error_is_graded() {
+        assert_eq!(outcome(Some(2.77)).quality(), Quality::Good);
+        assert_eq!(outcome(Some(4.0)).quality(), Quality::Fair);
+        assert_eq!(outcome(Some(12.0)).quality(), Quality::Poor);
+        assert_eq!(outcome(None).quality(), Quality::Unknown);
+    }
+
+    #[test]
+    fn failures_a_person_can_fix_say_what_to_try() {
+        assert!(Error::Tool { tool: "scanin", message: "x".into() }.hint().unwrap().contains("whole target"));
+        assert!(Error::Tool { tool: "colprof", message: "x".into() }.hint().unwrap().contains("data file"));
+        assert!(Error::NoArgyll.hint().is_some());
+        assert!(Error::Input("x".into()).hint().is_none());
     }
 
     #[test]

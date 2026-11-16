@@ -99,6 +99,12 @@ pub struct RenderArgs {
     /// Print per-channel statistics, film base estimate and first bytes.
     #[arg(long)]
     pub diagnose: bool,
+
+    /// Scanner profile for slides: the name of one built with `calibrate`
+    /// (from the profile folder) or the path of an `.icc` file. Negatives
+    /// ignore it.
+    #[arg(long)]
+    pub scanner_profile: Option<String>,
 }
 
 pub fn run(args: RenderArgs) -> anyhow::Result<()> {
@@ -206,6 +212,20 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         _ => ImageType::ColourNegative,
     };
 
+    let input = match &args.scanner_profile {
+        None => None,
+        Some(v) if v.ends_with(".icc") || v.contains('/') => {
+            let path = PathBuf::from(v);
+            let name = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+            let bytes = std::fs::read(&path).map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+            Some(nv_process::InputProfile::from_icc(&name, &bytes).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?)
+        }
+        Some(name) => Some(nv_calibrate::load_profile(name)?),
+    };
+    if let Some(p) = &input {
+        println!("Scanner profile: {}", p.name);
+    }
+
     let film_base = if let Some(s) = &args.film_base {
         let parts: Vec<f32> = s.split(',').filter_map(|v| v.trim().parse().ok()).collect();
         if parts.len() == 3 {
@@ -258,7 +278,7 @@ pub fn run(args: RenderArgs) -> anyhow::Result<()> {
         // Not Default: the window starts a colour negative with vibrance, and
         // this command exists to show what the window would show.
         colour: nv_process::ColourParams { acr: args.vibrance.unwrap_or_else(|| nv_process::default_vibrance(image_type)), ..Default::default() },
-        input: None,
+        input,
     };
 
     // Auto levels first, as the window does, then let any tone option given on

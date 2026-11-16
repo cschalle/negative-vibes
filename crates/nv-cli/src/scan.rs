@@ -54,6 +54,11 @@ pub struct ScanArgs {
     /// Built-in film profile id for --render.
     #[arg(long, default_value = "generic-colour-negative")]
     profile: String,
+
+    /// Scanner profile for --render, for slides: a name from `nv-cli profiles`
+    /// or the path of an `.icc` file.
+    #[arg(long)]
+    scanner_profile: Option<String>,
 }
 
 fn parse_area(s: &str) -> Result<[f64; 4], String> {
@@ -116,6 +121,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<()> {
             deconvolve: 100.0,
             dpi: Some(args.dpi as f32),
             diagnose: true,
+            scanner_profile: args.scanner_profile.clone(),
         };
         // Build a FrameBuf from the already-received data so we don't re-read disk.
         // Also run render from the saved PNM to verify the round-trip.

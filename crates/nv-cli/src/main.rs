@@ -1,6 +1,7 @@
 mod buttons;
 mod calibrate;
 mod probe;
+mod profiles;
 mod render;
 mod scan;
 
@@ -25,6 +26,8 @@ enum Cmd {
     Render(render::RenderArgs),
     /// Build a scanner input profile from a scan of an IT8 target (needs ArgyllCMS).
     Calibrate(calibrate::CalibrateArgs),
+    /// List the scanner profiles built so far, to pass as `--scanner-profile`.
+    Profiles,
 }
 
 fn main() {
@@ -35,6 +38,7 @@ fn main() {
         Cmd::Scan(args) => scan::run(args),
         Cmd::Render(args) => render::run(args),
         Cmd::Calibrate(args) => calibrate::run(args),
+        Cmd::Profiles => profiles::run(),
     };
     if let Err(e) = result {
         eprintln!("nv-cli: {e}");

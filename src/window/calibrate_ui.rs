@@ -37,22 +37,65 @@ impl Window {
         let status = gtk::Label::builder().wrap(true).xalign(0.0).css_classes(["dim-label"]).margin_top(6).build();
 
         let dialog = adw::Window::builder().transient_for(self).modal(true).title("Calibrate with IT8 Target").default_width(520).default_height(560).build();
-        let pick = |row: adw::ActionRow, btn: gtk::Button, slot: Rc<RefCell<Option<PathBuf>>>, dialog: adw::Window, title: &'static str| {
+        type OnPick = Rc<dyn Fn(&std::path::Path)>;
+        let pick = |row: adw::ActionRow,
+                    btn: gtk::Button,
+                    slot: Rc<RefCell<Option<PathBuf>>>,
+                    dialog: adw::Window,
+                    title: &'static str,
+                    kind: Option<(&'static str, &'static [&'static str])>,
+                    on_pick: Option<OnPick>| {
             btn.connect_clicked(move |_| {
-                let (row, slot) = (row.clone(), slot.clone());
-                gtk::FileDialog::builder().title(title).modal(true).build().open(Some(&dialog), None::<&gio::Cancellable>, move |r| {
+                let (row, slot, on_pick) = (row.clone(), slot.clone(), on_pick.clone());
+                let mut chooser = gtk::FileDialog::builder().title(title).modal(true);
+                if let Some((label, patterns)) = kind {
+                    let filter = gtk::FileFilter::new();
+                    filter.set_name(Some(label));
+                    for pat in patterns {
+                        filter.add_pattern(pat);
+                    }
+                    let all = gtk::FileFilter::new();
+                    all.set_name(Some("All files"));
+                    all.add_pattern("*");
+                    let list = gio::ListStore::new::<gtk::FileFilter>();
+                    list.append(&filter);
+                    list.append(&all);
+                    chooser = chooser.filters(&list).default_filter(&filter);
+                }
+                chooser.build().open(Some(&dialog), None::<&gio::Cancellable>, move |r| {
                     if let Some(p) = r.ok().and_then(|f| f.path()) {
                         row.set_subtitle(&glib::markup_escape_text(&p.display().to_string()));
+                        if let Some(f) = &on_pick {
+                            f(&p);
+                        }
                         *slot.borrow_mut() = Some(p);
                     }
                 });
             });
         };
-        pick(scan_row.clone(), scan_btn, scan.clone(), dialog.clone(), "Scan of the Target");
-        pick(ref_row.clone(), ref_btn, reference.clone(), dialog.clone(), "Target Data");
-        pick(chart_row.clone(), chart_btn, chart.clone(), dialog.clone(), "Chart Layout");
+        // Naming the profile after the data file keeps profiles for different targets apart.
+        let name_for_ref = name.clone();
+        let name_from_data: OnPick = Rc::new(move |p| {
+            let current = name_for_ref.text();
+            if current == "scanner-it8" || current.starts_with("it8-") {
+                if let Some(stem) = p.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty() && !s.contains(['/', '\\'])) {
+                    name_for_ref.set_text(&format!("it8-{stem}"));
+                }
+            }
+        });
+        pick(scan_row.clone(), scan_btn, scan.clone(), dialog.clone(), "Scan of the Target", None, None);
+        pick(
+            ref_row.clone(),
+            ref_btn,
+            reference.clone(),
+            dialog.clone(),
+            "Target Data",
+            Some(("Target data (.txt, .it8)", &["*.txt", "*.TXT", "*.it8", "*.IT8"])),
+            Some(name_from_data),
+        );
+        pick(chart_row.clone(), chart_btn, chart.clone(), dialog.clone(), "Chart Layout", Some(("Chart layouts (.cht)", &["*.cht"])), None);
 
-        let group = adw::PreferencesGroup::builder().description("Scan the IT8 slide target with no corrections, then give its data file. The profile is used for slides.").build();
+        let group = adw::PreferencesGroup::builder().description("Scan the IT8 slide target (the open frame is used if it is that scan), then give the data file for its batch. The profile is used for slides, and is applied to this frame when it is built.").build();
         for r in [scan_row.upcast_ref::<gtk::Widget>(), ref_row.upcast_ref(), chart_row.upcast_ref(), name.upcast_ref()] {
             group.add(r);
         }
@@ -91,22 +134,52 @@ impl Window {
                 build_btn.set_sensitive(true);
                 match result {
                     Ok(Ok(out)) => {
+                        let fmt = |v: Option<f64>| v.map_or("unknown".into(), |e| format!("{e:.1}"));
+                        let verdict = match out.quality() {
+                            nv_calibrate::Quality::Good => "A good fit.",
+                            nv_calibrate::Quality::Fair => "A fair fit. Check the data file is the one for this slide's batch.",
+                            nv_calibrate::Quality::Poor => "A poor fit: the data file probably is not the one for this slide, or the scan is not of the whole target.",
+                            nv_calibrate::Quality::Unknown => "",
+                        };
                         status.set_label(&format!(
-                            "Built {}.\nAverage error {} (ΔE), worst patch {}.",
-                            out.profile.display(),
-                            out.average_error.map_or("unknown".into(), |e| format!("{e:.2}")),
-                            out.peak_error.map_or("unknown".into(), |e| format!("{e:.2}")),
+                            "Built {} and applied it to this frame.\n{verdict}\nAverage error {} ΔE, worst patch {} (CIE76, lower is better; about 3 or under is good for a profile of this kind).",
+                            out.input.name,
+                            fmt(out.average_error),
+                            fmt(out.peak_error),
                         ));
                         if let Some(win) = weak.upgrade() {
-                            win.refresh_profile_list();
+                            win.use_scanner_profile(&out.input.name);
                         }
                     }
-                    Ok(Err(e)) => status.set_label(&format!("Calibration failed: {e}")),
+                    Ok(Err(e)) => {
+                        let hint = e.hint().map(|h| format!("\n{h}")).unwrap_or_default();
+                        status.set_label(&format!("Calibration failed: {e}{hint}"));
+                    }
                     Err(_) => status.set_label("Calibration stopped unexpectedly."),
                 }
             });
         });
         super::chrome::present_labelled(&dialog);
+    }
+
+    /// Select a profile for the open frame, loading it again if it is the one
+    /// already in use (it may have just been rebuilt).
+    pub(super) fn use_scanner_profile(&self, name: &str) {
+        if let Some(p) = self.imp().proc_params.borrow_mut().as_mut() {
+            if p.input.as_ref().is_some_and(|i| i.name == name) {
+                p.input = None;
+            }
+        }
+        self.refresh_profile_list();
+        let row = self.imp().scanner_profile_row.borrow().clone();
+        if let Some(row) = row {
+            let at =
+                (0..row.model().map_or(0, |m| m.n_items())).find(|&i| row.model().and_then(|m| m.item(i)).and_downcast::<gtk::StringObject>().is_some_and(|s| s.string() == name));
+            if let Some(at) = at {
+                row.set_selected(at);
+            }
+        }
+        self.on_params_changed();
     }
 
     /// Fill the scanner-profile row with the profiles built so far.
