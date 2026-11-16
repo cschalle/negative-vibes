@@ -1599,6 +1599,7 @@ dependencies = [
 name = "nv-calibrate"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "nv-image",
  "nv-process",
  "nv-store",

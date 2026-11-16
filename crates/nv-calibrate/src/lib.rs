@@ -4,6 +4,9 @@
 //! subprocesses; this crate prepares their input, runs them, and reads the
 //! result back.
 
+pub mod batch;
+mod zip;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -132,6 +135,50 @@ pub fn write_scanin_tiff(scan: &Path, out: &Path) -> Result<()> {
     let mut enc = TiffEncoder::new(std::io::BufWriter::new(file)).map_err(|e| Error::Input(e.to_string()))?;
     enc.write_image::<colortype::RGB16>(w as u32, h as u32, &data).map_err(|e| Error::Input(e.to_string()))?;
     Ok(())
+}
+
+/// The scan as a picture to show a person (so that they can read the batch
+/// printed on the target): `(width, height, rgb8)` at most `max_width` wide,
+/// brightened so that the target fills the range, since a raw scan sits low in it.
+pub fn preview_rgb8(scan: &Path, max_width: u32) -> Result<(u32, u32, Vec<u8>)> {
+    let buf = nv_store::RawReader::read(scan).map_err(|e| Error::Input(format!("reading {}: {e}", scan.display())))?;
+    let (w, h) = (buf.width as usize, buf.effective_height().min(buf.rows_available()) as usize);
+    let (ch, bps, bpr) = (buf.channels as usize, buf.depth as usize / 8, buf.bytes_per_row);
+    if w == 0 || h == 0 || ch < 3 || !(bps == 1 || bps == 2) {
+        return Err(Error::Input("the scan must be a colour scan".into()));
+    }
+    let bytes = buf.as_bytes();
+    let top = if bps == 2 { 65535.0f32 } else { 255.0 };
+    let at = |x: usize, y: usize, c: usize| nv_image::read_sample(bytes, y * bpr + (x * ch + c) * bps, bps) as f32 / top;
+    // The brightest 0.5% of the picture is the white of the target's frame.
+    let mut sample: Vec<f32> = (0..h).step_by(5).flat_map(|y| (0..w).step_by(5).map(move |x| (x, y))).map(|(x, y)| at(x, y, 1)).collect();
+    sample.sort_by(f32::total_cmp);
+    let white = sample.get(sample.len() * 995 / 1000).copied().unwrap_or(1.0).max(1e-3);
+    let step = w.div_ceil(max_width.max(1) as usize).max(1);
+    let (ow, oh) = (w / step, h / step);
+    let mut out = Vec::with_capacity(ow * oh * 3);
+    for y in 0..oh {
+        for x in 0..ow {
+            for c in 0..3 {
+                out.push(((at(x * step, y * step, c) / white).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8);
+            }
+        }
+    }
+    Ok((ow as u32, oh as u32, out))
+}
+
+/// `rgb8` turned a quarter turn clockwise: the target may sit any way up in the holder.
+pub fn rotate_quarter(width: u32, height: u32, rgb8: &[u8]) -> (u32, u32, Vec<u8>) {
+    let (w, h) = (width as usize, height as usize);
+    let mut out = vec![0u8; rgb8.len()];
+    for y in 0..h {
+        for x in 0..w {
+            let (nx, ny) = (h - 1 - y, x);
+            let (s, d) = ((y * w + x) * 3, (ny * h + nx) * 3);
+            out[d..d + 3].copy_from_slice(&rgb8[s..s + 3]);
+        }
+    }
+    (height, width, out)
 }
 
 fn run(tool: &'static str, args: &[std::ffi::OsString], dir: &Path) -> Result<String> {
@@ -277,6 +324,23 @@ mod tests {
             peak_error: None,
             patches: None,
         }
+    }
+
+    #[test]
+    fn a_quarter_turn_moves_the_top_left_to_the_top_right() {
+        // 2 wide, 3 high: pixels numbered by their red value.
+        let px: Vec<u8> = (0..6u8).flat_map(|i| [i, 0, 0]).collect();
+        let (w, h, out) = rotate_quarter(2, 3, &px);
+        assert_eq!((w, h), (3, 2));
+        let reds: Vec<u8> = out.chunks(3).map(|p| p[0]).collect();
+        // Rows of the result, read left to right: the left column of the original, bottom to top, then the right column.
+        assert_eq!(reds, [4, 2, 0, 5, 3, 1]);
+        // Four quarter turns are no turn.
+        let mut cur = (2u32, 3u32, px.clone());
+        for _ in 0..4 {
+            cur = rotate_quarter(cur.0, cur.1, &cur.2);
+        }
+        assert_eq!(cur, (2, 3, px));
     }
 
     #[test]

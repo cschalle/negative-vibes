@@ -153,14 +153,24 @@ maker, and each batch differs.
   slide from [GWB Colour Card](https://gwbcolourcard.uk/). The batch code (for ours, `T100926`)
   is printed on the slide, small, and shows up in a scan; the data files for all batches are in
   the ZIP linked under "IT8 Reference Files" on [gwbcolourcard.uk/it8.html](https://gwbcolourcard.uk/it8.html).
-  Unzip the one named for your slide and use its `.txt` (or `.it8`) file. Its chart layout is the
-  standard one, so Argyll's own `it8.cht` works. Other makers' targets (Wolf Faust, Kodak Q-60)
-  come with their own data file and work the same way.
-- **In the app:** scan the slide, open **Calibrate with IT8 Target…** in the main menu, choose the
-  data file and press **Build Profile**. The profile is applied to the open frame.
+  Its chart layout is the standard one, so Argyll's own `it8.cht` works. Other makers' targets
+  (Wolf Faust, Kodak Q-60) come with their own data file and work the same way.
+- **The batch matters.** The ZIP holds one file per batch of targets, and they differ: on our slide,
+  a profile built from any other Ektachrome batch was 7 to 16 ΔE away from the right one's data
+  (the right one scored 1.5). So use the code printed on the slide. It is small; it shows up in a
+  scan.
+- **In the app:** open **Calibrate with IT8 Target…** in the main menu. With the slide in the
+  scanner press **Scan Now** (or choose an earlier scan). Choose the data: the maker's ZIP is
+  picked up from your Downloads folder when it is there, and **Get Data…** opens the maker's page.
+  Read the batch code in the picture of the scan, type it in (case and spaces do not matter),
+  and press **Build Profile**. **Most Likely** fills the field in with the batch whose grey scale
+  best matches the scan; it was right on our slide, by a small margin, so check it against the
+  printed code. The profile is applied to the open frame.
 - **From the command line:**
-  `nv-cli calibrate --scan it8.pnm --reference T100926.txt --name it8-T100926`, then
-  `nv-cli render --image-type positive --scanner-profile it8-T100926 slide.pnm`.
+  `nv-cli calibrate --scan it8.pnm --reference it8_data.zip --batch T100926 --name it8-T100926`
+  (or a single `.txt` for `--reference`), then
+  `nv-cli render --image-type positive --scanner-profile it8-T100926 slide.pnm`. Without `--batch`,
+  a ZIP uses the batch with the closest grey scale and says so.
 - **What to expect.** On the GWB Ektachrome slide above, scanned at 1200 dpi on an OpticFilm
   8200i, the profile averages ΔE 1.5 (CIEDE2000; 2.8 as ArgyllCMS's `colprof` reports it, in
   CIE76) over the 288 patches, and the full pipeline lands within an average ΔE76 of 4.2 of the

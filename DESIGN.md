@@ -707,6 +707,16 @@ when it is rotated. Strokes belong to the frame whatever scope is selected, are 
   - Shadows are limited by the scanner, not the exposure. The two darkest grey steps read Y 0.0040
     where the data says 0.0012, and a 3× exposure moves them by 0.00005 only: a floor from stray
     light or dark offset. A longer exposure left the average unchanged (1.537 against 1.531).
+  - **The batch of the target changes the profile a great deal.** The GWB ZIP holds one data file
+    per batch; building the profile from each of the 21 other 35 mm batches and judging it against
+    this slide's own data gave CIEDE2000 7 to 16 (one, T060726, 2.7), against 1.54 for the right
+    batch. Ranking batches by how well a matrix profile fits their values cannot pick the batch: the
+    fit is flexible enough that the wrong batch (T100726) fitted better (2.47) than the right one
+    (2.78). The grey scale can: a scanner is linear in light, so each channel is a straight line
+    against a batch's X, Y and Z over the 22 grey steps, and only the measured batch makes it so.
+    The right batch had the smallest residual (1.18%), 1.4 times better than the next. That is one
+    slide, so the dialog offers it as **Most Likely** and asks for the code printed on the slide
+    (`nv-calibrate::batch`; the code is looked up in the ZIP whatever the case or spacing).
   - Profiles are relative to the white patch, so a profiled slide is white-balanced to its clear
     film. With a profile the slide is no longer stretched channel by channel (that stretch is an
     automatic white balance and undoes the calibration); it is the profile's values times the

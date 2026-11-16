@@ -6,9 +6,14 @@ pub struct CalibrateArgs {
     /// Raw scan of the IT8 target (the app's TIFF).
     #[arg(long)]
     scan: PathBuf,
-    /// The target's measured values (the data file that came with it).
+    /// The target's measured values: the data file (.txt) for the slide's batch, or the
+    /// maker's ZIP of all of them, in which case the batch that fits the scan is used.
     #[arg(long)]
     reference: PathBuf,
+    /// With a ZIP: the batch printed on the slide (for example T100926). Without it the batch
+    /// whose grey scale is closest to the scan is used, which is only a likelihood.
+    #[arg(long)]
+    batch: Option<String>,
     /// Chart layout; Argyll's it8.cht when omitted.
     #[arg(long)]
     chart: Option<PathBuf>,
@@ -30,7 +35,23 @@ pub fn run(a: CalibrateArgs) -> anyhow::Result<()> {
         None => None,
     };
     let job = nv_calibrate::Job { scan: a.scan, chart, reference: a.reference, out_dir: a.out.unwrap_or_else(nv_calibrate::profiles_dir), name: a.name, corners };
-    let r = nv_calibrate::calibrate(&job)?;
+    let is_zip = job.reference.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip"));
+    let r = if is_zip {
+        let bytes = std::fs::read(&job.reference)?;
+        let (outcome, ranked) = nv_calibrate::batch::calibrate_from_zip(&job, &bytes, a.batch.as_deref())?;
+        if a.batch.is_none() {
+            println!("No --batch given: using the batch whose grey scale is closest to the scan, which is a likelihood. Read the code printed on the slide to be sure.");
+        }
+        if !ranked.is_empty() {
+            println!("Batches tried: {}", ranked.len());
+        }
+        for (i, b) in ranked.iter().take(5).enumerate() {
+            println!("  {}{}  grey-scale residual {:.2}%", if i == 0 { "closest: " } else { "         " }, b.name, b.residual);
+        }
+        outcome
+    } else {
+        nv_calibrate::calibrate(&job)?
+    };
     println!("Profile: {}", r.profile.display());
     println!("Patches: {:?}  average error: {:?}  peak error: {:?}", r.patches, r.average_error, r.peak_error);
     Ok(())

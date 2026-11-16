@@ -105,6 +105,9 @@ pub(crate) mod imp {
         pub preview_view: RefCell<std::collections::HashSet<u32>>,
         /// The preview that is coming is to be scanned at once.
         pub auto_scan_next: Cell<bool>,
+        /// A scan of the IT8 target is under way for the calibration dialog: preview it, scan it
+        /// (raw, at a resolution the patches do not need more of), then reopen the dialog.
+        pub calibrate_after_scan: Cell<bool>,
         /// The scanner (not an import) is what the window is busy with.
         pub acquiring: Cell<bool>,
         pub autoscan_started: Cell<bool>,
@@ -2143,7 +2146,8 @@ impl Window {
 
     /// Resolution for final scans: the roll's setting, else the session's.
     pub fn final_scan_dpi(&self) -> u32 {
-        self.scan_dpi()
+        // The patches of an IT8 target are large: 1200 dpi reads them as well as 3600 does, in a ninth of the time.
+        if self.imp().calibrate_after_scan.get() { self.scan_dpi().min(1200) } else { self.scan_dpi() }
     }
 
     /// Scan the frame on the canvas, inside the rectangle drawn on it.
@@ -2581,11 +2585,13 @@ impl Window {
         let filename = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
         self.show_toast("Saving scan…");
+        let scan_file = path.clone();
         let win_weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let write_path = path.clone();
             let result = gio::spawn_blocking(move || nv_store::RawWriter::write_scan_with_ir(&buf, ir.as_ref(), &write_path)).await;
             let Some(win) = win_weak.upgrade() else { return };
+            let calibrating = win.imp().calibrate_after_scan.replace(false);
             let mut saved = false;
             match result {
                 Ok(Ok(())) => {
@@ -2624,6 +2630,9 @@ impl Window {
             // The scanner is free: on to the next frame of a batch.
             if saved {
                 win.continue_batch();
+            }
+            if saved && calibrating {
+                win.open_calibrate_dialog_with(Some(scan_file));
             }
         });
     }
@@ -2714,6 +2723,11 @@ impl Window {
     fn on_scan_done(&self) {
         self.adopt_preview();
         self.update_info_label();
+        // The target is previewed: scan it, keeping only the raw file.
+        if self.imp().calibrate_after_scan.get() && self.imp().preview_ready.get() {
+            self.scan_selected(true);
+            return;
+        }
         // A Scan All loop on a manual-advance scanner: scan what was just previewed.
         if self.imp().auto_scan_next.replace(false) {
             self.start_final_scan();

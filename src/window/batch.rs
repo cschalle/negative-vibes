@@ -125,6 +125,7 @@ impl Window {
         imp.batch_loop.set(false);
         imp.batch_total.set(0);
         imp.auto_scan_next.set(false);
+        imp.calibrate_after_scan.set(false);
     }
 
     /// Stop whatever the scanner is doing, and the batch with it.
