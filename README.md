@@ -39,6 +39,14 @@ black, grey and white points, dust protection and healing along the bottom.*
 list means "none chosen yet" and the page leads with Choose Scanner… Opening raw scans and rolls
 is offered below it, because neither needs a scanner.*
 
+<p align="center">
+  <img src="screenshots/calibrate-it8.png" alt="The IT8 calibration dialog after building a profile: the scan of the target, its batch code, and the result" width="48%">
+</p>
+
+*Calibrating the scanner with an IT8 slide: the scan of the slide in the scanner, the batch code
+read off it and typed in, and the result ("A good fit", average error 2.8 ΔE). See
+[Calibrating the scanner](#calibrating-the-scanner-it8).*
+
 <p>
   <img src="screenshots/preferences.png" alt="Preferences, General page" width="32%">
   <img src="screenshots/preferences-outputformat1.png" alt="Preferences, Output page with TIFF selected" width="32%">

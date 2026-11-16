@@ -717,6 +717,18 @@ when it is rotated. Strokes belong to the frame whatever scope is selected, are 
     The right batch had the smallest residual (1.18%), 1.4 times better than the next. That is one
     slide, so the dialog offers it as **Most Likely** and asks for the code printed on the slide
     (`nv-calibrate::batch`; the code is looked up in the ZIP whatever the case or spacing).
+  - **Open question: a scanner-level default for slides.** The clear film of the T100926 slide
+    reads R 0.236, G 0.231, B 0.293 on the 8200i, so blue is about 27% high and a white balance
+    needs roughly x0.79 on blue. Two scans of that slide agree (blue/green 1.265 and 1.269, red/green
+    1.021 and 1.023; the overall level moved 1.8%, which looks like lamp warm-up). Whether this
+    belongs to the scanner and lamp, and so could be a default in `data/devices.toml`, or to the film
+    base, is not known: it is one slide. Two attempts to test it on another failed. One was a colour
+    negative, whose orange base says nothing about a slide's clear film. The other was a positive that
+    fills the frame, so its brightest area (a white garment, green 0.145 against 0.231) is not clear
+    film. The test needs an area of another slide film with no picture on it (a leader, a blank frame
+    or a clear border); compare blue/green and red/green with the figures above, and take a fixed
+    default only if they agree to about 1%. Until then the defaults stay as they are: with no profile
+    the per-channel stretch finds the gain from the picture, and a profile applies it exactly.
   - Profiles are relative to the white patch, so a profiled slide is white-balanced to its clear
     film. With a profile the slide is no longer stretched channel by channel (that stretch is an
     automatic white balance and undoes the calibration); it is the profile's values times the
