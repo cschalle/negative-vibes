@@ -7,7 +7,7 @@
 2. Fill in the `sane-backends` checksum, or use the SDK's libsane if the runtime ships one; the
    `plustek8200i` backend has to be built into it, or the app cannot see that scanner inside the sandbox.
 3. Check that the GNOME runtime version listed provides GTK 4.14 and libadwaita 1.4 or newer, which Meson requires (DESIGN.md §4.1).
-4. ArgyllCMS (IT8 calibration) is optional; add a module for it, or leave the feature greyed out.
+4. ArgyllCMS (IT8 calibration) is built from source in the `ftjam` and `argyllcms` modules (ArgyllCMS is AGPL-3.0, run only as separate command-line programs; `ftjam` is a build tool and is not installed). Argyll's own `install` target is not used: the module copies `scanin`, `colprof` and the `.cht` chart layouts. Re-check the version and sha256 when updating.
 5. Add screenshots to `data/*.metainfo.xml.in` (`<screenshots>`), and run
    `flatpak run org.freedesktop.appstream.cli validate` on the result.
 6. Confirm the application ID matches the GitHub account that will own the repository.

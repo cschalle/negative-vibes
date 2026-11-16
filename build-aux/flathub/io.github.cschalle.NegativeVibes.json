@@ -27,6 +27,28 @@
       ]
     },
     {
+      "name": "ftjam",
+      "buildsystem": "autotools",
+      "build-options": { "env": { "CC": "gcc -std=gnu89 -fcommon" } },
+      "cleanup": ["*"],
+      "sources": [
+        { "type": "archive", "url": "https://downloads.sourceforge.net/project/freetype/ftjam/2.5.2/ftjam-2.5.2.tar.bz2", "sha256": "e89773500a92912de918e9febffabe4b6bce79d69af194435f4e032b8a6d66a3" }
+      ]
+    },
+    {
+      "name": "argyllcms",
+      "buildsystem": "simple",
+      "build-commands": [
+        "export OSTYPE=linux-gnu MACHTYPE=x86_64 HOSTTYPE=x86_64 && jam -q -fJambase -j${FLATPAK_BUILDER_N_JOBS} '<scanin>scanin' '<profile>colprof'",
+        "install -Dm755 scanin/scanin profile/colprof -t /app/bin",
+        "install -Dm644 ref/*.cht -t /app/share/color/argyll/ref",
+        "install -Dm644 License.txt -t /app/share/licenses/argyllcms"
+      ],
+      "sources": [
+        { "type": "archive", "url": "https://www.argyllcms.com/Argyll_V3.5.0_src.zip", "sha256": "f8576ce5589fd15620abb73ff049ea31f55ddbd1bba6d1ffa87452658e7bc85f", "strip-components": 1 }
+      ]
+    },
+    {
       "name": "negative-vibes",
       "buildsystem": "meson",
       "config-opts": ["-Dprofile=default"],

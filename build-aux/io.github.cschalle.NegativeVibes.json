@@ -49,6 +49,8 @@
         "SUBDIRS=include lib sanei backend tools"
       ]
     },
+    "modules/ftjam.json",
+    "modules/argyllcms.json",
     {
       "name": "negative-vibes",
       "buildsystem": "meson",
