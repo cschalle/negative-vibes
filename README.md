@@ -104,7 +104,7 @@ Requirements:
   Ubuntu), because the app links libsane;
 - the gettext tools (Meson's translation support needs them).
 
-Optional at run time: Yelp for the help (F1) and ArgyllCMS for IT8 calibration. There is no
+Optional at run time: Yelp for the help (F1) and ArgyllCMS for IT8 calibration (the Flatpak builds and bundles its own copy). There is no
 Blueprint or lcms2 dependency, and no libclang: the libsane bindings are checked in.
 `cargo test --workspace` needs only Rust, GTK, libadwaita and the SANE headers; Meson is for the
 installed build.
@@ -139,8 +139,33 @@ than the Google Cloud project's test users has to pass Google's app verification
 
 ## Command line
 
-`nv-cli` shares the scanning and processing code with the app: `scan`, `probe`, `render`
-and `calibrate`. Run `cargo run -p nv-cli -- --help`.
+`nv-cli` shares the scanning and processing code with the app: `scan`, `probe`, `render`,
+`calibrate` and `profiles`. Run `cargo run -p nv-cli -- --help`.
+
+## Calibrating the scanner (IT8)
+
+A scanner profile makes the colours of slides true to your scanner. It needs ArgyllCMS
+(`scanin` and `colprof`), a physical IT8.7/1 slide target, and the file of measured values for
+that target's batch. This project does not ship measured values: they belong to the target's
+maker, and each batch differs.
+
+- **Where to get a target and its data.** The one tested here is a 35 mm Kodak Ektachrome IT8.7/1
+  slide from [GWB Colour Card](https://gwbcolourcard.uk/). The batch code (for ours, `T100926`)
+  is printed on the slide, small, and shows up in a scan; the data files for all batches are in
+  the ZIP linked under "IT8 Reference Files" on [gwbcolourcard.uk/it8.html](https://gwbcolourcard.uk/it8.html).
+  Unzip the one named for your slide and use its `.txt` (or `.it8`) file. Its chart layout is the
+  standard one, so Argyll's own `it8.cht` works. Other makers' targets (Wolf Faust, Kodak Q-60)
+  come with their own data file and work the same way.
+- **In the app:** scan the slide, open **Calibrate with IT8 Target…** in the main menu, choose the
+  data file and press **Build Profile**. The profile is applied to the open frame.
+- **From the command line:**
+  `nv-cli calibrate --scan it8.pnm --reference T100926.txt --name it8-T100926`, then
+  `nv-cli render --image-type positive --scanner-profile it8-T100926 slide.pnm`.
+- **What to expect.** On the GWB Ektachrome slide above, scanned at 1200 dpi on an OpticFilm
+  8200i, the profile averages ΔE 1.5 (CIEDE2000; 2.8 as ArgyllCMS's `colprof` reports it, in
+  CIE76) over the 288 patches, and the full pipeline lands within an average ΔE76 of 4.2 of the
+  data, against 13 without the profile. Deep shadows are limited by the scanner, not by the
+  profile (DESIGN.md §7.6 has the details).
 
 ## Layout
 
@@ -162,3 +187,8 @@ and a grey step wedge exposed on the same stock, and send the file.
 ## Licence
 
 GPL-3.0-or-later.
+
+The Flatpak also contains [ArgyllCMS](https://www.argyllcms.com/) 3.5.0 (`scanin` and `colprof`,
+AGPL-3.0, with its licence text in `/app/share/licenses/argyllcms`), built from the maker's
+source. The application runs them as separate programs and does not link them. Its source is
+the ZIP named in `build-aux/modules/argyllcms.json`.

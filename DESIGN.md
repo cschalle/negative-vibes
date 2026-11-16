@@ -148,7 +148,7 @@ flowchart TB
 | `nv-export` | Output colour spaces and ICC profiles, naming templates, the TIFF/JPEG/PNG/DNG encoders, XMP and EXIF metadata, resizing. |
 | `nv-calibrate` | IT8 scanner calibration: runs ArgyllCMS as subprocesses. |
 | `nv-gphotos` | Google Photos upload: OAuth with PKCE, the add-only Photos Library API. |
-| `nv-cli` | `probe`, `scan`, `render`, `calibrate`: the same code, headless, for tests and batch use. |
+| `nv-cli` | `probe`, `scan`, `render`, `calibrate`, `profiles`: the same code, headless, for tests and batch use. |
 | `nv-portal-proto` | A test double for the scanner portal, with its checks. Not part of the application (§5.9). |
 | `negative-vibes` (`src/`) | The application: widgets, actions, preferences, the render scheduler, the export queue. |
 
@@ -693,7 +693,24 @@ when it is rotated. Strokes belong to the frame whatever scope is selected, are 
   Profile** row picks one from `$XDG_DATA_HOME/negative-vibes/profiles/`. It applies to slides;
   negatives take their colour from the film profile. `nv-cli calibrate` does the same headless.
   Tested end to end against ArgyllCMS on a synthetic IT8 scan (average ΔE 1.6; the reader
-  reproduces the target to a mean of 0.012 in linear sRGB). Not tested on a real IT8 target.
+  reproduces the target to a mean of 0.012 in linear sRGB).
+
+  **Measured on a real target (2026-11-16).** A GWB Colour Card Kodak Ektachrome IT8.7/1 slide
+  (batch T100926; the batch is printed on the slide, and the data file is in the ZIP at
+  gwbcolourcard.uk/it8_data.zip), scanned at 1200 dpi on the 8200i, with GWB's `IT8.cht` chart
+  layout. `scanin` found all 288 patches, the slide lying rotated 180° in the holder.
+  - Shaper+matrix (`-qm -as`, what the app builds): CIEDE2000 average 1.53, maximum 5.7
+    (ΔE76 as colprof reports it: average 2.8, peak 13). Matrix only is 3.65; gamma+matrix 1.72.
+  - Through the pipeline (`nv-cli render --scanner-profile`, no auto levels), against the data
+    file taken relative to the clear-film white patch, as the profile is: mean ΔE76 13.2 without
+    the profile, 4.2 with it (median 3.1; the worst patches are saturated colours outside sRGB).
+  - Shadows are limited by the scanner, not the exposure. The two darkest grey steps read Y 0.0040
+    where the data says 0.0012, and a 3× exposure moves them by 0.00005 only: a floor from stray
+    light or dark offset. A longer exposure left the average unchanged (1.537 against 1.531).
+  - Profiles are relative to the white patch, so a profiled slide is white-balanced to its clear
+    film. With a profile the slide is no longer stretched channel by channel (that stretch is an
+    automatic white balance and undoes the calibration); it is the profile's values times the
+    exposure setting, and tone and auto levels work on that.
 - **Output.** sRGB and Adobe RGB, as a matrix on linear light plus each space's own transfer
   curve, with ICC v2.4 profiles written in code and embedded in TIFF, JPEG and PNG; grey output
   embeds a gamma-2.2 profile. Adobe RGB export converted with our two profiles by an independent
@@ -1132,8 +1149,7 @@ the script stopping if the USB address changes, is the one above.
 **Not verified.** The scanner's scan button is not used. The 2026-10-09 notes record several
 dialogs and widgets as built and started but not clicked through (the Scan a Roll window, the
 colour wheel, the loupe and HQ view, the navigator, the film profile dialog); this document does
-not know whether that has changed since. A real slide, a real IT8 target,
-a measured film stock and a real wedge scan have not been scanned. Google Photos upload has only
+not know whether that has changed since. A real slide, a measured film stock and a real wedge scan have not been scanned. Google Photos upload has only
 been run against a local stand-in server: it needs an OAuth client that does not exist yet.
 DNG has been opened in darktable, not in RawTherapee or Lightroom.
 

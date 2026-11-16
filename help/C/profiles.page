@@ -9,12 +9,15 @@
   <title>Calibrate with an IT8 target and make film profiles</title>
   <section id="it8"><title>Calibrate the scanner with an IT8 target</title>
     <p>An IT8 target is a slide with a set of colour patches that have been measured. Scanning it lets the application learn how your scanner sees colour, and make a scanner profile. This needs ArgyllCMS (<app>scanin</app> and <app>colprof</app>) to be installed.</p>
+    <p>You need the data file that gives the measured values for your target's batch. It is not part of the application, because it belongs to the maker of the target and differs from batch to batch. The batch code is printed on the slide, small; it shows up in a scan if you cannot read it on the film. For a target from <link href="https://gwbcolourcard.uk/it8.html">GWB Colour Card</link>, the data files for all batches are in the ZIP linked under <gui>IT8 Reference Files</gui> on that page. Unzip the one named for your slide and use its <file>.txt</file> file. Targets from other makers come with their own file and work the same way.</p>
     <steps>
-      <item><p>Scan the target with no corrections and save the scan.</p></item>
-      <item><p>Choose <gui>Calibrate with IT8 Target…</gui> in the main menu.</p></item>
-      <item><p>Choose the scan, the data file that came with your target, and the chart layout (the standard IT8 layout is offered). Give the profile a name and press <gui>Build Profile</gui>.</p></item>
-      <item><p>When it is done the dialog says how well the profile fits the target. Choose the profile in <gui>Scanner Profile</gui> on the <gui>Detail</gui> page; it is used for slides.</p></item>
+      <item><p>Scan the target. Include the whole target, with its frame and the numbered edges. No corrections are needed; the application keeps the raw scan.</p></item>
+      <item><p>Choose <gui>Calibrate with IT8 Target…</gui> in the main menu. The scan that is open is chosen for you.</p></item>
+      <item><p>Choose the data file. The standard IT8 chart layout is offered and suits most slides. Give the profile a name, or keep the one made from the data file, and press <gui>Build Profile</gui>.</p></item>
+      <item><p>When it is done the dialog says how well the profile fits the target, and the profile is used for the frame that is open. It is listed under <gui>Scanner Profile</gui> in the <gui>Colour</gui> group; choose it there for other slides, or make it the default in <guiseq><gui>Preferences</gui><gui>Scanner Profile</gui></guiseq>.</p></item>
     </steps>
+    <note style="tip"><p>If the patches cannot be found, check that the whole target is in the scan and that the data file is for your target. A poor fit usually means the data file is for another batch.</p></note>
+    <p>The profile is relative to the target's clear film, so a slide comes out white-balanced to its own clear film. Slides are no longer stretched channel by channel once a profile is chosen: they have the colours the profile gives. Negatives ignore the scanner profile; their colour comes from the film profile.</p>
   </section>
   <section id="film"><title>Make a film profile</title>
     <p>Scan unexposed film base together with a grey step wedge exposed on the same film. Open the scan, set the film base with the <gui>Base</gui> tool, and crop the frame around the wedge so that it fills the frame end to end. Then choose <gui>Create Film Profile…</gui> in the main menu, enter the maker, the film's name and speed and the number of steps of the wedge, and press <gui>Create</gui>.</p>
