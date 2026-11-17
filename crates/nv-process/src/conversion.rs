@@ -137,19 +137,35 @@ pub fn convert_negative(pixels: &[f32], w: usize, h: usize, params: &ProcessPara
     out
 }
 
+/// How much of each end of a positive's range is ignored when it is measured:
+/// the dust, specks and hot pixels of a full-resolution scan (a few dozen
+/// pixels in two million) would otherwise set the maximum and darken the whole
+/// frame against its own, smaller preview.
+const RANGE_TRIM: f64 = 0.0001;
+/// The most samples per channel looked at to find the trimmed range.
+const RANGE_SAMPLES: usize = 1 << 20;
+
 /// The `(min, max)` per channel a positive is scaled by: the fixed range, or
-/// the one found in `pixels`.
+/// the one found in `pixels`, with the outermost 0.01% at each end ignored.
 pub fn positive_range(pixels: &[f32], params: &ProcessParams) -> ([f32; 3], [f32; 3]) {
     if let Some(r) = params.conversion.positive_range {
         return ([r[0][0], r[1][0], r[2][0]], [r[0][1], r[1][1], r[2][1]]);
     }
-    let mut min = [f32::MAX; 3];
-    let mut max = [f32::MIN; 3];
-    for px in pixels.chunks_exact(3) {
-        for c in 0..3 {
-            min[c] = min[c].min(px[c]);
-            max[c] = max[c].max(px[c]);
-        }
+    let n = pixels.len() / 3;
+    if n == 0 {
+        return ([f32::MAX; 3], [f32::MIN; 3]);
+    }
+    let step = n.div_ceil(RANGE_SAMPLES);
+    let mut min = [0.0f32; 3];
+    let mut max = [0.0f32; 3];
+    for c in 0..3 {
+        let mut v: Vec<f32> = pixels.chunks_exact(3).step_by(step).map(|px| px[c]).collect();
+        let last = v.len() - 1;
+        let k = (v.len() as f64 * RANGE_TRIM) as usize;
+        let (_, lo, _) = v.select_nth_unstable_by(k, f32::total_cmp);
+        min[c] = *lo;
+        let (_, hi, _) = v.select_nth_unstable_by(last - k, f32::total_cmp);
+        max[c] = *hi;
     }
     (min, max)
 }
@@ -518,5 +534,23 @@ mod crosstalk_tests {
         assert!(plain[1] > 0.0);
         assert!(fixed[1].abs() < 1e-4, "green should lose all its density: {:?}", fixed);
         assert_eq!(plain[0], fixed[0]);
+    }
+
+    #[test]
+    fn a_few_hot_pixels_do_not_set_a_positives_range() {
+        let mut p = params(IDENTITY);
+        p.image_type = ImageType::Positive;
+        // 100 000 pixels in [0, 0.2], then 5 specks (0.005%) at 0.66.
+        let mut px: Vec<f32> = (0..100_000).flat_map(|i| [0.2 * i as f32 / 99_999.0; 3]).collect();
+        for i in 1..=5 {
+            px[i * 3000..i * 3000 + 3].fill(0.66);
+        }
+        let (min, max) = positive_range(&px, &p);
+        assert!(min.iter().all(|&m| m < 0.001), "{min:?}");
+        assert!(max.iter().all(|&m| (0.19..=0.2).contains(&m)), "{max:?}");
+        // The same picture without the specks gives the same range.
+        let clean: Vec<f32> = (0..100_000).flat_map(|i| [0.2 * i as f32 / 99_999.0; 3]).collect();
+        let (_, max2) = positive_range(&clean, &p);
+        assert!((max[0] - max2[0]).abs() < 0.001);
     }
 }
